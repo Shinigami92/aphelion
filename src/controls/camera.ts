@@ -194,6 +194,46 @@ export class CameraController {
     return this.distance - this._focus.sceneRadius
   }
 
+  /** Orbit angles, exposed so the view can be written into a shareable URL. */
+  get orbitAzimuth(): number {
+    return this.azimuth
+  }
+
+  get orbitElevation(): number {
+    return this.elevation
+  }
+
+  /** Distance from the focus centre in radii of the focused body. */
+  get distanceInRadii(): number {
+    const radius = this._focus?.sceneRadius ?? 0
+    return radius > 0 ? this.distance / radius : 0
+  }
+
+  /**
+   * Restore a view decoded from a URL, without animation.
+   *
+   * Distance arrives in radii of the focused body rather than scene units, so a
+   * shared link frames the body the same way whether the recipient lands in
+   * explore or true scale. Call after the focus is set and after the system has
+   * been solved once, or `sceneRadius` will still hold the previous mode's value.
+   */
+  restoreView(view: { azimuth?: number; elevation?: number; distanceRadii?: number }): void {
+    if (view.azimuth !== undefined && Number.isFinite(view.azimuth)) {
+      this.azimuth = this.targetAzimuth = view.azimuth
+    }
+    if (view.elevation !== undefined && Number.isFinite(view.elevation)) {
+      const clamped = Math.max(-MAX_ELEVATION, Math.min(MAX_ELEVATION, view.elevation))
+      this.elevation = this.targetElevation = clamped
+    }
+    if (view.distanceRadii !== undefined && view.distanceRadii > 0 && this._focus) {
+      this.targetDistance = this._focus.sceneRadius * view.distanceRadii
+      this.clampDistance()
+      this.distance = this.targetDistance
+    }
+    this.mode = 'orbit'
+    this.focusTransition = 1
+  }
+
   // -- per-frame -----------------------------------------------------------
 
   update(dt: number): void {

@@ -17,6 +17,12 @@ import { AU_KM, SCENE_UNIT_KM } from './core/constants.ts'
 import { ScaleModel } from './core/scale.ts'
 import { SolarSystem, type SimBody } from './core/system.ts'
 import { TimeController } from './core/time.ts'
+import {
+  parseView,
+  rateToPreset,
+  UrlWriter,
+  type SharedView,
+} from './core/url-state.ts'
 import { CameraController } from './controls/camera.ts'
 import { SceneView, type LabelMode, type OrbitMode, type Quality } from './render/scene.ts'
 import { TextureLibrary } from './render/textures.ts'
@@ -55,7 +61,24 @@ const scale = new ScaleModel()
 const system = new SolarSystem()
 const library = new TextureLibrary()
 
-scale.setMode('explore')
+/**
+ * A shared view, if the URL carries one.
+ *
+ * Applied in two passes. The clock and the scale mode have to land before the
+ * first solve, because every position and radius downstream depends on them; the
+ * camera angle and the view toggles need the panels to exist and so come later.
+ */
+const shared = parseView(window.location.search)
+
+if (shared.jdUtc !== undefined) time.setJdUtc(shared.jdUtc)
+if (shared.rate !== undefined) {
+  const { index, direction } = rateToPreset(shared.rate)
+  time.setRateIndex(index)
+  time.setDirection(direction)
+}
+if (shared.paused) time.setPaused(true)
+
+scale.setMode(shared.scaleMode ?? 'explore')
 scale.snap()
 
 // Solve once before anything reads a radius or a position.
@@ -85,9 +108,19 @@ function sunwardOf(body: SimBody): { x: number; y: number; z: number } | undefin
  */
 const focused = (): SimBody => camera.focus ?? system.sun
 
-const initialFocus = system.byKey.get('earth')!
-let selected: SimBody = initialFocus
+const initialFocus =
+  (shared.focusKey ? system.byKey.get(shared.focusKey) : null) ?? system.byKey.get('earth')!
+let selected: SimBody =
+  (shared.selectedKey ? system.byKey.get(shared.selectedKey) : null) ?? initialFocus
+
 camera.setFocus(initialFocus, { immediate: true, sunward: sunwardOf(initialFocus) })
+// A shared link carries an explicit angle and range; without one, keep the
+// daylit-side default setFocus just chose.
+camera.restoreView({
+  azimuth: shared.azimuth,
+  elevation: shared.elevation,
+  distanceRadii: shared.distanceRadii,
+})
 
 scene.build(system)
 scene.setSelected(selected)
@@ -175,7 +208,23 @@ const togglePanel = new TogglePanel(
   },
 )
 
-infoPanel.setBody(selected, system)
+// Second pass of the shared view: display state, now that the panels exist so
+// their checkboxes and segmented buttons reflect what was restored.
+if (shared.orbits) scene.toggles.orbits = shared.orbits
+if (shared.labels) scene.toggles.labels = shared.labels
+if (shared.toggles) {
+  scene.toggles.belts = shared.toggles.belts
+  scene.toggles.rings = shared.toggles.rings
+  scene.toggles.atmospheres = shared.toggles.atmospheres
+  scene.toggles.milkyway = shared.toggles.milkyway
+  scene.toggles.minorBodies = shared.toggles.minorBodies
+  if (shared.toggles.orrery) minimap.show()
+  else minimap.hide()
+  syncPanelBounds()
+}
+togglePanel.refresh()
+
+select(selected)
 
 // ---------------------------------------------------------------------------
 // Selection and navigation
@@ -674,6 +723,39 @@ function updateCameraDistance(): void {
   cameraDistanceKm = cameraRadii * body.radiusKm
 }
 
+// ---------------------------------------------------------------------------
+// Shareable URL
+// ---------------------------------------------------------------------------
+
+const urlWriter = new UrlWriter(400)
+
+/** Everything needed to reconstruct this view elsewhere. */
+function currentSharedView(): SharedView {
+  return {
+    jdUtc: time.jdUtc,
+    focusKey: focused().key,
+    selectedKey: selected.key,
+    scaleMode: scale.mode,
+    // selectedRate, not rate: the latter reads 0 while paused, which would lose
+    // the speed setting from the link.
+    rate: time.selectedRate,
+    paused: time.paused,
+    azimuth: camera.orbitAzimuth,
+    elevation: camera.orbitElevation,
+    distanceRadii: cameraRadii,
+    orbits: scene.toggles.orbits,
+    labels: scene.toggles.labels,
+    toggles: {
+      belts: scene.toggles.belts,
+      rings: scene.toggles.rings,
+      atmospheres: scene.toggles.atmospheres,
+      milkyway: scene.toggles.milkyway,
+      minorBodies: scene.toggles.minorBodies,
+      orrery: minimap.visible,
+    },
+  }
+}
+
 function frame(now: number): void {
   // Clamp so a backgrounded tab does not leap years on return.
   const dt = Math.min((now - lastFrame) / 1000, 0.1)
@@ -696,6 +778,9 @@ function frame(now: number): void {
   updateCameraDistance()
   infoPanel.update(system, current, cameraDistanceKm, cameraRadii)
   if (minimap.visible) minimap.update(current, selected)
+
+  // Throttled inside; only touches history when the encoded view changes.
+  urlWriter.sync(now, currentSharedView)
 
   requestAnimationFrame(frame)
 }

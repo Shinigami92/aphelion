@@ -88,6 +88,17 @@ export class TimeController {
     return RATE_PRESETS[this._rateIndex]!.secondsPerSecond * this._direction
   }
 
+  /**
+   * Signed seconds per real second of the selected preset, ignoring pause.
+   *
+   * `rate` reports 0 while paused, which is right for advancing the clock but
+   * wrong for persisting the setting — a shared link should remember the speed
+   * you were paused at.
+   */
+  get selectedRate(): number {
+    return RATE_PRESETS[this._rateIndex]!.secondsPerSecond * this._direction
+  }
+
   get rateLabel(): string {
     const preset = RATE_PRESETS[this._rateIndex]!
     if (this._paused) return `paused (${preset.label})`

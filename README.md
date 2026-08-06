@@ -90,6 +90,41 @@ Everything has both a pointer gesture and a key.
 
 ---
 
+## Sharing a view
+
+The URL always describes what you are looking at, so copying it from the address
+bar is all it takes to send someone the exact view — same body, same instant,
+same angle. A reload restores it too, rather than resetting to Earth.
+
+```
+?t=2024-04-08T18:17:16Z&focus=earth&mode=true&rate=-86400&paused=1
+ &az=3.877&el=0.3&d=25.4&orbits=all&labels=all&belts=0
+```
+
+| Parameter | Meaning |
+| --- | --- |
+| `t` | UTC instant, `YYYY-MM-DDTHH:MM:SSZ` |
+| `focus` | body key the camera orbits, e.g. `earth`, `moon:Io`, `sb:Vesta` |
+| `sel` | selected body, only when it differs from the focus |
+| `mode` | `explore` (default) or `true` |
+| `rate` | signed simulated seconds per real second; `-86400` is a day per second, backwards |
+| `paused` | `1` when the clock is held |
+| `az`, `el` | camera azimuth and elevation about the focus, radians |
+| `d` | camera distance **in radii of the focused body** |
+| `orbits`, `labels` | `none` / `planets` / `all` and `none` / `major` / `all` |
+| `belts`, `rings`, `atmo`, `milkyway`, `minor`, `orrery` | `0` to switch a layer off |
+
+Two details worth knowing. Distance is stored in *body radii* rather than
+kilometres, so a link frames its subject identically whether the recipient lands
+in explore or true scale. And only non-default values are written, so the URL
+stays short and readable — render quality is deliberately **not** shared, since it
+depends on the viewer's hardware, not the view.
+
+Anything unparseable is ignored rather than fatal: a truncated or hand-edited
+link still opens, just with fewer things restored.
+
+---
+
 ## The two scale models
 
 The solar system is mostly vacuum. At true scale, if Earth is one pixel the Sun
