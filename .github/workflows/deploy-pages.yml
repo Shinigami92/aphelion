@@ -1,0 +1,77 @@
+name: Deploy to GitHub Pages
+
+# Security note: this workflow interpolates no event data. The only ${{ }}
+# expression is an action output (page_url) used in `environment.url`, never in a
+# `run:` block, so there is no path for workflow injection via branch names,
+# commit messages or PR titles.
+
+on:
+  push:
+    branches: [main]
+  # Build (but do not deploy) pull requests, so a broken build or a failing
+  # astronomy check is caught before it reaches main.
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# One deployment at a time. Queued runs are not cancelled: a half-finished
+# deploy of a 110 MB site is worse than waiting.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Pinned here rather than via a `packageManager` field: package.json
+      # already declares `devEngines.packageManager`, and pnpm warns and ignores
+      # `packageManager` when the two disagree. One source of truth.
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.20.0
+
+      - uses: actions/setup-node@v4
+        with:
+          # Node 24 runs the TypeScript scripts directly via type stripping,
+          # which `pnpm validate` relies on.
+          node-version: 24
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Validate astronomy
+        run: pnpm validate
+
+      - name: Typecheck and build
+        run: pnpm build
+
+      # The built site is ~120 MB, almost all of it committed planetary imagery.
+      # Well inside the 1 GB GitHub Pages limit.
+      - name: Report bundle size
+        run: du -sh dist dist/textures
+
+      - uses: actions/upload-pages-artifact@v3
+        if: github.event_name != 'pull_request'
+        with:
+          path: dist
+
+  deploy:
+    name: Deploy
+    needs: build
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

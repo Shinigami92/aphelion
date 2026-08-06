@@ -9,6 +9,8 @@ scrub and set by hand.
 
 No network requests at runtime. No third-party APIs. Open it on a plane.
 
+**Live: [shinigami92.github.io/aphelion](https://shinigami92.github.io/aphelion/)**
+
 ---
 
 ## Quick start
