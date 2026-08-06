@@ -6,7 +6,9 @@
  * different frames, so everything funnels through here:
  *
  *   - ecliptic   — already canonical (JPL planetary elements, outer irregulars)
- *   - equatorial — ICRF/J2000 equator (Pluto system satellites)
+ *   - equatorial — the *parent planet's* equator, not the ICRF equator. JPL
+ *                  leaves the pole columns blank on these rows, so the caller
+ *                  must supply the parent's pole (see system.ts).
  *   - Laplace    — a body-specific plane given by its pole RA/Dec (inner moons,
  *                  where the parent's oblateness dominates the precession)
  *

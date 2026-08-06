@@ -19,6 +19,7 @@ import type { ScaleModel } from './scale.ts'
 import {
   applyBasis,
   basisForFrame,
+  basisFromPole,
   IDENTITY_BASIS,
   spinBasis,
   tidallyLockedBasis,
@@ -232,7 +233,19 @@ export class SolarSystem {
       const parent = this.byKey.get(sat.planet)
       if (!parent) continue
 
-      const basis = basisForFrame(sat.frame, sat.poleRa, sat.poleDec)
+      // JPL's "equatorial" frame means the *parent planet's* equator, not the
+      // ICRF equator, and the table leaves the pole columns blank for those
+      // rows. The data says so unambiguously: Titania and Charon are listed at
+      // inclination 0.1 and 0.0 degrees, which is only true of Uranus's and
+      // Pluto's own equators — against the ICRF equator they would be ~75 and
+      // ~119 degrees. Reading it as the ICRF equator tipped all 11 affected
+      // moons (the classical Uranians and the whole Pluto system) out of their
+      // planet's plane, leaving Uranus's rings and its moons visibly
+      // non-coplanar.
+      const basis =
+        sat.frame === 'equatorial' && parent.spec
+          ? basisFromPole(parent.spec.spin.poleRa, parent.spec.spin.poleDec)
+          : basisForFrame(sat.frame, sat.poleRa, sat.poleDec)
       const body = makeBody({
         key: `moon:${sat.name}`,
         name: sat.name,
