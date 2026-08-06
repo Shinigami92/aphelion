@@ -76,8 +76,21 @@ export class CameraController {
   mode: CameraMode = 'orbit'
   keys: CameraKeyState = emptyKeys()
 
-  /** Body the camera orbits. */
-  focus: SimBody | null = null
+  /**
+   * Body the camera orbits — the single owner of "what is focused".
+   *
+   * Read-only on purpose. This was a public field, and assigning to it directly
+   * left the renderer's floating origin anchored to the *previous* body: the
+   * camera then orbited a point in empty space, with no error raised anywhere
+   * and nothing in the console. Routing every change through setFocus() or
+   * frameSystem() makes that state unreachable, and makes the mistake a compile
+   * error rather than a black screen.
+   */
+  private _focus: SimBody | null = null
+
+  get focus(): SimBody | null {
+    return this._focus
+  }
 
   /** Distance from the focus centre, in scene units. */
   private distance = 40
@@ -135,8 +148,8 @@ export class CameraController {
       sunward?: { x: number; y: number; z: number }
     } = {},
   ): void {
-    const previous = this.focus
-    this.focus = body
+    const previous = this._focus
+    this._focus = body
 
     const radius = Math.max(body.sceneRadius, 1e-4)
     const radii = opts.distanceRadii ?? (body.type === 'star' ? 6 : 4.2)
@@ -165,7 +178,7 @@ export class CameraController {
 
   /** Frame a body and all of its satellites. */
   frameSystem(body: SimBody, maxChildDistance: number): void {
-    this.focus = body
+    this._focus = body
     this.targetDistance = Math.max(body.sceneRadius * 3, maxChildDistance * 1.6)
     this.panOffset.set(0, 0, 0)
     this.mode = 'orbit'
@@ -177,8 +190,8 @@ export class CameraController {
 
   /** Distance from the focus surface, scene units (negative inside the body). */
   altitude(): number {
-    if (!this.focus) return this.distance
-    return this.distance - this.focus.sceneRadius
+    if (!this._focus) return this.distance
+    return this.distance - this._focus.sceneRadius
   }
 
   // -- per-frame -----------------------------------------------------------
@@ -274,7 +287,9 @@ export class CameraController {
    * background in the same image without z-fighting.
    */
   private updateProjection(): void {
-    const surface = this.focus ? Math.max(this.distance - this.focus.sceneRadius, 1e-5) : this.distance
+    const surface = this._focus
+      ? Math.max(this.distance - this._focus.sceneRadius, 1e-5)
+      : this.distance
     const near = Math.max(1e-5, Math.min(surface * 0.02, this.distance * 0.01))
     const far = Math.max(near * 1e6, this.distance * 4e4 + 1e6)
     if (this.camera.near !== near || this.camera.far !== far) {
@@ -285,7 +300,7 @@ export class CameraController {
   }
 
   private clampDistance(): void {
-    const minimum = this.focus ? this.focus.sceneRadius * 1.02 : 1e-4
+    const minimum = this._focus ? this._focus.sceneRadius * 1.02 : 1e-4
     this.targetDistance = Math.max(minimum, Math.min(this.targetDistance, 4e7))
   }
 

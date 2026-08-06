@@ -73,9 +73,21 @@ function sunwardOf(body: SimBody): { x: number; y: number; z: number } | undefin
   return { x: -body.helioKm.x / r, y: -body.helioKm.y / r, z: -body.helioKm.z / r }
 }
 
-let focus: SimBody = system.byKey.get('earth')!
-let selected: SimBody = focus
-camera.setFocus(focus, { immediate: true, sunward: sunwardOf(focus) })
+/**
+ * What the camera orbits is owned by the CameraController; everything here reads
+ * it back through this accessor.
+ *
+ * There used to be a second `focus` variable in this module, which the renderer
+ * used to anchor its floating origin while the camera used its own. The two
+ * could disagree — and when they did, the camera orbited one body while the
+ * world was centred on another, producing a view of empty space with nothing
+ * logged. One owner, one accessor.
+ */
+const focused = (): SimBody => camera.focus ?? system.sun
+
+const initialFocus = system.byKey.get('earth')!
+let selected: SimBody = initialFocus
+camera.setFocus(initialFocus, { immediate: true, sunward: sunwardOf(initialFocus) })
 
 scene.build(system)
 scene.setSelected(selected)
@@ -177,14 +189,12 @@ function select(body: SimBody): void {
 }
 
 function goTo(body: SimBody): void {
-  focus = body
   camera.setFocus(body, { sunward: sunwardOf(body) })
   toast.show(`${body.name} — ${body.subtitle}`)
 }
 
 /** Frame the entire solar system from above. */
 function frameEverything(): void {
-  focus = system.sun
   camera.setFocus(system.sun, { immediate: false })
   // Neptune's remapped orbit sets the useful extent.
   const neptune = system.byKey.get('neptune')
@@ -209,7 +219,8 @@ const PLANET_ORDER = [
 
 function cyclePlanet(step: number): void {
   // Walk up to the planet that owns whatever is focused.
-  const anchor = focus.type === 'moon' ? (focus.parent?.key ?? 'earth') : focus.key
+  const current = focused()
+  const anchor = current.type === 'moon' ? (current.parent?.key ?? 'earth') : current.key
   const index = PLANET_ORDER.indexOf(anchor)
   const next = PLANET_ORDER[(index + step + PLANET_ORDER.length) % PLANET_ORDER.length]!
   const body = system.byKey.get(next)
@@ -576,6 +587,8 @@ declare global {
       scale: ScaleModel
       scene: SceneView
       camera: CameraController
+      /** The body the camera orbits. Change it with goTo(), never by assignment. */
+      readonly focus: SimBody
       select: (key: string) => SimBody | null
       goTo: (key: string) => SimBody | null
       /** Sub-solar and sub-lunar longitude/latitude, for eclipse checks. */
@@ -590,6 +603,9 @@ window.aphelion = {
   scale,
   scene,
   camera,
+  get focus() {
+    return focused()
+  },
   select: (key) => {
     const body = system.byKey.get(key)
     if (body) select(body)
@@ -652,9 +668,10 @@ let cameraRadii = 0
  * distance exactly.
  */
 function updateCameraDistance(): void {
-  const radius = focus.sceneRadius
+  const body = focused()
+  const radius = body.sceneRadius
   cameraRadii = radius > 0 ? camera.currentDistance / radius : 0
-  cameraDistanceKm = cameraRadii * focus.radiusKm
+  cameraDistanceKm = cameraRadii * body.radiusKm
 }
 
 function frame(now: number): void {
@@ -668,13 +685,17 @@ function frame(now: number): void {
   system.update(time.jdTT, scale)
   camera.update(dt)
 
-  scene.update(system, scale, focus, elapsed, dt)
+  // Read the focus once per frame: the camera owns it, and the renderer, the
+  // info panel and the mini-map must all agree on the same body.
+  const current = focused()
+
+  scene.update(system, scale, current, elapsed, dt)
   scene.render(camera.camera)
 
   timePanel.update()
   updateCameraDistance()
-  infoPanel.update(system, focus, cameraDistanceKm, cameraRadii)
-  if (minimap.visible) minimap.update(focus, selected)
+  infoPanel.update(system, current, cameraDistanceKm, cameraRadii)
+  if (minimap.visible) minimap.update(current, selected)
 
   requestAnimationFrame(frame)
 }
@@ -684,5 +705,5 @@ requestAnimationFrame(frame)
 // Surface the focus distance in the document title — handy when comparing
 // scale modes side by side, and now the same number in both.
 setInterval(() => {
-  document.title = `Aphelion — ${focus.name} · ${formatDistance(cameraDistanceKm)}`
+  document.title = `Aphelion — ${focused().name} · ${formatDistance(cameraDistanceKm)}`
 }, 1000)

@@ -305,7 +305,13 @@ export class SceneView {
   }
 
   selected: SimBody | null = null
-  focus: SimBody | null = null
+
+  /**
+   * Per-frame cache of the focused body, refreshed from the argument to
+   * update(). Private: the camera owns the focus, and a third writable copy of
+   * it here would be a third thing that could disagree.
+   */
+  private currentFocus: SimBody | null = null
 
   /** Procedural textures allowed to be generated this frame. */
   private proceduralBudget = 0
@@ -714,7 +720,7 @@ export class SceneView {
     elapsedSeconds: number,
     dt: number,
   ): void {
-    this.focus = focus
+    this.currentFocus = focus
     this.proceduralBudget = 1
 
     // Floating origin.
@@ -874,7 +880,7 @@ export class SceneView {
       }
       // Hide anything smaller than a fraction of a pixel; the point cloud and
       // labels still represent it.
-      visual.group.visible = apparent > 0.35 || body === this.focus || body === this.selected
+      visual.group.visible = apparent > 0.35 || body === this.currentFocus || body === this.selected
     }
   }
 
@@ -964,8 +970,8 @@ export class SceneView {
       this.tmpVec.set(body.scene.x, body.scene.y, body.scene.z).sub(this.origin)
       const distance = Math.max(camera.position.distanceTo(this.tmpVec), 1e-9)
       const apparent = (body.sceneRadius / distance) * this.viewport.y
-      if (apparent > 2.5 || body === this.selected || body === this.focus) {
-        wanted.push({ body, apparent: body === this.focus ? 1e9 : apparent })
+      if (apparent > 2.5 || body === this.selected || body === this.currentFocus) {
+        wanted.push({ body, apparent: body === this.currentFocus ? 1e9 : apparent })
       }
     }
     wanted.sort((a, b) => b.apparent - a.apparent)
@@ -1073,7 +1079,7 @@ export class SceneView {
       // Even in "planets" mode, show the moons of whatever you are looking at —
       // but only the major ones. Drawing all 291 of Saturn's (or all 214 minor
       // planets, when the Sun is focused) turns the screen into a ball of wool.
-      const host = this.focus?.type === 'moon' ? this.focus.parent : this.focus
+      const host = this.currentFocus?.type === 'moon' ? this.currentFocus.parent : this.currentFocus
       if (host && host !== system.sun) {
         const majors = host.children
           .filter((c) => c.type === 'moon' && c.radiusKm >= MAJOR_MOON_RADIUS)
@@ -1159,12 +1165,12 @@ export class SceneView {
         candidates.push(body)
       } else if (this.toggles.labels === 'all') {
         candidates.push(body)
-      } else if (body === this.selected || body === this.focus) {
+      } else if (body === this.selected || body === this.currentFocus) {
         candidates.push(body)
       } else if (body.type === 'moon' && body.radiusKm >= MAJOR_MOON_RADIUS) {
         // Only label moons of the system you are actually in, or the clutter is
         // unreadable.
-        const host2 = this.focus?.type === 'moon' ? this.focus.parent : this.focus
+        const host2 = this.currentFocus?.type === 'moon' ? this.currentFocus.parent : this.currentFocus
         if (body.parent === host2) candidates.push(body)
       }
     }
