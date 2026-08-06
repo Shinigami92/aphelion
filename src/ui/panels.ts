@@ -626,8 +626,19 @@ export class InfoPanel {
     }
   }
 
-  /** Live values that change every frame. */
-  update(system: SolarSystem, cameraDistanceKm: number): void {
+  /**
+   * Live values that change every frame.
+   *
+   * `cameraDistanceKm` is a true distance in both scale modes and
+   * `cameraRadii` the same figure in radii of the focused body — see
+   * updateCameraDistance() in main.ts for why the raw scene distance will not do.
+   */
+  update(
+    system: SolarSystem,
+    focus: SimBody,
+    cameraDistanceKm: number,
+    cameraRadii: number,
+  ): void {
     const body = this.current
     if (!body) return
 
@@ -654,7 +665,15 @@ export class InfoPanel {
       const speed = system.speedKmS(body)
       if (speed > 0) rows.push(['Orbital speed', `${speed.toFixed(3)} km/s`])
     }
-    rows.push(['Camera distance', formatDistance(cameraDistanceKm)])
+    // The camera orbits the focused body, which is not always the selected one:
+    // select Titan while orbiting Saturn and a "camera distance" on Titan's
+    // panel would be quietly wrong.
+    if (body === focus) {
+      rows.push(['Camera distance', formatDistance(cameraDistanceKm)])
+      const altitude = cameraDistanceKm - body.radiusKm
+      if (altitude > 0) rows.push(['Camera altitude', formatDistance(altitude)])
+      rows.push(['Camera range', `${cameraRadii.toFixed(2)} × radius`])
+    }
 
     this.rowsInto(this.liveFacts, rows)
   }

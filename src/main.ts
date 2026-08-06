@@ -632,6 +632,31 @@ window.aphelion = {
 let lastFrame = performance.now()
 let elapsed = 0
 
+/** Camera distance from the focused body, in true kilometres. */
+let cameraDistanceKm = 0
+/** The same distance expressed in radii of the focused body. */
+let cameraRadii = 0
+
+/**
+ * Convert the camera's distance out of scene space into something physical.
+ *
+ * The raw scene distance is only kilometres in true-scale mode. Explore mode
+ * enlarges bodies and compresses the space between them, so reporting scene
+ * units as kilometres was simply wrong there — at one point the readout claimed
+ * "5.6 AU" for a viewpoint that was nothing of the sort.
+ *
+ * Distance in *radii of the focused body* is exact in both modes, because a body
+ * and its immediate surroundings scale uniformly. Multiplying back by the body's
+ * true radius therefore gives an honest distance: the range at which the body
+ * would appear this size at 1:1. In true-scale mode it reduces to the real
+ * distance exactly.
+ */
+function updateCameraDistance(): void {
+  const radius = focus.sceneRadius
+  cameraRadii = radius > 0 ? camera.currentDistance / radius : 0
+  cameraDistanceKm = cameraRadii * focus.radiusKm
+}
+
 function frame(now: number): void {
   // Clamp so a backgrounded tab does not leap years on return.
   const dt = Math.min((now - lastFrame) / 1000, 0.1)
@@ -647,8 +672,8 @@ function frame(now: number): void {
   scene.render(camera.camera)
 
   timePanel.update()
-  const cameraKm = camera.currentDistance * SCENE_UNIT_KM
-  infoPanel.update(system, cameraKm)
+  updateCameraDistance()
+  infoPanel.update(system, focus, cameraDistanceKm, cameraRadii)
   if (minimap.visible) minimap.update(focus, selected)
 
   requestAnimationFrame(frame)
@@ -657,7 +682,7 @@ function frame(now: number): void {
 requestAnimationFrame(frame)
 
 // Surface the focus distance in the document title — handy when comparing
-// scale modes side by side.
+// scale modes side by side, and now the same number in both.
 setInterval(() => {
-  document.title = `Aphelion — ${focus.name} · ${formatDistance(camera.currentDistance * SCENE_UNIT_KM)}`
+  document.title = `Aphelion — ${focus.name} · ${formatDistance(cameraDistanceKm)}`
 }, 1000)
