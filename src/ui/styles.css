@@ -784,8 +784,30 @@ kbd {
   white-space: nowrap;
 }
 
-.help__close {
+.help__credits {
   margin-top: 22px;
+  padding-top: 4px;
+  border-top: 1px solid var(--border);
+}
+
+.help__credit {
+  font-size: 10.5px;
+  line-height: 1.5;
+  color: var(--text-faint);
+  margin-bottom: 3px;
+}
+
+.help__credit a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.help__credit a:hover {
+  text-decoration: underline;
+}
+
+.help__close {
+  margin-top: 18px;
   text-align: center;
   font-size: 11px;
   color: var(--text-faint);

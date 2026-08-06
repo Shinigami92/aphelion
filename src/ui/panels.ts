@@ -848,6 +848,43 @@ export class HelpOverlay {
       }
     }
     panel.append(cols)
+
+    // Attribution lives in the running app, not only in the repository's
+    // ATTRIBUTION.md: the Solar System Scope maps are CC BY 4.0, and someone
+    // using a deployed build never sees the source tree.
+    const credits = el('div', 'help__credits')
+    credits.append(el('div', 'help__group', 'Data and imagery'))
+
+    const line = (text: string, link?: { label: string; href: string }): HTMLElement => {
+      const row = el('div', 'help__credit', text)
+      if (link) {
+        const a = document.createElement('a')
+        a.href = link.href
+        a.textContent = link.label
+        a.target = '_blank'
+        a.rel = 'noopener noreferrer'
+        row.append(' ', a)
+      }
+      return row
+    }
+
+    credits.append(
+      line('Planetary and dwarf planet maps by Solar System Scope, used under CC BY 4.0 —', {
+        label: 'solarsystemscope.com/textures',
+        href: 'https://www.solarsystemscope.com/textures/',
+      }),
+      line(
+        'Io, Europa, Ganymede, Callisto and Enceladus mosaics courtesy NASA / JPL-Caltech / USGS Astrogeology.',
+      ),
+      line(
+        'Planetary and satellite ephemerides from JPL Solar System Dynamics; minor planet orbits from the IAU Minor Planet Center; lunar theory after Meeus.',
+      ),
+      line(
+        'The four dwarf planet maps are artistic, and ~450 small bodies have synthesised surfaces — no resolved imagery of them exists.',
+      ),
+    )
+    panel.append(credits)
+
     panel.append(el('div', 'help__close', 'press H, ? or Esc to close'))
     this.host.append(panel)
     this.host.addEventListener('click', () => this.hide())

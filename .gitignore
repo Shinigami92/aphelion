@@ -11,8 +11,7 @@ dist/
 # Playwright MCP scratch output (page snapshots, screenshots).
 .playwright-mcp/
 
-# Stray verification screenshots (Playwright now writes into .playwright-mcp/).
-/eclipse-*.png
-/umbra.png
-/page-*.png
-/final-*.png
+# Verification screenshots dropped at the repo root. Playwright MCP is
+# configured to write into .playwright-mcp/, but a server started before that
+# config landed still writes here. No real asset lives at the root.
+/*.png
