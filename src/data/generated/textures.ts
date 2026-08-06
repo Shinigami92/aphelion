@@ -9,6 +9,8 @@
 export const AVAILABLE_TEXTURES: ReadonlySet<string> = new Set([
   "callisto.jpg",
   "ceres.jpg",
+  "charon.jpg",
+  "dione.jpg",
   "earth_clouds.jpg",
   "earth_day.jpg",
   "earth_night.jpg",
@@ -19,6 +21,7 @@ export const AVAILABLE_TEXTURES: ReadonlySet<string> = new Set([
   "europa.jpg",
   "ganymede.jpg",
   "haumea.jpg",
+  "iapetus.jpg",
   "io.jpg",
   "jupiter.jpg",
   "makemake.jpg",
@@ -27,13 +30,19 @@ export const AVAILABLE_TEXTURES: ReadonlySet<string> = new Set([
   "milkyway.jpg",
   "moon.jpg",
   "neptune.jpg",
+  "phobos.jpg",
+  "pluto.jpg",
+  "rhea.jpg",
   "saturn.jpg",
   "saturn_ring.png",
   "starfield.jpg",
   "sun.jpg",
+  "tethys.jpg",
+  "triton.jpg",
   "uranus.jpg",
   "venus_atmosphere.jpg",
-  "venus_surface.jpg"
+  "venus_surface.jpg",
+  "vesta.jpg"
 ])
 
 export const hasTexture = (file: string): boolean => AVAILABLE_TEXTURES.has(file)

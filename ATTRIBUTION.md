@@ -48,6 +48,40 @@ surfaces as illustration, not observation.
 Courtesy NASA / JPL-Caltech / USGS Astrogeology Science Center. Downloaded as
 GeoTIFF and downsampled to 4096 px wide.
 
+### USGS Astropedia — global mosaics for the most-visited small bodies
+
+**Licence: public domain** (US Government work, derived from NASA mission data).
+
+| Body | Source | Instruments |
+| --- | --- | --- |
+| Pluto | `pluto_new_horizons_lorri_mvic_global_mosaic_300m` | New Horizons LORRI + MVIC, 300 m/px |
+| Charon | `charon_new_horizons_lorri_mvic_global_mosaic_300m` | New Horizons LORRI + MVIC, 300 m/px |
+| Phobos | `phobos_mars_express_src_global_mosaic_12m` | Mars Express SRC + Viking, 12 m/px |
+| Triton | `triton_voyager_2_global_color_mosaic_600m` | Voyager 2 colour, 600 m/px |
+| Tethys | `tethys_cassini_global_mosaic_293m` | Cassini ISS, 293 m/px |
+| Dione | `dione_cassini_voyager_global_mosaic_154m` | Cassini + Voyager, 154 m/px |
+| Rhea | `rhea_cassini_voyager_global_mosaic_417m` | Cassini + Voyager, 417 m/px |
+| Iapetus | `iapetus_cassini_voyager_global_mosaic_803m` | Cassini + Voyager, 803 m/px |
+| Vesta | `vesta_dawn_fc_hamo_global_mosaic_60m` | Dawn FC HAMO, 60 m/px |
+
+Retrieved as 1024 x 512 browse JPEGs from Astropedia's CKAN store. These are
+lower resolution than the Galilean mosaics above; they were chosen because these
+bodies are among the first anywhere anyone explores, and real imagery at 1024 px
+beats a synthesised surface at any resolution.
+
+**Two honest notes.**
+
+All of these except Triton are **panchromatic** — single-channel greyscale, since
+they derive from broadband imaging rather than colour composites. For Charon,
+Phobos and Vesta that is faithful: those bodies really are close to neutral grey.
+
+Pluto is the exception, and it gets one deliberate intervention. Its butterscotch
+colour is the most recognisable thing about it, so rendering the panchromatic
+mosaic raw would misinform as badly as a fake surface. Aphelion multiplies it by a
+fixed tint (`textureTint` in `data/bodies.ts`) matching Pluto's measured global
+colour. **The detail is real New Horizons data; the hue is applied.** No other body
+is tinted.
+
 ### Everything else — synthesised
 
 Roughly 450 of the 687 bodies have **no map that has ever been made**; most are

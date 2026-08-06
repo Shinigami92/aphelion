@@ -78,6 +78,17 @@ export interface BodySpec {
     normal?: string
     specular?: string
   }
+  /**
+   * Multiplied into the albedo map. Use only to colourise a *panchromatic*
+   * source: several USGS mosaics are single-channel, and rendering Pluto in grey
+   * misinforms as badly as a synthetic surface would, since its butterscotch
+   * colour is the single most recognisable thing about it. Normalise so the
+   * brightest channel is 1.0, or the body also loses its albedo.
+   *
+   * Bodies that genuinely are neutral (Charon, Phobos, Vesta) must leave this
+   * unset — inventing colour for them would be the opposite of the point.
+   */
+  textureTint?: number
   atmosphere?: AtmosphereSpec
   rings?: RingSpec[]
   /** Emissive bodies (the Sun) skip lighting entirely. */
@@ -411,6 +422,10 @@ export const DWARF_PLANETS: BodySpec[] = [
     flattening: 0,
     spin: { poleRa: 132.993, poleDec: -6.163, w0: 302.695, wDot: 56.3625225 },
     color: 0xc4a68a,
+    textures: { map: 'pluto.jpg' },
+    // The New Horizons mosaic we bundle is LORRI panchromatic. This restores
+    // Pluto's measured global colour over real detail; see ATTRIBUTION.md.
+    textureTint: 0xffd8b4,
     atmosphere: {
       thicknessKm: 50,
       rayleigh: [0.5, 0.55, 0.7],
@@ -551,14 +566,41 @@ export const MOON_TINTS: Record<string, number> = {
   pluto: 0xa89c90,
 }
 
-/** Named textures for the moons we have real imagery for. */
+/**
+ * Named textures for the moons we have real imagery for.
+ *
+ * Coverage deliberately follows *interest*, not size: Phobos is 11 km across and
+ * still one of the first places anyone looks, so it gets a real Mars Express
+ * mosaic while larger but duller bodies stay procedural.
+ */
 export const MOON_TEXTURES: Record<string, string> = {
   Moon: 'moon.jpg',
+  // Jupiter
   Io: 'io.jpg',
   Europa: 'europa.jpg',
   Ganymede: 'ganymede.jpg',
   Callisto: 'callisto.jpg',
+  // Mars
+  Phobos: 'phobos.jpg',
+  // Saturn
   Enceladus: 'enceladus.jpg',
+  Tethys: 'tethys.jpg',
+  Dione: 'dione.jpg',
+  Rhea: 'rhea.jpg',
+  Iapetus: 'iapetus.jpg',
+  // Neptune
+  Triton: 'triton.jpg',
+  // Pluto
+  Charon: 'charon.jpg',
+}
+
+/**
+ * Textures for catalogued minor planets. These bodies are point-rendered until
+ * you approach one, at which point the promotion path picks this up in place of
+ * a synthesised surface.
+ */
+export const SMALL_BODY_TEXTURES: Record<string, string> = {
+  Vesta: 'vesta.jpg',
 }
 
 /**

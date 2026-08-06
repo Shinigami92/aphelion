@@ -217,6 +217,63 @@ const USGS: UsgsSpec[] = [
 ]
 
 // ---------------------------------------------------------------------------
+// 2b. USGS Astropedia  (public domain)
+//
+// Covers the bodies that matter most to anyone exploring and that the bulk
+// mosaic bucket does not name predictably: Pluto, Charon, Phobos, Triton, the
+// mid-sized Saturnians and Vesta. Before this, all of those fell back to
+// procedural surfaces — which is the wrong place to economise, because they are
+// exactly the worlds people go looking for.
+// ---------------------------------------------------------------------------
+
+interface AstropediaSpec {
+  out: string
+  /** Astropedia item id, lowercase-with-underscores. */
+  id: string
+  note: string
+}
+
+const ASTROPEDIA_BASE = 'https://astrogeology.usgs.gov/search/map/'
+
+const ASTROPEDIA: AstropediaSpec[] = [
+  { out: 'pluto.jpg', id: 'pluto_new_horizons_lorri_mvic_global_mosaic_300m', note: 'New Horizons LORRI+MVIC, 300 m/px' },
+  { out: 'charon.jpg', id: 'charon_new_horizons_lorri_mvic_global_mosaic_300m', note: 'New Horizons LORRI+MVIC, 300 m/px' },
+  { out: 'phobos.jpg', id: 'phobos_mars_express_src_global_mosaic_12m', note: 'Mars Express SRC + Viking, 12 m/px' },
+  { out: 'triton.jpg', id: 'triton_voyager_2_global_color_mosaic_600m', note: 'Voyager 2 colour, 600 m/px' },
+  { out: 'iapetus.jpg', id: 'iapetus_cassini_voyager_global_mosaic_803m', note: 'Cassini + Voyager, 803 m/px' },
+  { out: 'dione.jpg', id: 'dione_cassini_voyager_global_mosaic_154m', note: 'Cassini + Voyager, 154 m/px' },
+  { out: 'rhea.jpg', id: 'rhea_cassini_voyager_global_mosaic_417m', note: 'Cassini + Voyager, 417 m/px' },
+  { out: 'tethys.jpg', id: 'tethys_cassini_global_mosaic_293m', note: 'Cassini ISS, 293 m/px' },
+  { out: 'vesta.jpg', id: 'vesta_dawn_fc_hamo_global_mosaic_60m', note: 'Dawn FC HAMO, 60 m/px' },
+]
+
+/**
+ * Resolve an Astropedia item to a downloadable image.
+ *
+ * The HTML item pages are JavaScript-rendered and carry no usable links, but
+ * each one has a static FGDC metadata sibling at `<id>.xml` that contains the
+ * CKAN download URL. An unknown id returns the site's ordinary 404 page — which
+ * is HTML, and which carries its own footer thumbnails, so we reject on the
+ * doctype and skip anything with "thumb" in the name.
+ */
+async function astropediaImageUrl(spec: AstropediaSpec): Promise<string | null> {
+  const xml = await fetchText(
+    `${ASTROPEDIA_BASE}${spec.id}.xml`,
+    `astropedia-${spec.id}.xml`,
+    `metadata for ${spec.out}`,
+  )
+  if (!xml) return null
+  if (/^\s*<!DOCTYPE html/i.test(xml)) {
+    console.log(`  ${C.yellow('missing')} Astropedia id not found: ${spec.id}`)
+    return null
+  }
+  const urls = [
+    ...xml.matchAll(/https:\/\/astrogeology\.usgs\.gov[^\s"'<>]+\/download\/[^\s"'<>]+/g),
+  ].map((m) => m[0])
+  return urls.find((u) => !/thumb/i.test(u) && /\.(jpe?g|png|tif)$/i.test(u)) ?? null
+}
+
+// ---------------------------------------------------------------------------
 // 3. JPL satellite elements + physical parameters
 // ---------------------------------------------------------------------------
 
@@ -845,6 +902,27 @@ async function main(): Promise<void> {
       }
     } else {
       step('USGS mosaics -- skipped (--skip-usgs)')
+    }
+
+    step('USGS Astropedia mosaics (public domain)')
+    for (const spec of ASTROPEDIA) {
+      const outPath = path.join(TEXTURES, spec.out)
+      if (await exists(outPath)) {
+        console.log(`  ${C.dim('have   ')} ${spec.out}`)
+        continue
+      }
+      const url = await astropediaImageUrl(spec)
+      if (!url) {
+        failures.push(spec.out)
+        continue
+      }
+      const cachePath = path.join(CACHE, `astropedia-${spec.out}`)
+      if (!(await download(url, cachePath, `${spec.out} ${C.dim(spec.note)}`))) {
+        failures.push(spec.out)
+        continue
+      }
+      // These arrive as browse JPEGs at sane sizes, so no conversion is needed.
+      await fs.copyFile(cachePath, outPath)
     }
   }
 

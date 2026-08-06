@@ -41,6 +41,7 @@ import {
   MOON_TEXTURES,
   MOON_TINTS,
   PLANETS,
+  SMALL_BODY_TEXTURES,
   SUN,
   type BodySpec,
   type BodyType,
@@ -290,7 +291,7 @@ export class SolarSystem {
         flattening: 0,
         spec: null,
         color: GROUP_COLOR[sb.group] ?? 0x9a8e78,
-        textureFile: null,
+        textureFile: SMALL_BODY_TEXTURES[sb.name] ?? null,
         note: null,
         minor: true,
       })

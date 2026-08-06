@@ -464,7 +464,8 @@ export class SceneView {
     const spec = body.spec
     const material = createBodyMaterial({
       map: solidTexture(body.color),
-      tint: 0xffffff,
+      // Only set where a panchromatic source needs colourising.
+      tint: spec?.textureTint ?? 0xffffff,
       rimColor: spec?.atmosphere ? spec.atmosphere.groundTint : null,
       rimStrength: spec?.atmosphere ? 0.5 : 0,
       shininess: 70,
@@ -994,11 +995,27 @@ export class SceneView {
       if (!visual) break
       visual.body = body
       visual.group.visible = true
-      // Flat colour now; the surface is synthesised by updateVisual on a later
-      // frame, so arriving at a new rock never costs a dropped frame.
+      // Flat colour now; the surface arrives on a later frame, so approaching a
+      // new rock never costs a dropped frame.
       visual.material.uniforms.uMap!.value = solidTexture(body.color)
       visual.material.needsUpdate = true
-      visual.pendingProcedural = true
+
+      const file = body.textureFile
+      if (file && this.library.available(file)) {
+        // Real imagery exists for this one (Vesta, and any other minor planet we
+        // later find a map for) — always prefer it over a synthesised surface.
+        visual.pendingProcedural = false
+        const target = visual
+        void this.library.load(file).then((tex) => {
+          // The slot may have been reassigned while the texture decoded.
+          if (tex && target.body === body) {
+            target.material.uniforms.uMap!.value = tex
+            target.material.needsUpdate = true
+          }
+        })
+      } else {
+        visual.pendingProcedural = true
+      }
       this.promoted.set(body.key, visual)
     }
 
