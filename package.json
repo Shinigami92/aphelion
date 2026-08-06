@@ -1,0 +1,44 @@
+{
+  "name": "aphelion",
+  "version": "1.0.0",
+  "private": true,
+  "description": "An offline, physically accurate, real-time model of the solar system.",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "validate": "node scripts/validate-astro.ts",
+    "assets": "node scripts/fetch-assets.ts && bash scripts/convert-textures.sh && node scripts/fetch-assets.ts --only=manifest",
+    "assets:data": "node scripts/fetch-assets.ts --only=data",
+    "assets:textures": "node scripts/fetch-assets.ts --only=textures && bash scripts/convert-textures.sh && node scripts/fetch-assets.ts --only=manifest",
+    "assets:light": "node scripts/fetch-assets.ts --skip-usgs --tier=high && bash scripts/convert-textures.sh && node scripts/fetch-assets.ts --only=manifest"
+  },
+  "keywords": [
+    "solar-system",
+    "astronomy",
+    "ephemeris",
+    "three.js",
+    "webgl",
+    "orrery"
+  ],
+  "license": "MIT",
+  "devEngines": {
+    "packageManager": {
+      "name": "pnpm",
+      "version": "^11.20.0",
+      "onFail": "download"
+    }
+  },
+  "dependencies": {
+    "three": "^0.185.1"
+  },
+  "devDependencies": {
+    "@playwright/mcp": "^0.0.78",
+    "@types/node": "^26.1.2",
+    "@types/three": "^0.185.4",
+    "typescript": "^7.0.2",
+    "vite": "^8.2.0"
+  }
+}

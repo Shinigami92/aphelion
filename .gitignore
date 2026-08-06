@@ -1,0 +1,18 @@
+node_modules/
+dist/
+.DS_Store
+*.log
+
+# Intermediate downloads from scripts/fetch-assets.ts (huge source GeoTIFFs).
+# The *derived* textures in public/textures are committed on purpose so the
+# app runs fully offline.
+.cache/
+
+# Playwright MCP scratch output (page snapshots, screenshots).
+.playwright-mcp/
+
+# Stray verification screenshots (Playwright now writes into .playwright-mcp/).
+/eclipse-*.png
+/umbra.png
+/page-*.png
+/final-*.png

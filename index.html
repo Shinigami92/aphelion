@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+    <title>Aphelion — Live Solar System</title>
+    <meta
+      name="description"
+      content="An offline, physically accurate, real-time model of the solar system."
+    />
+    <!-- Inline so the app makes no requests of its own beyond its own assets. -->
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='15' fill='%2305070c'/%3E%3Ccircle cx='11' cy='13' r='4.5' fill='%23ffd68a'/%3E%3Cellipse cx='21' cy='20' rx='6.5' ry='2.2' fill='none' stroke='%236fb3ff' stroke-width='1.4'/%3E%3Ccircle cx='21' cy='20' r='2.6' fill='%236fb3ff'/%3E%3C/svg%3E"
+    />
+    <link rel="stylesheet" href="/src/ui/styles.css" />
+  </head>
+  <body>
+    <div id="app">
+      <canvas id="viewport"></canvas>
+
+      <!-- Loading veil -->
+      <div id="boot" class="boot">
+        <div class="boot__inner">
+          <div class="boot__title">APHELION</div>
+          <div class="boot__sub">assembling the solar system</div>
+          <div class="boot__bar"><div class="boot__fill" id="boot-fill"></div></div>
+          <div class="boot__status" id="boot-status">reading ephemerides…</div>
+        </div>
+      </div>
+
+      <!-- Top-left: clock + time transport -->
+      <section id="time-panel" class="panel panel--time" aria-label="Time controls"></section>
+
+      <!-- Left: body browser -->
+      <section id="browser" class="panel panel--browser" aria-label="Body browser"></section>
+
+      <!-- Right: selected body info -->
+      <section id="info" class="panel panel--info" aria-label="Body information"></section>
+
+      <!-- Bottom-right: orrery minimap -->
+      <section id="minimap" class="panel panel--minimap" aria-label="Orrery map"></section>
+
+      <!-- Bottom-left: view toggles -->
+      <section id="toggles" class="panel panel--toggles" aria-label="View options"></section>
+
+      <!-- Keyboard help overlay -->
+      <div id="help" class="help" hidden></div>
+
+      <!-- Transient readout (focus changes, scale mode, warnings) -->
+      <div id="toast" class="toast" aria-live="polite"></div>
+
+      <!-- 3D-anchored labels -->
+      <div id="labels" class="labels"></div>
+    </div>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
