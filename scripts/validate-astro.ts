@@ -21,6 +21,8 @@ import {
 import { solveEccentricAnomaly, wrap2pi } from '../src/astro/kepler.ts'
 import { PLANET_KEYS, planetPosition, type PlanetKey } from '../src/astro/planets.ts'
 import { moonSpherical } from '../src/astro/moon.ts'
+import { SolarSystem } from '../src/core/system.ts'
+import { ScaleModel } from '../src/core/scale.ts'
 
 let failures = 0
 let checks = 0
@@ -264,6 +266,27 @@ section('Inclinations')
     const inc = Math.acos(nz / Math.hypot(nx, ny, nz)) * RAD
     near(`${key.padEnd(8)} inclination`, inc, EXPECTED_INC[key], 0.1, '°')
   }
+}
+
+// ---------------------------------------------------------------------------
+section('Renderable planetary orbits')
+
+{
+  const system = new SolarSystem()
+  const scale = new ScaleModel()
+  system.update(jdTT, scale)
+
+  const missing: string[] = []
+  for (const key of PLANET_KEYS) {
+    const body = system.byKey.get(key)
+    const orbit = body ? system.orbitPolyline(body, scale, 128) : null
+    if (!body?.elements || !orbit || orbit.length !== (128 + 1) * 3) missing.push(key)
+  }
+  ok(
+    'all planets and Pluto expose renderable orbit polylines',
+    missing.length === 0,
+    missing.length ? `missing: ${missing.join(', ')}` : '',
+  )
 }
 
 // ---------------------------------------------------------------------------
