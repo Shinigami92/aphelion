@@ -77,7 +77,7 @@ export class TimePanel {
   private dateSpan = el('span', 'clock__date')
   private timeSpan = el('span', 'clock__time')
   private input = el('input', 'clock-input') as HTMLInputElement
-  private hint = el('div', 'clock__hint', 'YYYY-MM-DD HH:MM:SS — Enter to set, Esc to cancel')
+  private hint = el('div', 'clock__hint')
   private playBtn = el('button', 'btn btn--icon btn--play')
   private reverseBtn = el('button', 'btn btn--icon', '◀')
   private forwardBtn = el('button', 'btn btn--icon', '▶')
@@ -139,6 +139,13 @@ export class TimePanel {
       ev.stopPropagation()
     })
     this.input.addEventListener('blur', () => this.cancelEdit())
+    // Escape is not on a phone's keyboard, but the blur handler above means
+    // tapping away already cancels — so the touch wording describes what is
+    // actually there rather than a key that is not.
+    this.hint.append(
+      el('span', 'help__close--keys', 'YYYY-MM-DD HH:MM:SS — Enter to set, Esc to cancel'),
+      el('span', 'help__close--touch', 'YYYY-MM-DD HH:MM:SS — Return to set, tap away to cancel'),
+    )
     this.hint.style.display = 'none'
     body.append(this.input, this.hint)
 
@@ -921,6 +928,50 @@ const KEY_HELP: [string, [string, string][]][] = [
   ],
 ]
 
+/**
+ * The same reference for a touch screen, where the key map is no use at all.
+ *
+ * Not a translation of the keyboard list: a phone genuinely cannot reach some of
+ * it (free flight, render quality), and other entries collapse into one gesture,
+ * so this describes what a finger can actually do rather than pretending the two
+ * are equivalent.
+ */
+const TOUCH_HELP: [string, [string, string][]][] = [
+  [
+    'Moving around',
+    [
+      ['drag', 'orbit the focused body'],
+      ['pinch', 'zoom in and out'],
+      ['two-finger drag', 'pan'],
+      ['double-tap a body', 'fly to it'],
+    ],
+  ],
+  [
+    'Selection',
+    [
+      ['tap a body', 'select and show its data'],
+      ['Bodies tab', 'search and browse all 687'],
+      ['Orrery tab', 'tap the map to jump somewhere'],
+    ],
+  ],
+  [
+    'Time',
+    [
+      ['tap the clock', 'type an exact UTC date and time'],
+      ['transport row', 'reverse, pause, step and run'],
+      ['rate slider', 'from 1 second to 100 years per second'],
+    ],
+  ],
+  [
+    'Display',
+    [
+      ['View tab', 'orbits, labels, belts, rings, atmospheres'],
+      ['explore / true', 'switch the scale model'],
+      ['panel headers', 'a chevron folds the clock away'],
+    ],
+  ],
+]
+
 export class HelpOverlay {
   constructor(
     private host: HTMLElement,
@@ -935,18 +986,27 @@ export class HelpOverlay {
         'A live model of the solar system: real ephemerides for the Sun, eight planets, 459 satellites, five dwarf planets and 221 catalogued minor planets, plus statistically generated asteroid and Kuiper belts. Everything runs offline.',
       ),
     )
-    const cols = el('div', 'help__cols')
-    for (const [group, rows] of KEY_HELP) {
-      cols.append(el('div', 'help__group', group))
-      for (const [key, desc] of rows) {
-        const row = el('div', 'help__row')
-        const kbd = document.createElement('kbd')
-        kbd.textContent = key
-        row.append(kbd, el('span', 'help__desc', desc))
-        cols.append(row)
+    // Both references are built and the stylesheet shows one, so switching
+    // layout — or just turning the phone — never leaves the wrong list up.
+    const build = (
+      table: [string, [string, string][]][],
+      className: string,
+    ): HTMLElement => {
+      const cols = el('div', `help__cols ${className}`)
+      for (const [group, rows] of table) {
+        cols.append(el('div', 'help__group', group))
+        for (const [key, desc] of rows) {
+          const row = el('div', 'help__row')
+          const kbd = document.createElement('kbd')
+          kbd.textContent = key
+          row.append(kbd, el('span', 'help__desc', desc))
+          cols.append(row)
+        }
       }
+      return cols
     }
-    panel.append(cols)
+    panel.append(build(KEY_HELP, 'help__cols--keys'))
+    panel.append(build(TOUCH_HELP, 'help__cols--touch'))
 
     // Attribution lives in the running app, not only in the repository's
     // ATTRIBUTION.md: the Solar System Scope maps are CC BY 4.0, and someone
@@ -987,7 +1047,15 @@ export class HelpOverlay {
     }
     panel.append(credits)
 
-    panel.append(el('div', 'help__close', 'press H, ? or Esc to close'))
+    // Same treatment as the two reference lists: both hints exist and the
+    // stylesheet picks one, so the overlay never tells a phone to press Esc.
+    // Tapping anywhere does close it — the handler below is on the backdrop and
+    // clicks from the panel bubble up to it — so the touch wording is accurate
+    // rather than merely a softer lie.
+    const close = el('div', 'help__close')
+    close.append(el('span', 'help__close--keys', 'press H, ? or Esc to close'))
+    close.append(el('span', 'help__close--touch', 'tap anywhere to close'))
+    panel.append(close)
     this.host.append(panel)
     this.host.addEventListener('click', () => this.hide())
   }

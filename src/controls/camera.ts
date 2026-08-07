@@ -116,6 +116,8 @@ export class CameraController {
   private lastPointer = { x: 0, y: 0 }
   private activePointers = new Map<number, { x: number; y: number }>()
   private pinchDistance = 0
+  /** Midpoint of a two-finger gesture, which pans as it travels. */
+  private pinchCentre = { x: 0, y: 0 }
 
   private element: HTMLElement | null = null
   private detachers: (() => void)[] = []
@@ -433,6 +435,7 @@ export class CameraController {
 
     if (this.activePointers.size === 2) {
       this.pinchDistance = this.currentPinchDistance()
+      this.pinchCentre = this.currentPinchCentre()
       this.dragging = 'none'
       return
     }
@@ -444,15 +447,21 @@ export class CameraController {
     if (!this.activePointers.has(ev.pointerId)) return
     this.activePointers.set(ev.pointerId, { x: ev.clientX, y: ev.clientY })
 
-    // Two-finger pinch on a touch screen.
+    // Two fingers do both jobs at once, as they do on a map: the distance
+    // between them zooms, and where their midpoint travels pans. Panning had no
+    // touch gesture at all before — on desktop it is shift-drag or a second
+    // mouse button, and a phone has neither.
     if (this.activePointers.size === 2) {
       const d = this.currentPinchDistance()
+      const centre = this.currentPinchCentre()
       if (this.pinchDistance > 0 && d > 0) {
         this.zoomBy(this.pinchDistance / d)
+        this.panByScreen(centre.x - this.pinchCentre.x, centre.y - this.pinchCentre.y)
         this.interacted = true
         this.lastInputAt = performance.now()
       }
       this.pinchDistance = d
+      this.pinchCentre = centre
       return
     }
 
@@ -476,13 +485,17 @@ export class CameraController {
         Math.min(MAX_ELEVATION, this.targetElevation + dy * 0.005),
       )
     } else if (this.dragging === 'pan') {
-      // Pan in the camera plane, scaled so the drag tracks the cursor.
-      const scale = this.distance * 0.0016
-      const right = new Vector3().setFromMatrixColumn(this.camera.matrix, 0)
-      const up = new Vector3().setFromMatrixColumn(this.camera.matrix, 1)
-      this.panOffset.addScaledVector(right, -dx * scale)
-      this.panOffset.addScaledVector(up, dy * scale)
+      this.panByScreen(dx, dy)
     }
+  }
+
+  /** Pan in the camera plane, scaled so the movement tracks the finger. */
+  private panByScreen(dx: number, dy: number): void {
+    const scale = this.distance * 0.0016
+    const right = new Vector3().setFromMatrixColumn(this.camera.matrix, 0)
+    const up = new Vector3().setFromMatrixColumn(this.camera.matrix, 1)
+    this.panOffset.addScaledVector(right, -dx * scale)
+    this.panOffset.addScaledVector(up, dy * scale)
   }
 
   private onPointerUp(ev: PointerEvent): void {
@@ -528,5 +541,11 @@ export class CameraController {
     const pts = [...this.activePointers.values()]
     if (pts.length < 2) return 0
     return Math.hypot(pts[0]!.x - pts[1]!.x, pts[0]!.y - pts[1]!.y)
+  }
+
+  private currentPinchCentre(): { x: number; y: number } {
+    const pts = [...this.activePointers.values()]
+    if (pts.length < 2) return { x: 0, y: 0 }
+    return { x: (pts[0]!.x + pts[1]!.x) / 2, y: (pts[0]!.y + pts[1]!.y) / 2 }
   }
 }

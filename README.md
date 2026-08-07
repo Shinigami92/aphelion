@@ -101,6 +101,17 @@ across the top and the other four become sheets, one at a time, from a tab bar a
 the bottom — sliding up in portrait, and in from the side in landscape, where
 height is the scarce dimension and a bottom sheet would leave no scene at all.
 
+| Gesture | Action |
+| --- | --- |
+| drag | orbit the focused body |
+| pinch | zoom |
+| two-finger drag | pan |
+| tap a body | select it |
+| double-tap a body | fly to it |
+
+The `?` chip shows these instead of the keyboard map when there is no keyboard to
+map.
+
 ---
 
 ## Sharing a view

@@ -396,6 +396,9 @@ canvas.addEventListener('pointerdown', (ev) => {
   pointerDownAt = { x: ev.clientX, y: ev.clientY, t: performance.now() }
 })
 
+/** Where and when the last tap landed, for reconstructing a double-tap. */
+let lastTapAt = { x: 0, y: 0, t: 0 }
+
 canvas.addEventListener('pointerup', (ev) => {
   const moved = Math.hypot(ev.clientX - pointerDownAt.x, ev.clientY - pointerDownAt.y)
   const elapsed = performance.now() - pointerDownAt.t
@@ -404,6 +407,22 @@ canvas.addEventListener('pointerup', (ev) => {
   const rect = canvas.getBoundingClientRect()
   const hit = scene.pick(ev.clientX - rect.left, ev.clientY - rect.top, system)
   if (hit) select(hit)
+
+  // Double-tap to fly to a body. A mouse keeps the native `dblclick` below;
+  // touch does not raise one dependably, so it is reconstructed here — with a
+  // looser radius than the 6px tap threshold, because two taps from the same
+  // finger rarely land on the same pixel.
+  if (ev.pointerType === 'mouse') return
+  const now = performance.now()
+  const nearLast = Math.hypot(ev.clientX - lastTapAt.x, ev.clientY - lastTapAt.y) < 28
+  if (nearLast && now - lastTapAt.t < 320) {
+    if (hit) goTo(hit)
+    // Reset rather than record, so a third tap does not chain into a second
+    // flight.
+    lastTapAt = { x: 0, y: 0, t: 0 }
+  } else {
+    lastTapAt = { x: ev.clientX, y: ev.clientY, t: now }
+  }
 })
 
 canvas.addEventListener('dblclick', (ev) => {
@@ -584,6 +603,9 @@ window.addEventListener('keydown', (ev) => {
     case 'v':
     case 'V': {
       const mode = camera.toggleMode()
+      // Only reachable from a keyboard in the first place, so naming keys here
+      // is safe — but it is the sort of message to re-read if free flight ever
+      // gets a touch affordance.
       toast.show(mode === 'free' ? 'Free flight — WASD to fly, V to return' : 'Orbit camera')
       break
     }
@@ -711,7 +733,10 @@ function finishBoot(): void {
   setTimeout(() => {
     bootEl.style.display = 'none'
   }, 800)
-  toast.show('Press H for the keyboard map')
+  // The boot hint has to name something the reader can actually do: there is no
+  // H to press on a phone, and the "?" chip is the only route to the reference
+  // either way.
+  toast.show(mobileLayout ? 'Tap ? for gestures and credits' : 'Press H for the keyboard map')
 }
 
 library.onProgress((loaded, total) => {

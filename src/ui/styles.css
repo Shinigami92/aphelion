@@ -1256,6 +1256,26 @@ body.is-mobile .help__cols {
   gap: 4px;
 }
 
+/* One reference or the other, never both: a key map is no use without a
+   keyboard, and the gesture list would be misleading with one. */
+.help__cols--touch,
+.help__close--touch {
+  display: none;
+}
+
+body.is-mobile .help__cols--keys,
+body.is-mobile .help__close--keys {
+  display: none;
+}
+
+body.is-mobile .help__cols--touch {
+  display: grid;
+}
+
+body.is-mobile .help__close--touch {
+  display: inline;
+}
+
 /* Long descriptions wrap rather than shoving the key off the edge. */
 body.is-mobile .help__row {
   gap: 10px;
