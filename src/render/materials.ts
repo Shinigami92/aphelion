@@ -948,7 +948,16 @@ export function createSwarmMaterial(sprite: Texture): ShaderMaterial {
         float remapped = mix(r, compressed, uBlend);
         vec3 scenePos = posKm * (remapped / r) / uSceneUnitKm;
 
-        vec4 mv = viewMatrix * vec4(scenePos, 1.0);
+        // modelViewMatrix, NOT viewMatrix: the swarm hangs off the world group,
+        // whose position carries the floating origin. Skipping the model matrix
+        // left every particle at its absolute heliocentric coordinate while the
+        // rest of the scene had been shifted, so the belts appeared centred on
+        // whatever body was focused instead of on the Sun — invisible only when
+        // the Sun itself was focused and the shift happened to be zero.
+        //
+        // Three composes modelViewMatrix on the CPU in double precision, so this
+        // is also the more accurate way to reach view space.
+        vec4 mv = modelViewMatrix * vec4(scenePos, 1.0);
         gl_Position = projectionMatrix * mv;
 
         float dist = max(-mv.z, 1e-4);
