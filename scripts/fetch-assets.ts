@@ -434,6 +434,12 @@ interface ShapeModelSpec {
   body: string
   out: string
   url: string
+  /**
+   * How the model is laid out. `cube-quad` is Gaskell's six-face vertex cube;
+   * `lat-lon-table` is Thomas's plain latitude/longitude/radius text, which is
+   * already the shape this pipeline wants and needs only resampling.
+   */
+  format: 'cube-quad' | 'lat-lon-table'
   width: number
   height: number
   /**
@@ -450,6 +456,7 @@ const SHAPE_MODELS: ShapeModelSpec[] = [
     body: 'moon:Phobos',
     out: 'phobos_relief.png',
     url: 'https://sbnarchive.psi.edu/pds4/non_mission/gaskell.phobos.shape-model/data/phobos_quad128q.tab',
+    format: 'cube-quad',
     // The model's own spacing is ~0.12 km, which on an 11 km body is 0.63
     // degrees of arc — so 512 x 256 (0.70 deg/px) samples it about right and
     // anything finer would just interpolate.
@@ -458,6 +465,21 @@ const SHAPE_MODELS: ShapeModelSpec[] = [
     referenceRadiusKm: 11.08,
     credit: 'Gaskell Phobos shape model — PDS Small Bodies Node',
     note: 'Gaskell 128q, 6 x 129² vertices',
+  },
+  {
+    body: 'moon:Deimos',
+    out: 'deimos_relief.png',
+    url: 'https://sbnarchive.psi.edu/pds4/non_mission/ast-sat.thomas.shape-models_V1_0/data/m2deimos.tab',
+    format: 'lat-lon-table',
+    // The source is a 5 degree grid — Viking is the only spacecraft that ever
+    // imaged Deimos properly, so this is the whole of what has been measured.
+    // Output is finer only so the differenced normals do not facet at high LOD;
+    // bilinear interpolation adds no detail that is not already in the table.
+    width: 256,
+    height: 128,
+    referenceRadiusKm: 6.2,
+    credit: 'Thomas Deimos shape model (Viking) — PDS Small Bodies Node',
+    note: 'Thomas Viking model, 5 deg grid',
   },
 ]
 
@@ -494,12 +516,12 @@ function pngChunk(type: string, data: Buffer): Buffer {
   return Buffer.concat([head, data, crc])
 }
 
-function encodePng(width: number, height: number, rgb: Buffer): Buffer {
+function encodePng(width: number, height: number, rgb: Buffer, channels = 3): Buffer {
   const ihdr = Buffer.alloc(13)
   ihdr.writeUInt32BE(width, 0)
   ihdr.writeUInt32BE(height, 4)
   ihdr[8] = 8 // bit depth
-  ihdr[9] = 2 // colour type 2 = truecolour RGB
+  ihdr[9] = channels === 1 ? 0 : 2 // colour type: 0 = greyscale, 2 = truecolour
   ihdr[10] = 0 // deflate
   ihdr[11] = 0 // adaptive filtering
   ihdr[12] = 0 // no interlace
@@ -508,14 +530,14 @@ function encodePng(width: number, height: number, rgb: Buffer): Buffer {
   // the left. Elevation is smooth horizontally, so the high byte nearly
   // vanishes; the low byte is noise and will not compress, which is the price
   // of keeping 16 bits of precision.
-  const stride = width * 3
+  const stride = width * channels
   const raw = Buffer.alloc(height * (stride + 1))
   for (let y = 0; y < height; y++) {
     const src = y * stride
     const dst = y * (stride + 1)
     raw[dst] = 1
     for (let x = 0; x < stride; x++) {
-      const left = x >= 3 ? rgb[src + x - 3]! : 0
+      const left = x >= channels ? rgb[src + x - channels]! : 0
       raw[dst + 1 + x] = (rgb[src + x]! - left) & 0xff
     }
   }
@@ -667,7 +689,88 @@ async function buildShapeModel(spec: ShapeModelSpec): Promise<ReliefResult | nul
   const cachePath = path.join(CACHE, path.basename(spec.url))
   if (!(await download(spec.url, cachePath, `${spec.out} ${C.dim(spec.note)}`))) return null
 
-  const lines = (await fs.readFile(cachePath, 'utf8')).split('\n').filter((l) => l.trim().length > 0)
+  const text = await fs.readFile(cachePath, 'utf8')
+  const radii =
+    spec.format === 'lat-lon-table'
+      ? sampleLatLonTable(spec, text)
+      : await rasteriseCubeQuad(spec, text)
+  if (!radii) return null
+  return finishShape(spec, radii)
+}
+
+/**
+ * Resample a latitude/longitude/radius table onto the output grid.
+ *
+ * The table is a regular grid, so this is a bilinear lookup — but two of its
+ * conventions are the reverse of ours and both are silent if missed: rows run
+ * south to north where our maps put north first, and longitudes start at the
+ * prime meridian where our maps start at 180 west. Driving the output loop from
+ * the target's own coordinates rather than the source's makes both fall out.
+ */
+function sampleLatLonTable(spec: ShapeModelSpec, text: string): Float64Array | null {
+  const rows: [number, number, number][] = []
+  for (const line of text.split('\n')) {
+    const t = line.trim()
+    if (!t) continue
+    const p = t.split(/\s+/).map(Number)
+    if (p.length < 3 || p.some((v) => !Number.isFinite(v))) {
+      console.log(`  ${C.red('bad    ')} ${spec.out}: unparseable row "${t.slice(0, 40)}"`)
+      return null
+    }
+    rows.push([p[0]!, p[1]!, p[2]!])
+  }
+
+  const lats = [...new Set(rows.map((r) => r[0]))].sort((a, b) => a - b)
+  const lons = [...new Set(rows.map((r) => r[1]))].sort((a, b) => a - b)
+  if (lats.length * lons.length !== rows.length) {
+    console.log(
+      `  ${C.red('bad    ')} ${spec.out}: ${rows.length} rows is not ${lats.length} x ${lons.length}`,
+    )
+    return null
+  }
+
+  const latIx = new Map(lats.map((v, i) => [v, i]))
+  const lonIx = new Map(lons.map((v, i) => [v, i]))
+  const grid = new Float64Array(lats.length * lons.length)
+  for (const [la, lo, r] of rows) grid[latIx.get(la)! * lons.length + lonIx.get(lo)!] = r
+
+  const latMin = lats[0]!
+  const latStep = (lats[lats.length - 1]! - latMin) / (lats.length - 1)
+  const lonMin = lons[0]!
+  const lonStep = (lons[lons.length - 1]! - lonMin) / (lons.length - 1)
+
+  const sample = (lat: number, lon: number): number => {
+    const fy = Math.min(lats.length - 1.0001, Math.max(0, (lat - latMin) / latStep))
+    const fx = Math.min(lons.length - 1.0001, Math.max(0, (lon - lonMin) / lonStep))
+    const y0 = Math.floor(fy)
+    const x0 = Math.floor(fx)
+    const ty = fy - y0
+    const tx = fx - x0
+    const g = (y: number, x: number) => grid[y * lons.length + x]!
+    return (
+      g(y0, x0) * (1 - tx) * (1 - ty) +
+      g(y0, x0 + 1) * tx * (1 - ty) +
+      g(y0 + 1, x0) * (1 - tx) * ty +
+      g(y0 + 1, x0 + 1) * tx * ty
+    )
+  }
+
+  const out = new Float64Array(spec.width * spec.height)
+  for (let y = 0; y < spec.height; y++) {
+    const lat = 90 - ((y + 0.5) * 180) / spec.height
+    for (let x = 0; x < spec.width; x++) {
+      const lon = (180 + ((x + 0.5) * 360) / spec.width) % 360
+      out[y * spec.width + x] = sample(lat, lon)
+    }
+  }
+  return out
+}
+
+async function rasteriseCubeQuad(
+  spec: ShapeModelSpec,
+  text: string,
+): Promise<Float64Array | null> {
+  const lines = text.split('\n').filter((l) => l.trim().length > 0)
   const n = Number(lines[0]!.trim())
   const side = n + 1
   const perFace = side * side
@@ -803,6 +906,23 @@ async function buildShapeModel(spec: ShapeModelSpec): Promise<ReliefResult | nul
     console.log(`  ${C.red('bad    ')} ${spec.out}: ${holes} pixels never covered`)
     return null
   }
+  return radii
+}
+
+/**
+ * Turn absolute radii into offsets from the body's mean radius and encode them.
+ *
+ * The reference must be the radius the app gives this body, not the model's own
+ * mean: the shader reconstructs `radiusKm + offset`, so matching them makes the
+ * rendered figure exactly the modelled one, and a mismatch inflates or shrinks
+ * the whole body uniformly.
+ */
+async function finishShape(
+  spec: ShapeModelSpec,
+  radii: Float64Array,
+): Promise<ReliefResult | null> {
+  const w = spec.width
+  const h = spec.height
 
   let min = Infinity
   let max = -Infinity
@@ -895,6 +1015,117 @@ export const reliefFor = (key: string): ReliefMap | null => RELIEF_MAPS[key] ?? 
   console.log(
     `  ${C.green('wrote  ')} src/data/generated/relief.ts ${C.dim(`(${results.length} maps)`)}`,
   )
+}
+
+// ---------------------------------------------------------------------------
+// 2d. FITS mosaics  (public domain)
+//
+// A couple of bodies have real imagery that exists only as a FITS array in a
+// PDS archive rather than as a browse image. FITS is a short read — 2880-byte
+// blocks of 80-character ASCII cards, then the raw array — so this pulls them
+// straight into a texture rather than leaving the body to the procedural
+// generator, which serves small irregular moons particularly badly.
+// ---------------------------------------------------------------------------
+
+interface FitsMosaicSpec {
+  out: string
+  url: string
+  /** East longitude of the array's left-hand column, degrees. */
+  originLonEast: number
+  /** True when row 0 is the southernmost, as FITS and IDL conventionally store. */
+  bottomUp: boolean
+  /** Pixels equal to this are unimaged and get flattened to the image mean. */
+  blankValue?: number
+  credit: string
+  note: string
+}
+
+const FITS_MOSAICS: FitsMosaicSpec[] = [
+  {
+    out: 'deimos.png',
+    url: 'https://sbnarchive.psi.edu/pds4/non_mission/ast-sat.thomas.shape-models_V1_0/data/m2deimosm.fit',
+    originLonEast: 0,
+    // Not stated in the header, but the shape table in the same bundle by the
+    // same author is explicitly south-first, and this array's unimaged gap then
+    // lands on the same longitudes *and* latitudes as that model's oddly smooth
+    // southern depression — which is what an uncovered region would produce.
+    // Two independent products agreeing is the best evidence available here.
+    bottomUp: true,
+    blankValue: 0,
+    credit: 'Thomas Deimos mosaic (Viking) — PDS Small Bodies Node',
+    note: 'Viking mosaic, high-pass filtered',
+  },
+]
+
+async function buildFitsMosaic(spec: FitsMosaicSpec): Promise<boolean> {
+  const cachePath = path.join(CACHE, path.basename(spec.url))
+  if (!(await download(spec.url, cachePath, `${spec.out} ${C.dim(spec.note)}`))) return false
+
+  const buf = await fs.readFile(cachePath)
+  // Header is whole 2880-byte blocks of 80-character cards, ending at END.
+  const card = (name: string): string | null => {
+    for (let off = 0; off + 80 <= buf.length; off += 80) {
+      const text = buf.toString('ascii', off, off + 80)
+      if (text.startsWith('END ') || text.trimEnd() === 'END') return null
+      if (text.startsWith(name.padEnd(8))) return text.slice(10).split('/')[0]!.trim()
+    }
+    return null
+  }
+  const bitpix = Number(card('BITPIX'))
+  const w = Number(card('NAXIS1'))
+  const h = Number(card('NAXIS2'))
+  if (bitpix !== 8 || !w || !h) {
+    console.log(`  ${C.red('bad    ')} ${spec.out}: expected 8-bit 2D FITS, got BITPIX ${bitpix} ${w}x${h}`)
+    return false
+  }
+
+  let headerEnd = 0
+  for (let off = 0; off + 80 <= buf.length; off += 80) {
+    const text = buf.toString('ascii', off, off + 80)
+    if (text.startsWith('END ') || text.trimEnd() === 'END') {
+      headerEnd = Math.ceil((off + 80) / 2880) * 2880
+      break
+    }
+  }
+  const data = buf.subarray(headerEnd, headerEnd + w * h)
+  if (data.length !== w * h) {
+    console.log(`  ${C.red('bad    ')} ${spec.out}: expected ${w * h} pixels, got ${data.length}`)
+    return false
+  }
+
+  // Mean of the imaged pixels, used to flatten the gaps.
+  let sum = 0
+  let count = 0
+  for (let i = 0; i < data.length; i++) {
+    if (spec.blankValue !== undefined && data[i] === spec.blankValue) continue
+    sum += data[i]!
+    count++
+  }
+  const fill = count ? Math.round(sum / count) : 128
+  const blanks = data.length - count
+
+  const shift = Math.round((w * (180 - spec.originLonEast)) / 360)
+  const out = Buffer.alloc(w * h)
+  for (let y = 0; y < h; y++) {
+    const src = spec.bottomUp ? h - 1 - y : y
+    for (let x = 0; x < w; x++) {
+      const v = data[src * w + ((x + shift) % w)]!
+      // Unimaged terrain is flattened rather than smeared: a flat patch reads as
+      // "nothing was seen here", where dilating the neighbours would invent
+      // surface that no spacecraft ever resolved.
+      out[y * w + x] = spec.blankValue !== undefined && v === spec.blankValue ? fill : v
+    }
+  }
+
+  await fs.mkdir(TEXTURES, { recursive: true })
+  const png = encodePng(w, h, out, 1)
+  await fs.writeFile(path.join(TEXTURES, spec.out), png)
+  console.log(
+    `  ${C.green('wrote  ')} ${spec.out} ${C.dim(
+      `${w}x${h} grey, ${((blanks / data.length) * 100).toFixed(1)}% unimaged filled, ${mb(png.length)}`,
+    )}`,
+  )
+  return true
 }
 
 // ---------------------------------------------------------------------------
@@ -1547,6 +1778,16 @@ async function main(): Promise<void> {
       }
       // These arrive as browse JPEGs at sane sizes, so no conversion is needed.
       await fs.copyFile(cachePath, outPath)
+    }
+
+    step('PDS FITS mosaics (public domain)')
+    for (const spec of FITS_MOSAICS) {
+      const outPath = path.join(TEXTURES, spec.out)
+      if (await exists(outPath)) {
+        console.log(`  ${C.dim('have   ')} ${spec.out}`)
+        continue
+      }
+      if (!(await buildFitsMosaic(spec))) failures.push(spec.out)
     }
   }
 

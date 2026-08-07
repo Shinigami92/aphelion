@@ -58,6 +58,14 @@ export const RELIEF_MAPS: Readonly<Record<string, ReliefMap>> = {
     maxKm: 2.8546,
     credit: 'Gaskell Phobos shape model — PDS Small Bodies Node',
   },
+  'moon:Deimos': {
+    file: 'deimos_relief.png',
+    width: 256,
+    height: 128,
+    minKm: -2.6153,
+    maxKm: 2.4895,
+    credit: 'Thomas Deimos shape model (Viking) — PDS Small Bodies Node',
+  },
 }
 
 export const reliefFor = (key: string): ReliefMap | null => RELIEF_MAPS[key] ?? null

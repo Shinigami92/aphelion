@@ -582,6 +582,9 @@ export const MOON_TEXTURES: Record<string, string> = {
   Callisto: 'callisto.jpg',
   // Mars
   Phobos: 'phobos.jpg',
+  // High-pass filtered, so it carries relief detail rather than true albedo —
+  // the only global mosaic of Deimos there is, and better than a synthesised one.
+  Deimos: 'deimos.png',
   // Saturn
   Enceladus: 'enceladus.jpg',
   Tethys: 'tethys.jpg',

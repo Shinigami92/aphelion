@@ -37,7 +37,7 @@ pnpm assets:light   # skip the large USGS moon mosaics, 4k instead of 8k
 needs `sips` (macOS, built in) or ImageMagick to convert the TIFF sources.
 
 ```bash
-pnpm validate       # 71 astronomy checks (no browser needed)
+pnpm validate       # 75 astronomy checks (no browser needed)
 pnpm typecheck
 pnpm build
 ```

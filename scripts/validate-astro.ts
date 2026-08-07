@@ -666,6 +666,37 @@ function probeRelief(key: string): ReliefProbe | null {
   }
 }
 
+{
+  const deimos = probeRelief('moon:Deimos')
+  if (!deimos) ok('Deimos shape (skipped, not on disk)', true)
+  else {
+    const R = 6.2
+    const r = (lat: number, lon: number): number => R + deimos.at(lat, lon)
+
+    // IAU figure is 7.8 x 6.0 x 5.1 km, long axis locked toward Mars. The source
+    // is a 5 degree Viking grid, so these are loose — they test that the table's
+    // latitude order and longitude origin survived resampling, not the fit.
+    ok(
+      'Deimos long axis lies along the sub-Mars meridian',
+      r(0, 0) > 6.8 && r(0, 180) > 6.8,
+      `sub-Mars ${r(0, 0).toFixed(2)} km, anti-Mars ${r(0, 180).toFixed(2)} km, expected > 6.8`,
+    )
+    ok(
+      'Deimos short axis is polar',
+      r(89, 0) < 5.8 && r(-89, 0) < 5.8,
+      `north ${r(89, 0).toFixed(2)} km, south ${r(-89, 0).toFixed(2)} km, expected < 5.8`,
+    )
+    // A broad, well-sampled depression in the southern hemisphere — 472 of the
+    // table's 2701 points sit below 4.5 km, centred here. If the latitude order
+    // were ever flipped this would appear in the north instead.
+    ok(
+      'Deimos southern depression is in the south',
+      r(-67, 232) < 4.2 && r(67, 232) > 5,
+      `south ${r(-67, 232).toFixed(2)} km, north ${r(67, 232).toFixed(2)} km`,
+    )
+  }
+}
+
 // ---------------------------------------------------------------------------
 console.log(
   `\n\x1b[1m${checks - failures}/${checks} checks passed\x1b[0m${failures ? ` \x1b[31m(${failures} failed)\x1b[0m` : ''}\n`,

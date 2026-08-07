@@ -119,27 +119,35 @@ far-side maximum (5.4°N 201.4°E) and Antoniadi inside South Pole–Aitken, wit
 the far side averaging above the near side. Note the two products differ in byte
 order — MOLA is big-endian, LOLA little-endian — which is not something to infer.
 
-### PDS Small Bodies Node — Gaskell shape models
+### PDS Small Bodies Node — shape models
 
 **Licence: public domain** (US Government work, NASA mission data).
 
 | Body | Source | Form |
 | --- | --- | --- |
-| Phobos | `phobos_quad128q.tab` | 6 cube faces × 129² vertices, km |
+| Phobos | `phobos_quad128q.tab` (Gaskell) | 6 cube faces × 129² vertices, km |
+| Deimos | `m2deimos.tab` (Thomas) | 37 × 73 lat/lon/radius table, 5° grid |
 
-<https://sbn.psi.edu/pds/resource/phobosshape.html>
+- <https://sbn.psi.edu/pds/resource/phobosshape.html>
+- <https://sbnarchive.psi.edu/pds4/non_mission/ast-sat.thomas.shape-models_V1_0/>
 
-R. Gaskell, Phobos shape model, PDS Small Bodies Node. Phobos is 27 × 22 × 18 km
-and nothing like a sphere, so "elevation above a datum" would be meaningless for
-it; Aphelion resamples the vertex cube onto the same equirectangular grid as the
-planetary grids above, storing radius offsets from the 11.08 km mean radius. The
-resampled map reproduces the model's full 8.10–13.94 km radius range, and
-`pnpm validate` reads the IAU triaxial figure back out of it — long axis toward
-Mars, short axis polar — along with Stickney showing up as a depression on the
-Mars-facing hemisphere. **No exaggeration is applied**: the shape is the shape.
+Phobos is 27 × 22 × 18 km and Deimos 15 × 12 × 11 km, so "elevation above a
+datum" would be meaningless for either; Aphelion resamples both onto the same
+equirectangular grid as the planetary grids above, storing radius offsets from
+each body's mean radius. **No exaggeration is applied to either**: the shape is
+the shape.
 
-Deimos has no published shape model in these collections and is still drawn as
-a sphere.
+R. Gaskell's Phobos model resamples to 512 × 256 and reproduces its full
+8.10–13.94 km radius range. P. Thomas's Deimos model is much coarser — a 5°
+grid derived solely from Viking Orbiter imagery, because no other spacecraft has
+resolved Deimos properly — so Deimos comes out smooth and correctly shaped rather
+than detailed. That is the whole of what has been measured, and Deimos genuinely
+is smoother than Phobos, its craters being buried in regolith.
+
+`pnpm validate` reads the IAU triaxial figures back out of both maps — long axis
+toward Mars, short axis polar — along with Stickney appearing as a depression on
+Phobos's Mars-facing hemisphere and Deimos's broad southern depression appearing
+in the south.
 
 **Vertical exaggeration is applied at explore scale and is disclosed.** Mars's
 entire elevation range is under one percent of its radius and the Moon's is
@@ -152,6 +160,28 @@ names the factor on any body it affects. At true scale relief is 1:1.
 One knock-on: Earth's cloud deck nominally sits 0.4% of a radius up, which is
 lower than exaggerated Himalaya, so the shell is lifted to clear the highest
 terrain. Otherwise the mountains would stand through the clouds.
+
+### PDS Small Bodies Node — Deimos mosaic
+
+**Licence: public domain** (US Government work, NASA mission data).
+
+P. Thomas, `m2deimosm.fit` — a 1440 × 720 Viking Orbiter mosaic, the only global
+image of Deimos there is, delivered as a FITS array rather than a browse image.
+Aphelion decodes it to `deimos.png`. Before this, Deimos fell back to the
+procedural generator, whose oversized craters made it read as a hollow shell.
+
+**Two honest notes.** The mosaic is **high-pass filtered**, so it carries relief
+detail but not true albedo — brightness across it is not photometric. And 4.3% of
+Deimos was never imaged; those pixels are flattened to the image mean rather than
+filled in from their neighbours, so unimaged ground reads as blank instead of as
+invented terrain.
+
+The FITS header records no row order. It is read south-first, on the evidence
+that the shape model in the same bundle by the same author is explicitly
+south-first, and that the unimaged region then lands on the same latitudes *and*
+longitudes as that model's unusually smooth southern depression — which is what a
+region with no imaging would produce. Read north-first the two would not overlap
+at all.
 
 ### Everything else — synthesised
 
@@ -283,7 +313,7 @@ All shaders in `src/render/materials.ts` are original to this project.
 | Minor planet diameters | Derived from magnitude + assumed albedo |
 | Belt particles | **Generated** from real distributions |
 | Surface relief | Real measured topography; **exaggerated** at explore scale |
-| Phobos's shape | Real shape model, unexaggerated |
+| Phobos and Deimos shapes | Real shape models, unexaggerated |
 | Illumination falloff | Deliberately compressed (see below) |
 
 Two knowing departures from physics, both confined and both labelled in the UI.

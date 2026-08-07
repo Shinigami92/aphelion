@@ -10,6 +10,7 @@ export const AVAILABLE_TEXTURES: ReadonlySet<string> = new Set([
   "callisto.jpg",
   "ceres.jpg",
   "charon.jpg",
+  "deimos.png",
   "dione.jpg",
   "earth_clouds.jpg",
   "earth_day.jpg",
