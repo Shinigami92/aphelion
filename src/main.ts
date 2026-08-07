@@ -157,18 +157,38 @@ minimap.show()
  * under the map.
  */
 function syncPanelBounds(): void {
+  const viewportHeight = document.documentElement.clientHeight
+  const shown = (el: HTMLElement): boolean =>
+    el.offsetParent !== null && getComputedStyle(el).display !== 'none'
+
+  // Right column: the info panel stops above the orrery map.
   const info = need('info')
   const available = minimap.visible
     ? minimapHost.getBoundingClientRect().top - 12
-    : document.documentElement.clientHeight - 14
+    : viewportHeight - 14
   info.style.maxHeight = `${Math.max(220, Math.round(available - 14))}px`
+
+  // Left column: the body browser stops above the view panel. Both are fixed to
+  // the same edge, so the browser's `bottom` has to clear the view panel's whole
+  // height — and that height is content-dependent (it grows with every toggle
+  // added), which is exactly why the hard-coded 176px in the stylesheet was 29px
+  // short and the two overlapped.
+  const browser = need('browser')
+  const toggles = need('toggles')
+  const clearance = shown(toggles)
+    ? Math.round(viewportHeight - toggles.getBoundingClientRect().top + 12)
+    : 14
+  browser.style.bottom = `${clearance}px`
 }
 
-// The map's own height is not final at startup — its caption only wraps to a
-// second line once the first frame fills it in — so observe it rather than
-// measuring once and trusting the result.
+// Neither panel's height is final at startup, and both change later: the orrery
+// caption wraps to a second line once the first frame fills it in, and the view
+// panel grows whenever a toggle is added. Observe them rather than measuring
+// once and trusting the result.
 if (typeof ResizeObserver !== 'undefined') {
-  new ResizeObserver(() => syncPanelBounds()).observe(minimapHost)
+  const observer = new ResizeObserver(() => syncPanelBounds())
+  observer.observe(minimapHost)
+  observer.observe(need('toggles'))
 }
 
 const togglePanel = new TogglePanel(

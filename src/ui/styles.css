@@ -84,7 +84,9 @@ body {
   top: 186px;
   left: 14px;
   width: 288px;
-  bottom: 176px;
+  /* Starting bound only. main.ts overwrites `bottom` from the measured height of
+     the view panel below, which grows with its content. */
+  bottom: 205px;
   display: flex;
   flex-direction: column;
   min-height: 160px;
