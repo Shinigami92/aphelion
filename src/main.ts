@@ -37,6 +37,7 @@ import {
 } from './ui/panels.ts'
 import { Minimap } from './ui/minimap.ts'
 import { makeCollapsible } from './ui/collapse.ts'
+import { installMobileShell } from './ui/mobile.ts'
 
 // ---------------------------------------------------------------------------
 // DOM
@@ -158,9 +159,34 @@ minimap.show()
  * Measured from real geometry rather than expressed in `vh`: viewport units do
  * not always equal the client height a panel is actually laid out against, and
  * being a few pixels out means long content (Saturn's ring table) disappears
- * under the map.
+ * under the map. Does nothing under the phone layout, which places its panels
+ * from the stylesheet instead.
  */
+
+/**
+ * Whether the phone shell is in charge of panel placement.
+ *
+ * A plain flag rather than a reference to the shell: it calls back while it is
+ * still being constructed, so reading its binding from here would be a temporal
+ * dead zone.
+ */
+let mobileLayout = false
+
 function syncPanelBounds(): void {
+  // The phone layout positions these panels from the stylesheet, and inline
+  // styles would win over it. Hand them back rather than merely skipping, or a
+  // rotation from desktop widths leaves a stale `bottom` pinning a sheet.
+  if (mobileLayout) {
+    for (const id of ['browser', 'info']) {
+      const panel = need(id)
+      panel.style.top = ''
+      panel.style.bottom = ''
+      panel.style.maxHeight = ''
+      panel.style.height = ''
+    }
+    return
+  }
+
   const viewportHeight = document.documentElement.clientHeight
   const shown = (el: HTMLElement): boolean =>
     el.offsetParent !== null && getComputedStyle(el).display !== 'none'
@@ -247,11 +273,47 @@ const togglePanel = new TogglePanel(
 // without losing track of what is selected or what the clock reads. Collapsing
 // the view panel changes its height, which the ResizeObserver above already
 // watches, so the browser panel's lower bound follows on its own.
-makeCollapsible(need('time-panel'), timePanel.head, timePanel.body, 'the time controls')
-makeCollapsible(need('browser'), browser.head, browser.body, 'the body browser')
-makeCollapsible(need('info'), infoPanel.head, infoPanel.body, 'the body details')
-makeCollapsible(minimapHost, minimap.head, minimap.body, 'the orrery map')
-makeCollapsible(need('toggles'), togglePanel.head, togglePanel.body, 'the view options')
+const collapsibles = [
+  makeCollapsible(need('time-panel'), timePanel.head, timePanel.body, 'the time controls'),
+  makeCollapsible(need('browser'), browser.head, browser.body, 'the body browser'),
+  makeCollapsible(need('info'), infoPanel.head, infoPanel.body, 'the body details'),
+  makeCollapsible(minimapHost, minimap.head, minimap.body, 'the orrery map'),
+  makeCollapsible(need('toggles'), togglePanel.head, togglePanel.body, 'the view options'),
+]
+
+/**
+ * The phone layout: the clock docks across the top and the other four panels
+ * become bottom sheets driven by a tab bar. The panels themselves are re-used,
+ * so there is no second implementation of the browser or the info readouts.
+ */
+installMobileShell(
+  need('app'),
+  [
+    { id: 'bodies', label: 'Bodies', panel: need('browser') },
+    { id: 'info', label: 'Info', panel: need('info') },
+    { id: 'view', label: 'View', panel: need('toggles') },
+    {
+      id: 'orrery',
+      label: 'Orrery',
+      panel: minimapHost,
+      // The map only draws while it believes itself visible, and on a phone the
+      // tab is the way you ask for it — so opening the sheet overrides the view
+      // toggle rather than showing an empty box. Its canvas re-sizes itself on
+      // the next frame.
+      onShow: () => minimap.show(),
+    },
+  ],
+  (mobile) => {
+    mobileLayout = mobile
+    if (mobile) {
+      // A panel left collapsed on desktop carries an inline height that would
+      // fight the sheet's own sizing, so every panel starts the phone layout
+      // open. The chevrons are hidden there anyway.
+      for (const panel of collapsibles) if (panel.collapsed) panel.toggle()
+    }
+    syncPanelBounds()
+  },
+)
 
 // Second pass of the shared view: display state, now that the panels exist so
 // their checkboxes and segmented buttons reflect what was restored.

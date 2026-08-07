@@ -96,6 +96,11 @@ as they move: the body browser tracks both the clock above it and the view
 options below, and the info panel grows into the corner when the orrery map
 folds.
 
+**On a phone** the same panels rearrange rather than disappear. The clock docks
+across the top and the other four become sheets, one at a time, from a tab bar at
+the bottom — sliding up in portrait, and in from the side in landscape, where
+height is the scarce dimension and a bottom sheet would leave no scene at all.
+
 ---
 
 ## Sharing a view
