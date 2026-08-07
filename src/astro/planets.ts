@@ -14,7 +14,7 @@
 
 import { AU_KM, DEG, MOON_BARY_FRACTION } from '../core/constants.ts'
 import { centuriesSinceJ2000 } from './timescales.ts'
-import { positionFromAngles, type Vec3 } from './kepler.ts'
+import { positionFromAngles, type Elements, type Vec3 } from './kepler.ts'
 import { moonGeocentric } from './moon.ts'
 
 export type PlanetKey =
@@ -163,6 +163,27 @@ export function planetElementsAt(key: PlanetKey, jdTT: number): PlanetElements {
     node: node * DEG,
     argPeri: (peri - node) * DEG,
     meanAnomaly: (L - peri) * DEG,
+  }
+}
+
+/**
+ * J2000 mean elements in the common shape consumed by the orbit renderers.
+ * The mean-anomaly rate is the mean-longitude rate minus the perihelion rate.
+ */
+export function planetOrbitElements(key: PlanetKey): Elements {
+  const row = TABLE[key]
+  const perDay = DEG / 36_525
+  return {
+    a: row.a * AU_KM,
+    e: row.e,
+    i: row.inc * DEG,
+    node: row.node * DEG,
+    argPeri: (row.peri - row.node) * DEG,
+    m0: (row.L - row.peri) * DEG,
+    epoch: 2451545.0,
+    n: (row.LDot - row.periDot) * perDay,
+    argPeriDot: (row.periDot - row.nodeDot) * perDay,
+    nodeDot: row.nodeDot * perDay,
   }
 }
 

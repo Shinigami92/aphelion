@@ -33,7 +33,7 @@ import {
   type Vec3,
 } from '../astro/kepler.ts'
 import { moonGeocentric, moonGeocentricVelocity } from '../astro/moon.ts'
-import { PLANET_KEYS, planetPosition, type PlanetKey } from '../astro/planets.ts'
+import { PLANET_KEYS, planetOrbitElements, planetPosition, type PlanetKey } from '../astro/planets.ts'
 import { centuriesSinceJ2000, daysSinceJ2000 } from '../astro/timescales.ts'
 import {
   DWARF_PLANETS,
@@ -179,14 +179,21 @@ export class SolarSystem {
   constructor() {
     this.sun = this.addSpec(SUN, null)
 
-    for (const spec of PLANETS) this.addSpec(spec, this.sun)
+    for (const spec of PLANETS) {
+      const body = this.addSpec(spec, this.sun)
+      body.elements = planetOrbitElements(spec.key as PlanetKey)
+      body.periodDays = TWO_PI / Math.abs(body.elements.n)
+    }
 
     // Dwarf planets take their orbits from the Minor Planet Center elements,
     // except Pluto which is in the JPL planetary table alongside the planets.
     const smallByName = new Map(SMALL_BODIES.map((b) => [b.name, b]))
     for (const spec of DWARF_PLANETS) {
       const body = this.addSpec(spec, this.sun)
-      if (spec.key !== 'pluto') {
+      if (spec.key === 'pluto') {
+        body.elements = planetOrbitElements('pluto')
+        body.periodDays = TWO_PI / Math.abs(body.elements.n)
+      } else {
         const match = smallByName.get(spec.name)
         if (match) {
           body.small = match
