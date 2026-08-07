@@ -290,6 +290,60 @@ section('Renderable planetary orbits')
 }
 
 // ---------------------------------------------------------------------------
+section('Orbit geometry survives float32')
+
+{
+  // Satellite orbit vertices must be stored relative to their parent. Storing
+  // absolute scene coordinates quantises the curve: at Pluto's ~1.28 million
+  // scene units the float32 spacing is 0.085 units while Charon's orbit is only
+  // ~40 across, which showed up as a visible sawtooth. Raising the segment count
+  // cannot fix that, so this asserts the property rather than the appearance.
+  const system = new SolarSystem()
+  const scale = new ScaleModel()
+  system.update(jdTT, scale)
+
+  const charon = system.byKey.get('moon:Charon')
+  const pluto = system.byKey.get('pluto')
+  const segments = 512
+  const points = charon ? system.orbitPolyline(charon, scale, segments) : null
+
+  if (!points || !pluto) {
+    ok('Charon orbit polyline available', false)
+  } else {
+    const parentMagnitude = Math.hypot(pluto.scene.x, pluto.scene.y, pluto.scene.z)
+
+    let maxCoord = 0
+    let minR = Infinity
+    let maxR = -Infinity
+    for (let i = 0; i < segments; i++) {
+      const x = points[i * 3]!
+      const y = points[i * 3 + 1]!
+      const z = points[i * 3 + 2]!
+      maxCoord = Math.max(maxCoord, Math.abs(x), Math.abs(y), Math.abs(z))
+      const r = Math.hypot(x, y, z)
+      minR = Math.min(minR, r)
+      maxR = Math.max(maxR, r)
+    }
+    const meanR = (minR + maxR) / 2
+    const relativeSpread = (maxR - minR) / meanR
+
+    ok(
+      'satellite orbit vertices are parent-relative, not absolute',
+      maxCoord < parentMagnitude * 0.01,
+      `max |coord| ${maxCoord.toFixed(2)} vs parent at ${parentMagnitude.toFixed(0)}`,
+    )
+    // A circular orbit sampled in eccentric anomaly has constant radius, so any
+    // spread here is quantisation. Charon's eccentricity is ~0, and the bound is
+    // still far tighter than the 0.3% the absolute-coordinate version produced.
+    ok(
+      'radial quantisation below 0.01% of the orbit radius',
+      relativeSpread < 1e-4,
+      `spread ${(relativeSpread * 100).toFixed(5)}% of ${meanR.toFixed(3)} units`,
+    )
+  }
+}
+
+// ---------------------------------------------------------------------------
 console.log(
   `\n\x1b[1m${checks - failures}/${checks} checks passed\x1b[0m${failures ? ` \x1b[31m(${failures} failed)\x1b[0m` : ''}\n`,
 )

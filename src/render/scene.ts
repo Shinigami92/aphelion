@@ -1070,8 +1070,17 @@ export class SceneView {
     this.orbitGroup.visible = this.toggles.orbits !== 'none'
     if (!this.orbitGroup.visible) return
 
-    // Orbits change shape only when the scale blends or elements precess, so
-    // rebuilding a few times a second is plenty.
+    // Follow the parents every frame. Vertices are stored parent-relative, so
+    // each line has to be re-seated on its parent as that parent moves —
+    // rebuilding on the timer alone would let a moon's orbit lag behind its
+    // planet by up to a quarter second of orbital motion.
+    for (const [key, entry] of this.orbitLines) {
+      const parent = system.byKey.get(key)?.parent
+      if (parent) entry.line.position.set(parent.scene.x, parent.scene.y, parent.scene.z)
+    }
+
+    // Shape only changes as the scale blends or the elements precess, so
+    // resampling a few times a second is plenty.
     this.orbitRebuildTimer -= dt
     const force = scale.isTransitioning
     if (this.orbitRebuildTimer > 0 && !force) return
@@ -1142,6 +1151,11 @@ export class SceneView {
       this.orbitGroup.add(line)
       entry = { line, material }
       this.orbitLines.set(body.key, entry)
+      // Seat it on the parent immediately; the per-frame loop above keeps it
+      // there. Three composes this translation on the CPU in float64, so the
+      // large offset never touches the float32 vertex buffer.
+      const parent = body.parent
+      if (parent) line.position.set(parent.scene.x, parent.scene.y, parent.scene.z)
     } else {
       const attr = entry.line.geometry.getAttribute('position') as BufferAttribute
       if (attr.array.length === points.length) {

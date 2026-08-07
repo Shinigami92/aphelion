@@ -445,6 +445,11 @@ export class SolarSystem {
    * Sampled in eccentric anomaly and then pushed through the scale transform
    * point by point, because the transform is radial and non-linear: in explore
    * mode a true ellipse is no longer an ellipse on screen.
+   *
+   * **Points are relative to the parent's scene position**, so callers must
+   * place the resulting geometry at `body.parent.scene`. For heliocentric bodies
+   * that is the origin and the two are identical; for satellites it is what
+   * keeps the vertices small enough to survive float32 (see the note inside).
    */
   orbitPolyline(body: SimBody, scale: ScaleModel, segments = 512): Float32Array | null {
     if (!body.elements || !body.parent) return null
@@ -467,11 +472,19 @@ export class SolarSystem {
         y = p.y * f
         z = p.z * f
       } else {
+        // Deliberately parent-RELATIVE. Adding the parent's absolute scene
+        // position here and storing the sum in a Float32Array destroys the
+        // orbit: at Pluto's 1.28 million scene units the float32 spacing is
+        // 0.085 units, while Charon's orbit is only 40 units across, so the
+        // curve gets quantised into a visible sawtooth — 159x worse than the
+        // error from tessellating it with 512 segments. The renderer positions
+        // the line at the parent instead, keeping the shift in float64 until
+        // after the floating-origin transform.
         const r = length(p)
         const f = r > 0 ? scale.satelliteDistance(r, parent.radiusKm) / r : 0
-        x = parent.scene.x + p.x * f
-        y = parent.scene.y + p.y * f
-        z = parent.scene.z + p.z * f
+        x = p.x * f
+        y = p.y * f
+        z = p.z * f
       }
       out[s * 3] = x
       out[s * 3 + 1] = y
