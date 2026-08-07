@@ -12,6 +12,7 @@
     "validate": "node scripts/validate-astro.ts",
     "assets": "node scripts/fetch-assets.ts && bash scripts/convert-textures.sh && node scripts/fetch-assets.ts --only=manifest",
     "assets:data": "node scripts/fetch-assets.ts --only=data",
+    "assets:relief": "node scripts/fetch-assets.ts --only=relief",
     "assets:textures": "node scripts/fetch-assets.ts --only=textures && bash scripts/convert-textures.sh && node scripts/fetch-assets.ts --only=manifest",
     "assets:light": "node scripts/fetch-assets.ts --skip-usgs --tier=high && bash scripts/convert-textures.sh && node scripts/fetch-assets.ts --only=manifest"
   },

@@ -82,6 +82,29 @@ fixed tint (`textureTint` in `data/bodies.ts`) matching Pluto's measured global
 colour. **The detail is real New Horizons data; the hue is applied.** No other body
 is tinted.
 
+### PDS Geosciences Node — global topography
+
+**Licence: public domain** (US Government work, NASA mission data).
+
+| Body | Source | Instrument |
+| --- | --- | --- |
+| Mars | `megt90n000cb.img` (MEGDR) | MGS MOLA, 4 px/deg |
+
+<https://pds-geosciences.wustl.edu/mgs/mgs-m-mola-5-megdr-l3-v1/>
+
+Courtesy NASA / JPL / GSFC. This is measured elevation, not a bump map derived
+from imagery: the MEGDR grid is 16-bit signed metres relative to the areoid, and
+Aphelion resamples it to `public/shapes/mars_relief.png`, splitting each height
+across the red and green channels because browsers decode 16-bit PNGs down to
+8 bits. The decoded range is −8.07 km to 21.13 km, and its extremes land on
+Hellas and Olympus Mons respectively, which is what `pnpm validate` checks.
+
+**Vertical exaggeration is applied at explore scale and is disclosed.** Mars's
+entire elevation range is under one percent of its radius, so at true scale the
+relief is real and all but invisible; explore scale multiplies it by 12, in the
+same spirit as the sixfold body enlargement that mode already applies. The info
+panel names the factor on any body it affects. At true scale relief is 1:1.
+
 ### Everything else — synthesised
 
 Roughly 450 of the 687 bodies have **no map that has ever been made**; most are
@@ -211,11 +234,18 @@ All shaders in `src/render/materials.ts` are original to this project.
 | Satellite radii | 134 measured, 325 nominal estimates |
 | Minor planet diameters | Derived from magnitude + assumed albedo |
 | Belt particles | **Generated** from real distributions |
+| Surface relief | Real measured topography; **exaggerated** at explore scale |
 | Illumination falloff | Deliberately compressed (see below) |
 
-One knowing departure from physics: true irradiance falls as 1/r², which renders
-Saturn at 1% of Earth's brightness and Neptune at 0.1% — black, on a display that
-cannot adapt the way an eye does. Aphelion compresses the exponent to 0.45, which
-preserves the ordering and the sense of dimming while keeping every planet
-visible. It is the only such compromise in the renderer, and it is confined to
-one line in `src/render/scene.ts`.
+Two knowing departures from physics, both confined and both labelled in the UI.
+
+True irradiance falls as 1/r², which renders Saturn at 1% of Earth's brightness
+and Neptune at 0.1% — black, on a display that cannot adapt the way an eye does.
+Aphelion compresses the exponent to 0.45, which preserves the ordering and the
+sense of dimming while keeping every planet visible. It is confined to one line
+in `src/render/scene.ts`.
+
+Surface relief is measured elevation, but at explore scale its vertical scale is
+multiplied (Mars by 12) so that terrain under one percent of a planet's radius is
+visible at all. True scale renders it 1:1, and the factor in force is stated in
+the info panel rather than left for the viewer to guess.

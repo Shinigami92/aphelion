@@ -13,6 +13,8 @@ import type { SimBody, SolarSystem } from '../core/system.ts'
 import { escapeVelocity } from '../core/system.ts'
 import { AU_KM } from '../core/constants.ts'
 import { swarmSummary } from '../data/belts.ts'
+import { RELIEF_EXAGGERATION } from '../data/bodies.ts'
+import { reliefFor } from '../data/generated/relief.ts'
 
 const el = <K extends keyof HTMLElementTagNameMap>(
   tag: K,
@@ -549,6 +551,21 @@ export class InfoPanel {
     if (body.flattening > 0.001) {
       rows.push(['Polar radius', `${fmt(radius * (1 - body.flattening), 1)} km`])
       rows.push(['Flattening', `1 / ${fmt(1 / body.flattening, 1)}`])
+    }
+    // Terrain that has been exaggerated has to say so. The surface is real
+    // measured topography, but at explore scale its vertical scale is not, and
+    // an unlabelled 12x mountain is precisely the kind of convincing-but-wrong
+    // this project keeps having to guard against.
+    const relief = reliefFor(body.key)
+    if (relief) {
+      const factor = RELIEF_EXAGGERATION[body.key] ?? 1
+      rows.push([
+        'Relief',
+        factor > 1
+          ? `${relief.credit.split('—')[0]!.trim()}, ×${factor} in explore scale`
+          : relief.credit.split('—')[0]!.trim(),
+        true,
+      ])
     }
     if (facts) {
       rows.push(['Mass', formatMass(facts.mass)])

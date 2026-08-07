@@ -18,11 +18,12 @@
  * Sources
  *   - Solar System Scope planetary maps (CC BY 4.0)
  *   - USGS Astrogeology global mosaics (public domain)
+ *   - PDS Geosciences Node global elevation grids (public domain)
  *   - JPL Solar System Dynamics satellite elements + physical parameters
  *   - IAU Minor Planet Center MPCORB / Distant.txt orbit catalogues
  */
 
-import { createGunzip } from 'node:zlib'
+import { createGunzip, deflateSync } from 'node:zlib'
 import { createReadStream } from 'node:fs'
 import { createInterface } from 'node:readline'
 import fs from 'node:fs/promises'
@@ -32,6 +33,7 @@ import { fileURLToPath } from 'node:url'
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const CACHE = path.join(ROOT, '.cache')
 const TEXTURES = path.join(ROOT, 'public', 'textures')
+const SHAPES = path.join(ROOT, 'public', 'shapes')
 const GENERATED = path.join(ROOT, 'src', 'data', 'generated')
 const QUEUE = path.join(CACHE, 'convert-queue.tsv')
 
@@ -53,6 +55,7 @@ const tier = (flag('tier') ?? 'max') as 'max' | 'high' | 'lean'
 const skipUsgs = flag('skip-usgs') !== null
 const doTextures = only === null || only === 'textures'
 const doData = only === null || only === 'data'
+const doRelief = only === null || only === 'relief'
 const manifestOnly = only === 'manifest'
 
 // ---------------------------------------------------------------------------
@@ -271,6 +274,235 @@ async function astropediaImageUrl(spec: AstropediaSpec): Promise<string | null> 
     ...xml.matchAll(/https:\/\/astrogeology\.usgs\.gov[^\s"'<>]+\/download\/[^\s"'<>]+/g),
   ].map((m) => m[0])
   return urls.find((u) => !/thumb/i.test(u) && /\.(jpe?g|png|tif)$/i.test(u)) ?? null
+}
+
+// ---------------------------------------------------------------------------
+// 2c. Topography  (public domain)
+//
+// Relief comes from published global elevation grids, not from mesh files. One
+// equirectangular height map serves both the near-spheres, whose relief is only
+// visible once explore mode exaggerates it, and (later) the small bodies, whose
+// shape models resample onto the same grid. A mesh cannot do the first job:
+// exaggeration would mean re-baking geometry per level, where a height map needs
+// a single uniform — and a mesh would also carry one fixed tessellation, where
+// the map displaces all four of our LOD spheres.
+// ---------------------------------------------------------------------------
+
+interface ReliefSpec {
+  /** Body key, matching src/data/bodies.ts. */
+  body: string
+  out: string
+  url: string
+  width: number
+  height: number
+  /** Metres of elevation per stored raster unit. */
+  metresPerDn: number
+  /** East longitude of the source raster's left-hand column, degrees. */
+  originLonEast: number
+  credit: string
+  note: string
+}
+
+const RELIEF: ReliefSpec[] = [
+  {
+    body: 'mars',
+    out: 'mars_relief.png',
+    url: 'https://pds-geosciences.wustl.edu/mgs/mgs-m-mola-5-megdr-l3-v1/mgsl_300x/meg004/megt90n000cb.img',
+    width: 1440,
+    height: 720,
+    metresPerDn: 1,
+    originLonEast: 0,
+    credit: 'MGS MOLA MEGDR — NASA/JPL/GSFC, PDS Geosciences Node',
+    note: 'MOLA MEGDR, 4 px/deg',
+  },
+]
+
+interface ReliefResult {
+  spec: ReliefSpec
+  minKm: number
+  maxKm: number
+}
+
+// -- a minimal 8-bit RGB PNG writer -----------------------------------------
+//
+// No image library is a dependency here, and none is needed: an uncompressed
+// truecolour PNG is a signature, three chunks and a zlib stream. Writing it by
+// hand also means no encoder slips in a gAMA or iCCP chunk, which a browser
+// would honour and quietly regrade — fatal when the pixels are numbers rather
+// than colours.
+
+const CRC_TABLE = (() => {
+  const table = new Int32Array(256)
+  for (let n = 0; n < 256; n++) {
+    let c = n
+    for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1
+    table[n] = c
+  }
+  return table
+})()
+
+function crc32(buf: Buffer): number {
+  let c = 0xffffffff
+  for (let i = 0; i < buf.length; i++) c = CRC_TABLE[(c ^ buf[i]!) & 0xff]! ^ (c >>> 8)
+  return (c ^ 0xffffffff) >>> 0
+}
+
+function pngChunk(type: string, data: Buffer): Buffer {
+  const head = Buffer.alloc(8)
+  head.writeUInt32BE(data.length, 0)
+  head.write(type, 4, 'ascii')
+  const crc = Buffer.alloc(4)
+  crc.writeUInt32BE(crc32(Buffer.concat([head.subarray(4), data])), 0)
+  return Buffer.concat([head, data, crc])
+}
+
+function encodePng(width: number, height: number, rgb: Buffer): Buffer {
+  const ihdr = Buffer.alloc(13)
+  ihdr.writeUInt32BE(width, 0)
+  ihdr.writeUInt32BE(height, 4)
+  ihdr[8] = 8 // bit depth
+  ihdr[9] = 2 // colour type 2 = truecolour RGB
+  ihdr[10] = 0 // deflate
+  ihdr[11] = 0 // adaptive filtering
+  ihdr[12] = 0 // no interlace
+
+  // Filter type 1 (Sub) predicts each byte from the same channel one pixel to
+  // the left. Elevation is smooth horizontally, so the high byte nearly
+  // vanishes; the low byte is noise and will not compress, which is the price
+  // of keeping 16 bits of precision.
+  const stride = width * 3
+  const raw = Buffer.alloc(height * (stride + 1))
+  for (let y = 0; y < height; y++) {
+    const src = y * stride
+    const dst = y * (stride + 1)
+    raw[dst] = 1
+    for (let x = 0; x < stride; x++) {
+      const left = x >= 3 ? rgb[src + x - 3]! : 0
+      raw[dst + 1 + x] = (rgb[src + x]! - left) & 0xff
+    }
+  }
+
+  return Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    pngChunk('IHDR', ihdr),
+    pngChunk('IDAT', deflateSync(raw, { level: 9 })),
+    pngChunk('IEND', Buffer.alloc(0)),
+  ])
+}
+
+/**
+ * Turn a raw 16-bit signed big-endian elevation raster into a relief PNG.
+ *
+ * Two deliberate transforms. The grid is rolled half a turn so its left edge is
+ * 180 degrees west, matching the colour mosaics and letting relief and albedo
+ * share one set of UVs — offsetting in the shader instead would need a fract()
+ * that breaks derivative-based normals at the seam. And elevation is split
+ * across the red (high byte) and green (low byte) channels, because browsers
+ * decode 16-bit PNGs down to 8 bits, and 8 bits across Mars's 29 km range is a
+ * 115 m quantum: that shows up as terraced normals long before it shows up as
+ * a wrong altitude.
+ */
+async function buildRelief(spec: ReliefSpec): Promise<ReliefResult | null> {
+  const outPath = path.join(SHAPES, spec.out)
+  const cachePath = path.join(CACHE, path.basename(spec.url))
+  if (!(await download(spec.url, cachePath, `${spec.out} ${C.dim(spec.note)}`))) return null
+
+  const raw = await fs.readFile(cachePath)
+  const count = spec.width * spec.height
+  if (raw.length !== count * 2) {
+    console.log(
+      `  ${C.red('bad    ')} ${spec.out}: expected ${count * 2} bytes, got ${raw.length}`,
+    )
+    return null
+  }
+
+  // Roll so output column 0 sits at 180 degrees east longitude.
+  const shift = Math.round((spec.width * (180 - spec.originLonEast)) / 360)
+  const metres = new Float64Array(count)
+  let min = Infinity
+  let max = -Infinity
+  for (let y = 0; y < spec.height; y++) {
+    for (let x = 0; x < spec.width; x++) {
+      const src = y * spec.width + ((x + shift) % spec.width)
+      const v = raw.readInt16BE(src * 2) * spec.metresPerDn
+      metres[y * spec.width + x] = v
+      if (v < min) min = v
+      if (v > max) max = v
+    }
+  }
+
+  const span = max - min
+  const rgb = Buffer.alloc(count * 3)
+  for (let i = 0; i < count; i++) {
+    const t = Math.round(((metres[i]! - min) / span) * 65535)
+    rgb[i * 3] = (t >> 8) & 0xff
+    rgb[i * 3 + 1] = t & 0xff
+  }
+
+  await fs.mkdir(SHAPES, { recursive: true })
+  const png = encodePng(spec.width, spec.height, rgb)
+  await fs.writeFile(outPath, png)
+  console.log(
+    `  ${C.green('wrote  ')} ${spec.out} ${C.dim(
+      `${spec.width}x${spec.height}, ${(min / 1000).toFixed(2)}..${(max / 1000).toFixed(2)} km, ${mb(png.length)}`,
+    )}`,
+  )
+
+  return { spec, minKm: min / 1000, maxKm: max / 1000 }
+}
+
+async function writeReliefModule(results: ReliefResult[]): Promise<void> {
+  const entries = results
+    .map(
+      (r) => `  ${r.spec.body}: {
+    file: '${r.spec.out}',
+    width: ${r.spec.width},
+    height: ${r.spec.height},
+    minKm: ${r.minKm.toFixed(4)},
+    maxKm: ${r.maxKm.toFixed(4)},
+    credit: '${r.spec.credit.replace(/'/g, "\\'")}',
+  },`,
+    )
+    .join('\n')
+
+  const src = `/**
+ * GENERATED by scripts/fetch-assets.ts -- do not edit by hand.
+ *
+ * Global elevation grids present in public/shapes, with the elevation range each
+ * one was quantised against. A body with no entry here renders as its reference
+ * ellipsoid, which is why the app still works before \`pnpm assets\` has run.
+ *
+ * Encoding: equirectangular, left edge 180 degrees west (matching the colour
+ * mosaics), north row first. Elevation is a 16-bit fraction split across the red
+ * (high byte) and green (low byte) channels:
+ *
+ *   km = minKm + (R * 256 + G) / 65535 * (maxKm - minKm)
+ *
+ * relative to the body's reference radius.
+ */
+
+export interface ReliefMap {
+  file: string
+  width: number
+  height: number
+  /** Elevation encoded by 0, km relative to the body's reference radius. */
+  minKm: number
+  /** Elevation encoded by 65535. */
+  maxKm: number
+  credit: string
+}
+
+export const RELIEF_MAPS: Readonly<Record<string, ReliefMap>> = {
+${entries}
+}
+
+export const reliefFor = (key: string): ReliefMap | null => RELIEF_MAPS[key] ?? null
+`
+  await fs.mkdir(GENERATED, { recursive: true })
+  await fs.writeFile(path.join(GENERATED, 'relief.ts'), src)
+  console.log(
+    `  ${C.green('wrote  ')} src/data/generated/relief.ts ${C.dim(`(${results.length} maps)`)}`,
+  )
 }
 
 // ---------------------------------------------------------------------------
@@ -924,6 +1156,20 @@ async function main(): Promise<void> {
       // These arrive as browse JPEGs at sane sizes, so no conversion is needed.
       await fs.copyFile(cachePath, outPath)
     }
+  }
+
+  if (doRelief) {
+    step('Global topography (public domain)')
+    const relief: ReliefResult[] = []
+    for (const spec of RELIEF) {
+      const result = await buildRelief(spec)
+      if (result) relief.push(result)
+      else failures.push(spec.out)
+    }
+    // Rewrite only on a complete run: the module mirrors RELIEF exactly, so
+    // publishing a partial set would silently drop maps that are still on disk.
+    if (relief.length === RELIEF.length) await writeReliefModule(relief)
+    else console.log(C.yellow('  incomplete; existing relief module left in place'))
   }
 
   if (doData) {

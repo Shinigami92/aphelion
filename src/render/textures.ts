@@ -11,10 +11,18 @@
  * waits on a 14 MB Mercury.
  */
 
-import { LinearMipmapLinearFilter, RepeatWrapping, TextureLoader, type Texture } from 'three'
+import {
+  LinearFilter,
+  LinearMipmapLinearFilter,
+  NoColorSpace,
+  RepeatWrapping,
+  TextureLoader,
+  type Texture,
+} from 'three'
 import { hasTexture } from '../data/generated/textures.ts'
 
 const BASE = 'textures/'
+const RELIEF_BASE = 'shapes/'
 
 export type LoadListener = (loaded: number, total: number) => void
 
@@ -89,6 +97,58 @@ export class TextureLibrary {
     })
 
     this.pending.set(file, promise)
+    return promise
+  }
+
+  /**
+   * Load an elevation map from public/shapes.
+   *
+   * These carry numbers, not colour: height is a 16-bit value split across the
+   * red and green channels, so every setting that would ordinarily improve an
+   * image has to be off. Mipmaps and anisotropy would average the high and low
+   * bytes independently and produce elevations that exist nowhere on the body,
+   * and an sRGB decode would regrade the bytes outright. Sampling happens in the
+   * vertex stage at one fixed level, so nothing is lost by refusing them.
+   */
+  loadRelief(file: string): Promise<Texture | null> {
+    const cached = this.cache.get(RELIEF_BASE + file)
+    if (cached) return Promise.resolve(cached)
+
+    const inFlight = this.pending.get(RELIEF_BASE + file)
+    if (inFlight) return inFlight
+
+    this.requested++
+    this.emit()
+
+    const promise = new Promise<Texture | null>((resolve) => {
+      this.loader.load(
+        RELIEF_BASE + file,
+        (tex) => {
+          tex.wrapS = RepeatWrapping
+          tex.minFilter = LinearFilter
+          tex.magFilter = LinearFilter
+          tex.generateMipmaps = false
+          tex.anisotropy = 1
+          tex.colorSpace = NoColorSpace
+          // Same reason as the colour maps: our v runs from the north pole down.
+          tex.flipY = false
+          tex.needsUpdate = true
+          this.cache.set(RELIEF_BASE + file, tex)
+          this.completed++
+          this.emit()
+          resolve(tex)
+        },
+        undefined,
+        () => {
+          console.warn(`[aphelion] could not load relief ${file}; body stays an ellipsoid`)
+          this.completed++
+          this.emit()
+          resolve(null)
+        },
+      )
+    })
+
+    this.pending.set(RELIEF_BASE + file, promise)
     return promise
   }
 

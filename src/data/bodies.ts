@@ -604,6 +604,25 @@ export const SMALL_BODY_TEXTURES: Record<string, string> = {
 }
 
 /**
+ * Vertical exaggeration applied to relief in *explore* scale. True scale always
+ * renders relief 1:1.
+ *
+ * Mars's whole elevation range is 29 km on a 3,390 km radius — under one percent,
+ * and invisible on a disc a few hundred pixels across. That is an honest thing to
+ * show in true scale and a dull one in explore scale, which already trades metric
+ * fidelity for legibility by enlarging every body sixfold. Exaggerating relief
+ * there is the same bargain, so the number is chosen to read well rather than to
+ * mean anything: 12x puts Olympus Mons about 7% of a Martian radius tall.
+ *
+ * Anything not listed renders relief unexaggerated. The info panel always states
+ * the factor in use, because exaggerated terrain that does not say so is exactly
+ * the kind of plausible-looking wrongness this project tries to avoid.
+ */
+export const RELIEF_EXAGGERATION: Record<string, number> = {
+  mars: 12,
+}
+
+/**
  * Notable moons, surfaced first in the browser and given a description in the
  * info panel. Everything else is still fully simulated, just less annotated.
  */

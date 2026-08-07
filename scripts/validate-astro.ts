@@ -23,6 +23,63 @@ import { PLANET_KEYS, planetPosition, type PlanetKey } from '../src/astro/planet
 import { moonSpherical } from '../src/astro/moon.ts'
 import { SolarSystem } from '../src/core/system.ts'
 import { ScaleModel } from '../src/core/scale.ts'
+import { reliefFor } from '../src/data/generated/relief.ts'
+import { existsSync, readFileSync } from 'node:fs'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { inflateSync } from 'node:zlib'
+
+const SHAPES_DIR = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  '..',
+  'public',
+  'shapes',
+)
+
+/**
+ * Just enough PNG to read back what fetch-assets.ts writes: 8-bit truecolour,
+ * no interlacing. Decoding here rather than trusting the numbers the encoder
+ * reported means this check covers the file that actually ships.
+ */
+function decodePng(buf: Buffer): { width: number; height: number; data: Buffer } {
+  let pos = 8 // skip signature
+  let width = 0
+  let height = 0
+  const idat: Buffer[] = []
+  while (pos < buf.length) {
+    const len = buf.readUInt32BE(pos)
+    const type = buf.toString('ascii', pos + 4, pos + 8)
+    const data = buf.subarray(pos + 8, pos + 8 + len)
+    if (type === 'IHDR') {
+      width = data.readUInt32BE(0)
+      height = data.readUInt32BE(4)
+      if (data[8] !== 8 || data[9] !== 2 || data[12] !== 0) {
+        throw new Error(`unexpected PNG format: depth ${data[8]}, colour ${data[9]}`)
+      }
+    } else if (type === 'IDAT') idat.push(data)
+    else if (type === 'IEND') break
+    pos += 12 + len
+  }
+
+  const raw = inflateSync(Buffer.concat(idat))
+  const stride = width * 3
+  const out = Buffer.alloc(height * stride)
+  for (let y = 0; y < height; y++) {
+    const filter = raw[y * (stride + 1)]!
+    const src = y * (stride + 1) + 1
+    const dst = y * stride
+    for (let x = 0; x < stride; x++) {
+      const cur = raw[src + x]!
+      const left = x >= 3 ? out[dst + x - 3]! : 0
+      const up = y > 0 ? out[dst - stride + x]! : 0
+      if (filter === 0) out[dst + x] = cur
+      else if (filter === 1) out[dst + x] = (cur + left) & 0xff
+      else if (filter === 2) out[dst + x] = (cur + up) & 0xff
+      else throw new Error(`unsupported PNG filter ${filter}`)
+    }
+  }
+  return { width, height, data: out }
+}
 
 let failures = 0
 let checks = 0
@@ -339,6 +396,102 @@ section('Orbit geometry survives float32')
       'radial quantisation below 0.01% of the orbit radius',
       relativeSpread < 1e-4,
       `spread ${(relativeSpread * 100).toFixed(5)}% of ${meanR.toFixed(3)} units`,
+    )
+  }
+}
+
+// ---------------------------------------------------------------------------
+section('Surface relief')
+
+// The 180 degree texture bug lived for a whole build because a wrongly rotated
+// planet still looks like a planet. An elevation grid has the same failure mode
+// and a much better test: it has named extremes at published coordinates, so a
+// roll, a flip or a mirrored longitude shows up immediately.
+{
+  const relief = reliefFor('mars')
+  const file = relief ? path.join(SHAPES_DIR, relief.file) : ''
+  if (!relief || !existsSync(file)) {
+    // Assets are checked in, so this should not happen — but validate must not
+    // fail on a tree where they have been cleared deliberately.
+    ok('mars relief map present (skipped, not on disk)', true)
+  } else {
+    const img = decodePng(readFileSync(file))
+    ok(
+      'relief map matches its declared grid',
+      img.width === relief.width && img.height === relief.height,
+      `${img.width}x${img.height} vs ${relief.width}x${relief.height}`,
+    )
+
+    /** Elevation in km at a latitude and *east* longitude. */
+    const at = (latDeg: number, lonEast: number): number => {
+      const u = (((lonEast - 180) / 360) % 1 + 1) % 1
+      const x = Math.min(img.width - 1, Math.round(u * img.width))
+      const y = Math.min(img.height - 1, Math.max(0, Math.round(((90 - latDeg) / 180) * img.height)))
+      const i = (y * img.width + x) * 3
+      const f = ((img.data[i]! << 8) | img.data[i + 1]!) / 65535
+      return relief.minKm + f * (relief.maxKm - relief.minKm)
+    }
+
+    // Spot heights. Tolerances are wide because the grid is 4 px/deg — one
+    // sample spans ~15 km — so these test registration, not altimetry.
+    near('Ascraeus Mons elevation', at(11.8, 255.5), 18.1, 1.5, ' km')
+    near('Isidis basin floor', at(12.9, 87.0), -3.8, 1.5, ' km')
+
+    // The crustal dichotomy: the northern lowlands sit kilometres below the
+    // southern highlands. Independent of any single landmark, and it fails loudly
+    // if the grid is ever flipped in latitude.
+    const bandMean = (fromLat: number, toLat: number): number => {
+      let sum = 0
+      let weight = 0
+      const y0 = Math.round(((90 - toLat) / 180) * img.height)
+      const y1 = Math.round(((90 - fromLat) / 180) * img.height)
+      for (let y = y0; y < y1; y++) {
+        const lat = 90 - ((y + 0.5) * 180) / img.height
+        const w = Math.cos((lat * Math.PI) / 180)
+        for (let x = 0; x < img.width; x++) {
+          const i = (y * img.width + x) * 3
+          const f = ((img.data[i]! << 8) | img.data[i + 1]!) / 65535
+          sum += (relief.minKm + f * (relief.maxKm - relief.minKm)) * w
+          weight += w
+        }
+      }
+      return sum / weight
+    }
+    const north = bandMean(40, 80)
+    const south = bandMean(-80, -40)
+    ok(
+      'northern lowlands sit below the southern highlands',
+      south - north > 2,
+      `north ${north.toFixed(2)} km, south ${south.toFixed(2)} km, difference ${(south - north).toFixed(2)} km`,
+    )
+
+    // The decisive one: the global extremes must land on the right features.
+    let hi = -Infinity
+    let lo = Infinity
+    let hiAt: [number, number] = [0, 0]
+    let loAt: [number, number] = [0, 0]
+    for (let y = 0; y < img.height; y++) {
+      for (let x = 0; x < img.width; x++) {
+        const i = (y * img.width + x) * 3
+        const v = ((img.data[i]! << 8) | img.data[i + 1]!) / 65535
+        const lat = 90 - (y * 180) / img.height
+        const lon = (180 + (x * 360) / img.width) % 360
+        if (v > hi) { hi = v; hiAt = [lat, lon] }
+        if (v < lo) { lo = v; loAt = [lat, lon] }
+      }
+    }
+    // Olympus Mons is 600 km across, so its highest sample sits a degree or so
+    // off the nominal centre; 3 degrees still excludes every other volcano.
+    ok(
+      'global maximum is Olympus Mons',
+      Math.abs(hiAt[0] - 18.65) < 3 && Math.abs(hiAt[1] - 226.2) < 3,
+      `at ${hiAt[0].toFixed(2)}N ${hiAt[1].toFixed(2)}E, expected 18.65N 226.2E`,
+    )
+    // Hellas is a 2,300 km basin, so the deepest sample roams within it.
+    ok(
+      'global minimum is inside Hellas',
+      loAt[0] > -50 && loAt[0] < -25 && loAt[1] > 45 && loAt[1] < 95,
+      `at ${loAt[0].toFixed(2)}N ${loAt[1].toFixed(2)}E, expected the Hellas basin`,
     )
   }
 }

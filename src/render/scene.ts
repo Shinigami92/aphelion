@@ -51,7 +51,8 @@ import type { ScaleModel } from '../core/scale.ts'
 import type { SimBody, SolarSystem } from '../core/system.ts'
 import type { Basis } from '../astro/frames.ts'
 import { buildSwarms } from '../data/belts.ts'
-import type { RingSpec } from '../data/bodies.ts'
+import { RELIEF_EXAGGERATION, type RingSpec } from '../data/bodies.ts'
+import { reliefFor, type ReliefMap } from '../data/generated/relief.ts'
 import {
   classifySurface,
   pointSprite,
@@ -83,6 +84,20 @@ const MAJOR_MOON_RADIUS = 60
 
 /** Maximum minor bodies promoted to real geometry at once. */
 const PROMOTION_SLOTS = 6
+
+/**
+ * Sphere tessellation per detail tier, swapped by apparent size.
+ *
+ * Relief displacement reads these too: its normals are differenced at the
+ * spacing of whichever tier is drawn, so shading always describes the surface
+ * actually on screen rather than detail the triangles cannot express.
+ */
+const LOD_SEGMENTS: ReadonlyArray<readonly [number, number]> = [
+  [24, 14],
+  [48, 26],
+  [96, 52],
+  [192, 96],
+]
 
 const QUALITY: Record<Quality, { bloom: boolean; atmoSteps: number; maxPixelRatio: number; msaa: number; sphereBias: number }> = {
   low: { bloom: false, atmoSteps: 6, maxPixelRatio: 1, msaa: 0, sphereBias: 0.6 },
@@ -236,6 +251,13 @@ interface BodyVisual {
    * is actually big enough on screen to show it.
    */
   pendingProcedural: boolean
+  /**
+   * Published elevation grid for this body, once it has loaded. Null for the
+   * great majority, which render as their reference ellipsoid.
+   */
+  relief: ReliefMap | null
+  /** Exaggeration to apply at explore scale; 1 leaves relief true.  */
+  reliefExaggeration: number
 }
 
 // ---------------------------------------------------------------------------
@@ -344,12 +366,7 @@ export class SceneView {
     this.world.add(this.orbitGroup)
 
     // Detail tiers, swapped by apparent size.
-    this.lodGeometries = [
-      createSphere(24, 14),
-      createSphere(48, 26),
-      createSphere(96, 52),
-      createSphere(192, 96),
-    ]
+    this.lodGeometries = LOD_SEGMENTS.map(([w, h]) => createSphere(w!, h!))
   }
 
   // -- setup ---------------------------------------------------------------
@@ -443,6 +460,8 @@ export class SceneView {
       lod: 2,
       // The Sun always has its own imagery, and never a procedural stand-in.
       pendingProcedural: false,
+      relief: null,
+      reliefExaggeration: 1,
     }
 
     void this.library.load('sun.jpg').then((tex) => {
@@ -485,6 +504,26 @@ export class SceneView {
       rings: [],
       lod: 1,
       pendingProcedural: false,
+      relief: null,
+      reliefExaggeration: RELIEF_EXAGGERATION[body.key] ?? 1,
+    }
+
+    // Published topography, if this body has any. The uniforms stay off until
+    // the map is decoded, so the body is a correct ellipsoid in the meantime
+    // rather than a briefly deformed one.
+    const relief = reliefFor(body.key)
+    if (relief) {
+      void this.library.loadRelief(relief.file).then((tex) => {
+        if (!tex) return
+        const u = material.uniforms
+        u.uRelief!.value = tex
+        u.uReliefMinKm!.value = relief.minKm
+        u.uReliefSpanKm!.value = relief.maxKm - relief.minKm
+        // uReliefStep follows the drawn LOD and is set per frame in updateVisual.
+        u.uHasRelief!.value = 1
+        visual.relief = relief
+        material.needsUpdate = true
+      })
     }
 
     // Real imagery, if we have any for this body.
@@ -679,6 +718,10 @@ export class SceneView {
         rings: [],
         lod: 1,
         pendingProcedural: false,
+        // Promoted minor bodies are the ones with no published topography by
+        // definition; if that ever changes, promotion has to load it per body.
+        relief: null,
+        reliefExaggeration: 1,
       })
     }
   }
@@ -773,6 +816,17 @@ export class SceneView {
 
     const radius = body.sceneRadius
     const squash = 1 - body.flattening
+
+    if (visual.relief) {
+      // Model space is the unit sphere, so one unit of displacement is one body
+      // radius: dividing the elevation by the true radius keeps relief in
+      // proportion, and it then rides whatever scaling the body itself gets.
+      const u = visual.material.uniforms
+      u.uReliefScale!.value =
+        scale.reliefExaggeration(visual.reliefExaggeration) / body.radiusKm
+      const seg = LOD_SEGMENTS[visual.lod] ?? LOD_SEGMENTS[0]!
+      u.uReliefStep!.value.set(1 / seg[0], 1 / seg[1])
+    }
 
     basisToMatrix(body.orientation, this.tmpMatrix)
     visual.mesh.quaternion.setFromRotationMatrix(this.tmpMatrix)

@@ -20,10 +20,11 @@ pnpm install
 pnpm dev            # http://localhost:5173
 ```
 
-The imagery in `public/textures` (~110 MB) and the generated ephemeris modules in
-`src/data/generated` are kept in the project tree and deliberately **not**
-gitignored — check them in, and a fresh clone runs immediately with no network
-access. Only `.cache/` (the large intermediate downloads) is ignored.
+The imagery in `public/textures` (~110 MB), the elevation grids in
+`public/shapes`, and the generated ephemeris modules in `src/data/generated` are
+kept in the project tree and deliberately **not** gitignored — check them in, and
+a fresh clone runs immediately with no network access. Only `.cache/` (the large
+intermediate downloads) is ignored.
 
 To re-fetch or refresh them:
 
@@ -36,7 +37,7 @@ pnpm assets:light   # skip the large USGS moon mosaics, 4k instead of 8k
 needs `sips` (macOS, built in) or ImageMagick to convert the TIFF sources.
 
 ```bash
-pnpm validate       # 44 astronomy checks (no browser needed)
+pnpm validate       # 53 astronomy checks (no browser needed)
 pnpm typecheck
 pnpm build
 ```

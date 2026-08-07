@@ -51,10 +51,10 @@ jobs:
       - name: Typecheck and build
         run: pnpm build
 
-      # The built site is ~120 MB, almost all of it committed planetary imagery.
-      # Well inside the 1 GB GitHub Pages limit.
+      # The built site is ~130 MB, almost all of it committed planetary imagery
+      # and topography. Well inside the 1 GB GitHub Pages limit.
       - name: Report bundle size
-        run: du -sh dist dist/textures
+        run: du -sh dist dist/textures dist/shapes
 
       - uses: actions/upload-pages-artifact@v3
         if: github.event_name != 'pull_request'

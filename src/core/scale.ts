@@ -99,6 +99,19 @@ export class ScaleModel {
     return this.lerp(1, this.params.bodyScale)
   }
 
+  /**
+   * Vertical exaggeration for surface relief: true relief at true scale, the
+   * body's own factor at explore scale, blended across the transition so terrain
+   * grows with the body rather than popping.
+   *
+   * Explore mode already trades metric fidelity for legibility by enlarging
+   * every body sixfold; exaggerating relief there is the same bargain, and the
+   * info panel names the factor so it is never mistaken for real geometry.
+   */
+  reliefExaggeration(atExplore: number): number {
+    return this.lerp(1, atExplore)
+  }
+
   // -- distances -----------------------------------------------------------
 
   /**
