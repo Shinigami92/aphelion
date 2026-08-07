@@ -13,6 +13,7 @@
  * system, move the camera, push everything to the GPU, then update the DOM.
  */
 
+import { Vector3 } from 'three'
 import { AU_KM, SCENE_UNIT_KM } from './core/constants.ts'
 import { ScaleModel } from './core/scale.ts'
 import { SolarSystem, type SimBody } from './core/system.ts'
@@ -345,7 +346,7 @@ function select(body: SimBody): void {
 }
 
 function goTo(body: SimBody): void {
-  camera.setFocus(body, { sunward: sunwardOf(body) })
+  camera.flyTo(body, { sunward: sunwardOf(body) })
   toast.show(`${body.name} — ${body.subtitle}`)
 }
 
@@ -438,6 +439,13 @@ canvas.addEventListener('dblclick', (ev) => {
 // Keyboard
 // ---------------------------------------------------------------------------
 
+/** Keys that mean "I am driving now", which cancels a cinematic approach. */
+const MOVEMENT_KEYS = new Set([
+  'KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyQ', 'KeyE', 'KeyR', 'KeyF',
+  'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight',
+  'Equal', 'Minus', 'NumpadAdd', 'NumpadSubtract',
+])
+
 const ORBIT_MODES: OrbitMode[] = ['none', 'planets', 'all']
 const LABEL_MODES: LabelMode[] = ['none', 'major', 'all']
 const QUALITIES: Quality[] = ['low', 'medium', 'high']
@@ -452,6 +460,11 @@ function typingInField(target: EventTarget | null): boolean {
 
 window.addEventListener('keydown', (ev) => {
   if (typingInField(ev.target)) return
+
+  // Any movement key takes the controls back mid-flight, the same way a drag
+  // does. Selection and display keys are left alone so pressing `M` during an
+  // approach does not abort it.
+  if (MOVEMENT_KEYS.has(ev.code)) camera.cancelFlight()
 
   const keys = camera.keys
   switch (ev.code) {
@@ -947,6 +960,84 @@ function currentSharedView(): SharedView {
   }
 }
 
+/**
+ * Clearance from the camera to the nearest body's surface, in scene units.
+ *
+ * Free flight scales its speed by this, which is what stops it from crossing a
+ * planet in a single frame. Computed here rather than in the controller because
+ * this is what holds the system; 687 distance checks a frame is nothing beside
+ * the solve that just ran.
+ *
+ * Everything is measured in the render frame, where the focused body sits at
+ * the origin — the same frame the camera's position is expressed in.
+ */
+function nearestSurfaceDistance(): number {
+  const camPos = camera.camera.position
+  // `body.scene` is absolute; the renderer applies the floating origin by
+  // shifting the whole world group, so the camera's position is relative to the
+  // focus. Subtracting the focus is what puts both in the same frame — without
+  // it the Sun, which sits near the absolute origin, reads as a few hundred
+  // units away from a camera parked at Earth, and free flight refuses to move.
+  const origin = focused().scene
+  let nearest = Infinity
+  for (const body of system.bodies) {
+    const dx = body.scene.x - origin.x - camPos.x
+    const dy = body.scene.y - origin.y - camPos.y
+    const dz = body.scene.z - origin.z - camPos.z
+    const clearance = Math.hypot(dx, dy, dz) - body.sceneRadius
+    if (clearance < nearest) nearest = clearance
+  }
+  // Reported unclamped: a negative value means the camera is inside a body, and
+  // the controller needs to know that to let it fly back out rather than
+  // damping it to a standstill.
+  return nearest
+}
+
+/**
+ * Feed the dust field the camera's actual velocity.
+ *
+ * Measured from the position delta rather than asked of the controller, because
+ * only the delta accounts for every way the camera can move — a cinematic
+ * flight, free flight, a drag, or the focus itself travelling. It has to be
+ * taken in *absolute* scene space: relative to the floating origin the camera
+ * barely moves during a flight, since the world slides underneath it.
+ */
+const lastCameraWorld = new Vector3()
+let haveLastCameraWorld = false
+const cameraVelocity = new Vector3()
+const cameraWorld = new Vector3()
+
+function updateTravelDust(dt: number): void {
+  const origin = focused().scene
+  cameraWorld.set(
+    camera.camera.position.x + origin.x,
+    camera.camera.position.y + origin.y,
+    camera.camera.position.z + origin.z,
+  )
+
+  if (haveLastCameraWorld && dt > 0) {
+    cameraVelocity.subVectors(cameraWorld, lastCameraWorld).divideScalar(dt)
+  } else {
+    cameraVelocity.set(0, 0, 0)
+  }
+  lastCameraWorld.copy(cameraWorld)
+  haveLastCameraWorld = true
+
+  // Only a cinematic flight or genuine free flight should raise dust; drifting
+  // with a body you are orbiting should not, or the field never switches off.
+  const intensity = camera.travelling > 0 ? camera.travelling : freeFlightIntensity()
+  scene.updateDust(camera.camera.position, cameraVelocity, dt, intensity)
+}
+
+/** How hard free flight is being driven, 0..1, for the dust. */
+function freeFlightIntensity(): number {
+  if (camera.mode !== 'free') return 0
+  const k = camera.keys
+  const moving = k.forward || k.back || k.left || k.right || k.up || k.down
+  if (!moving) return 0
+  return k.boost ? 1 : 0.65
+}
+
 /** The orrery map is a schematic; it does not need to keep up with the scene. */
 let lastMinimapAt = -Infinity
 const MINIMAP_INTERVAL_MS = 125
@@ -982,6 +1073,7 @@ function frame(now: number): void {
   time.advance(step)
   scale.update(step)
   system.update(time.jdTT, scale)
+  camera.setNearestSurface(nearestSurfaceDistance())
   camera.update(step)
 
   // Read the focus once per frame: the camera owns it, and the renderer, the
@@ -989,6 +1081,7 @@ function frame(now: number): void {
   const current = focused()
 
   scene.update(system, scale, current, elapsed, step)
+  updateTravelDust(step)
   scene.render(camera.camera)
 
   timePanel.update()

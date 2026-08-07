@@ -892,7 +892,7 @@ const KEY_HELP: [string, [string, string][]][] = [
       ['W A S D', 'orbit and zoom (or fly, in free mode)'],
       ['arrows', 'orbit'],
       ['+ / −', 'zoom'],
-      ['Q / E', 'roll (free mode)'],
+      ['Q / E', 'roll'],
       ['R / F', 'up / down (free mode)'],
       ['Shift', 'move faster'],
       ['Alt', 'move slower, for fine framing'],

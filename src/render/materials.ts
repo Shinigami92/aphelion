@@ -1065,6 +1065,73 @@ export function createSwarmMaterial(sprite: Texture): ShaderMaterial {
 // Orbit lines
 // ---------------------------------------------------------------------------
 
+/**
+ * Travel dust — short streaks that only exist while the camera is moving fast.
+ *
+ * The particles are a fixed cloud in a cube of side `uCell`, wrapped modulo that
+ * cube around the camera in the vertex shader. That makes the field effectively
+ * infinite with no recycling pass on the CPU, and lets the cell resize with the
+ * camera's speed so the same few hundred particles read correctly whether the
+ * motion is kilometres or astronomical units per second.
+ *
+ * Each particle is a two-vertex segment whose tail is dragged back along the
+ * velocity, so the streak length is the distance actually covered in a frame
+ * rather than an arbitrary constant.
+ */
+export function createDustMaterial(): ShaderMaterial {
+  return new ShaderMaterial({
+    transparent: true,
+    depthWrite: false,
+    blending: AdditiveBlending,
+    uniforms: {
+      uCamPos: { value: new Vector3() },
+      uStreak: { value: new Vector3() },
+      uCell: { value: 1 },
+      uIntensity: { value: 0 },
+    },
+    vertexShader: /* glsl */ `
+      attribute float aEnd;
+      varying float vFade;
+
+      uniform vec3 uCamPos;
+      uniform vec3 uStreak;
+      uniform float uCell;
+      uniform float uIntensity;
+
+      #include <common>
+      #include <logdepthbuf_pars_vertex>
+
+      void main() {
+        // Wrap the particle into the cell centred on the camera. Without the
+        // half-cell shift the modulo folds at the camera itself, and the dust
+        // visibly pops as it crosses the eye.
+        vec3 rel = mod(position * uCell - uCamPos + 0.5 * uCell, uCell) - 0.5 * uCell;
+        vec3 world = uCamPos + rel - uStreak * aEnd;
+
+        // Fade with distance from the camera, so particles arrive and leave
+        // rather than blinking into existence at the cell boundary.
+        float d = length(rel) / (0.5 * uCell);
+        vFade = uIntensity * smoothstep(1.0, 0.55, d) * (1.0 - aEnd * 0.75);
+
+        gl_Position = projectionMatrix * viewMatrix * vec4(world, 1.0);
+        #include <logdepthbuf_vertex>
+      }
+    `,
+    fragmentShader: /* glsl */ `
+      precision highp float;
+      varying float vFade;
+
+      #include <logdepthbuf_pars_fragment>
+
+      void main() {
+        #include <logdepthbuf_fragment>
+        if (vFade <= 0.001) discard;
+        gl_FragColor = vec4(vec3(0.62, 0.72, 0.9), vFade * 0.5);
+      }
+    `,
+  })
+}
+
 export function createOrbitMaterial(color: number, opacity: number): ShaderMaterial {
   return new ShaderMaterial({
     transparent: true,

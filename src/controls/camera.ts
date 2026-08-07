@@ -21,6 +21,37 @@ export type CameraMode = 'orbit' | 'free'
 const DEG = Math.PI / 180
 const MAX_ELEVATION = 89.5 * DEG
 
+/**
+ * Free-flight speed as a fraction of the clearance ahead, per second.
+ *
+ * 0.15 means you close about 15% of the gap to the nearest surface each second,
+ * so an Earth-to-Mars crossing runs a little over ten seconds unboosted while a
+ * final approach decays smoothly to a crawl. Shift multiplies it eightfold.
+ */
+const FREE_SPEED_PER_UNIT = 0.15
+/** Enough to still manoeuvre when parked against a surface. */
+const MIN_FREE_SPEED = 0.05
+/** Keeps deep Kuiper emptiness from producing an unusable jump per frame. */
+const MAX_FREE_SPEED = 30_000
+/**
+ * Most of the remaining gap a single frame may close. Below 1 this is a
+ * geometric approach, so the surface is a limit rather than a thing you hit —
+ * and it holds however hard the boost key is pressed.
+ */
+const MAX_STEP_FRACTION = 0.35
+
+/**
+ * Seconds for a cinematic approach, from the trip length in destination radii.
+ *
+ * Logarithmic, because the range is enormous — a few radii to a moon, tens of
+ * millions to cross the system — and clamped so nothing is either a jump cut or
+ * a wait. Earth to Mars lands around eight seconds.
+ */
+function flightDuration(radiiTravelled: number): number {
+  const decades = Math.log10(Math.max(radiiTravelled, 1))
+  return Math.max(2.2, Math.min(9, 1.8 + decades * 1.5))
+}
+
 export interface CameraKeyState {
   forward: boolean
   back: boolean
@@ -101,6 +132,16 @@ export class CameraController {
   private targetAzimuth = 0.6
   private targetElevation = 0.32
 
+  /**
+   * Roll about the view axis while orbiting, radians.
+   *
+   * Orbit mode pins `up` to ecliptic north and re-runs `lookAt` every frame, so
+   * roll cannot live in the quaternion the way it does in free flight — it is
+   * re-applied after the look, on top of a fresh orientation.
+   */
+  private roll = 0
+  private targetRoll = 0
+
   /** Pan offset from the focus centre, in the camera's own basis. */
   private panOffset = new Vector3()
 
@@ -111,6 +152,32 @@ export class CameraController {
 
   /** Smoothed follow of the focus so scale transitions do not snap. */
   private focusTransition = 0
+
+  /**
+   * A cinematic approach in progress.
+   *
+   * Focus switches to the destination the moment a flight starts, so the world
+   * is already centred there and every coordinate below is stable for the whole
+   * trip; the camera is then flown by hand from wherever it was to the framing
+   * position, and handed back to the orbit controller on arrival.
+   */
+  private flight: {
+    elapsed: number
+    duration: number
+    fromPosition: Vector3
+    fromQuaternion: Quaternion
+    toDistance: number
+    toAzimuth: number
+    toElevation: number
+  } | null = null
+
+  /** 0 while parked, rising to 1 at the fastest part of a flight. */
+  private travelIntensity = 0
+
+  /** How hard the camera is currently travelling, for the dust field. */
+  get travelling(): number {
+    return this.travelIntensity
+  }
 
   private dragging: 'none' | 'orbit' | 'pan' = 'none'
   private lastPointer = { x: 0, y: 0 }
@@ -178,6 +245,75 @@ export class CameraController {
     this.mode = 'orbit'
   }
 
+  /**
+   * Fly to a body instead of cutting to it: turn toward it, cross the distance
+   * over several seconds, and settle into the framing `setFocus` would have
+   * chosen.
+   *
+   * The duration comes from how far the trip actually is in units of the
+   * destination's own size, so hopping to a nearby moon stays brisk while Mars
+   * to Earth takes the better part of ten seconds. Interrupting is deliberate:
+   * any drag, key or wheel cancels the flight and leaves the camera wherever it
+   * had reached, rather than fighting the user for the remaining seconds.
+   */
+  flyTo(body: SimBody, opts: { sunward?: { x: number; y: number; z: number } } = {}): void {
+    const previous = this._focus
+
+    // Where the camera is now, relative to the destination — captured before
+    // the focus changes, because that is the frame the flight is flown in.
+    // The renderer centres the world on the focus, so the camera's position is
+    // relative to `previous`; shifting by the gap between the two bodies puts it
+    // in the destination's frame, which is where the whole flight is computed.
+    const from = this.camera.position.clone()
+    if (previous && previous !== body) {
+      from.x += previous.scene.x - body.scene.x
+      from.y += previous.scene.y - body.scene.y
+      from.z += previous.scene.z - body.scene.z
+    }
+
+    const fromQuaternion = this.camera.quaternion.clone()
+
+    // Let setFocus pick the destination framing, then take the numbers back.
+    this.setFocus(body, { ...opts, immediate: true })
+
+    const travel = from.length()
+    const radius = Math.max(body.sceneRadius, 1e-4)
+    // Nothing to fly if we are already framed on it.
+    if (travel < this.targetDistance * 1.2) return
+
+    this.flight = {
+      elapsed: 0,
+      duration: flightDuration(travel / radius),
+      fromPosition: from,
+      fromQuaternion,
+      toDistance: this.targetDistance,
+      toAzimuth: this.targetAzimuth,
+      toElevation: this.targetElevation,
+    }
+    // Start the eased state at the far end so a cancelled flight does not snap.
+    this.distance = travel
+    this.mode = 'orbit'
+  }
+
+  /** Abandon a flight in progress, keeping wherever the camera has reached. */
+  cancelFlight(): void {
+    if (!this.flight) return
+    this.flight = null
+    this.adoptOrbitFromPosition()
+    this.travelIntensity = 0
+  }
+
+  /** Re-derive azimuth, elevation and distance from the camera's position. */
+  private adoptOrbitFromPosition(): void {
+    const p = this.camera.position.clone().sub(this.panOffset)
+    this.distance = Math.max(p.length(), 1e-4)
+    this.targetDistance = this.distance
+    this.azimuth = Math.atan2(p.y, p.x)
+    this.targetAzimuth = this.azimuth
+    this.elevation = Math.asin(Math.max(-1, Math.min(1, p.z / this.distance)))
+    this.targetElevation = this.elevation
+  }
+
   /** Frame a body and all of its satellites. */
   frameSystem(body: SimBody, maxChildDistance: number): void {
     this._focus = body
@@ -197,9 +333,11 @@ export class CameraController {
    */
   get isSettling(): boolean {
     return (
+      this.flight !== null ||
       Math.abs(this.distance - this.targetDistance) > this.targetDistance * 1e-4 ||
       Math.abs(this.azimuth - this.targetAzimuth) > 1e-4 ||
-      Math.abs(this.elevation - this.targetElevation) > 1e-4
+      Math.abs(this.elevation - this.targetElevation) > 1e-4 ||
+      Math.abs(this.roll - this.targetRoll) > 1e-4
     )
   }
 
@@ -255,9 +393,77 @@ export class CameraController {
   // -- per-frame -----------------------------------------------------------
 
   update(dt: number): void {
-    if (this.mode === 'orbit') this.updateOrbit(dt)
+    if (this.flight) this.updateFlight(dt)
+    else if (this.mode === 'orbit') this.updateOrbit(dt)
     else this.updateFree(dt)
     this.updateProjection()
+  }
+
+  /**
+   * One frame of a cinematic approach.
+   *
+   * Two curves, deliberately out of step. The orientation resolves early — a
+   * front-loaded ease, so the camera has turned to face the destination within
+   * the first third and you spend the rest of the trip watching it grow. The
+   * position uses a slow-in/slow-out curve applied to the *logarithm* of the
+   * distance, because at these scales a linear approach spends almost all its
+   * time as an indistinguishable speck and then arrives all at once.
+   */
+  private updateFlight(dt: number): void {
+    const f = this.flight!
+    f.elapsed += dt
+    const t = Math.min(1, f.elapsed / f.duration)
+
+    const ease = t * t * (3 - 2 * t)
+    // Turning finishes at a third of the way, then holds.
+    const turn = Math.min(1, ease * 3)
+
+    // Destination position in the same frame the flight started in.
+    const cosE = Math.cos(f.toElevation)
+    const to = new Vector3(
+      f.toDistance * cosE * Math.cos(f.toAzimuth),
+      f.toDistance * cosE * Math.sin(f.toAzimuth),
+      f.toDistance * Math.sin(f.toElevation),
+    )
+
+    // Interpolate the direction on the sphere and the radius in log space, so
+    // the crossing reads as steady progress rather than a sudden arrival.
+    const fromLength = Math.max(f.fromPosition.length(), 1e-6)
+    const toLength = Math.max(to.length(), 1e-6)
+    const direction = f.fromPosition
+      .clone()
+      .normalize()
+      .lerp(to.clone().normalize(), ease)
+      .normalize()
+    const radius = Math.exp(
+      Math.log(fromLength) + (Math.log(toLength) - Math.log(fromLength)) * ease,
+    )
+    this.camera.position.copy(direction).multiplyScalar(radius).add(this.panOffset)
+
+    // Orientation: from wherever we were looking, to facing the destination.
+    this.camera.up.set(0, 0, 1)
+    const aimed = new PerspectiveCamera()
+    aimed.up.set(0, 0, 1)
+    aimed.position.copy(this.camera.position)
+    aimed.lookAt(this.panOffset)
+    this.camera.quaternion.copy(f.fromQuaternion).slerp(aimed.quaternion, turn)
+
+    // Fast in the middle, still at both ends — what the dust field reacts to.
+    this.travelIntensity = Math.sin(Math.PI * t) ** 0.7
+
+    this.distance = radius
+    this.focusTransition = 1
+
+    if (t >= 1) {
+      this.flight = null
+      this.travelIntensity = 0
+      this.roll = 0
+      this.targetRoll = 0
+      this.adoptOrbitFromPosition()
+      this.targetDistance = f.toDistance
+      this.targetAzimuth = f.toAzimuth
+      this.targetElevation = f.toElevation
+    }
   }
 
   private updateOrbit(dt: number): void {
@@ -282,11 +488,18 @@ export class CameraController {
     if (this.keys.up) this.targetElevation = Math.min(MAX_ELEVATION, this.targetElevation + rate)
     if (this.keys.down) this.targetElevation = Math.max(-MAX_ELEVATION, this.targetElevation - rate)
 
+    // Q and E roll here as well as in free flight; they used to be ignored in
+    // orbit mode, which made the horizon feel nailed down.
+    const rollRate = 1.4 * dt * speed
+    if (this.keys.rollLeft) this.targetRoll -= rollRate
+    if (this.keys.rollRight) this.targetRoll += rollRate
+
     this.clampDistance()
 
     this.azimuth += (this.targetAzimuth - this.azimuth) * k
     this.elevation += (this.targetElevation - this.elevation) * k
     this.distance += (this.targetDistance - this.distance) * k
+    this.roll += (this.targetRoll - this.roll) * k
     this.focusTransition += (1 - this.focusTransition) * k
 
     // Spherical to Cartesian, z up.
@@ -301,13 +514,18 @@ export class CameraController {
     this.camera.position.copy(offset).add(this.panOffset)
     this.camera.up.set(0, 0, 1)
     this.camera.lookAt(this.panOffset)
+    // Roll about the view axis, applied after the look, which has just
+    // discarded any previous rotation. Negated because the camera's local +z
+    // points *backward* along the view, so a positive rotation about it turns
+    // the opposite way to free flight, which rolls about the forward vector.
+    if (this.roll !== 0) this.camera.rotateZ(-this.roll)
     this.freePosition.copy(this.camera.position)
     this.freeQuaternion.copy(this.camera.quaternion)
   }
 
   private updateFree(dt: number): void {
     const boost = this.keys.boost ? 8 : this.keys.precise ? 0.12 : 1
-    const step = this.freeSpeed * boost * dt
+    const step = this.freeFlightStep(dt, boost)
 
     const forward = new Vector3(0, 0, -1).applyQuaternion(this.freeQuaternion)
     const right = new Vector3(1, 0, 0).applyQuaternion(this.freeQuaternion)
@@ -329,6 +547,45 @@ export class CameraController {
     // Keep the orbit state coherent so switching back is not jarring.
     this.distance = Math.max(this.freePosition.length(), 1e-4)
     this.targetDistance = this.distance
+  }
+
+  /**
+   * How far free flight moves this frame, derived from how much room there is.
+   *
+   * A fixed speed cannot serve both jobs at this scale. 200 units/s took six
+   * minutes to cross from Earth to Mars, and was still fast enough to pass
+   * straight through a planet on arrival. Scaling with the clearance to the
+   * nearest surface gives one rule that does both: open space is fast, and the
+   * approach decays geometrically.
+   *
+   * The step is capped at a fraction of the remaining gap as well as by speed,
+   * and that cap is what actually prevents a collision. Speed alone does not:
+   * a minimum speed has to exist so you can still manoeuvre when parked, and
+   * that floor will happily carry you through the last few hundred kilometres
+   * once the asymptote drops below it — measured at 940 m of penetration into
+   * Earth before this cap existed.
+   */
+  private freeFlightStep(dt: number, boost: number): number {
+    const clearance = Number.isFinite(this.nearestSurface)
+      ? this.nearestSurface
+      : Math.max(this.distance, 1)
+
+    // Already inside something: damping would trap you there, so fly freely.
+    if (clearance <= 0) return Math.max(MIN_FREE_SPEED, Math.abs(clearance)) * boost * dt
+
+    const speed = Math.min(clearance * FREE_SPEED_PER_UNIT, MAX_FREE_SPEED)
+    return Math.min(Math.max(speed, MIN_FREE_SPEED) * boost * dt, clearance * MAX_STEP_FRACTION)
+  }
+
+  /**
+   * Distance to the nearest body's surface, scene units, in free flight.
+   * Supplied per frame by the caller, which is the thing that owns the system.
+   * Negative when the camera is inside a body.
+   */
+  private nearestSurface = Infinity
+
+  setNearestSurface(distance: number): void {
+    this.nearestSurface = distance
   }
 
   private rollFree(amount: number): void {
@@ -430,6 +687,9 @@ export class CameraController {
     } catch {
       /* drag still works, it just stops if the cursor leaves the canvas */
     }
+    // Touching the view takes control back; a flight that kept running would be
+    // fighting the drag for the rest of its duration.
+    this.cancelFlight()
     this.activePointers.set(ev.pointerId, { x: ev.clientX, y: ev.clientY })
     this.lastPointer = { x: ev.clientX, y: ev.clientY }
 
@@ -506,6 +766,7 @@ export class CameraController {
 
   private onWheel(ev: WheelEvent): void {
     ev.preventDefault()
+    this.cancelFlight()
     this.interacted = true
     this.lastInputAt = performance.now()
 

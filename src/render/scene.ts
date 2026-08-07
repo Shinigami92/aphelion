@@ -26,6 +26,7 @@ import {
   Color,
   Group,
   Line,
+  LineSegments,
   Matrix4,
   Mesh,
   Points,
@@ -66,6 +67,7 @@ import {
   createBodyMaterial,
   createCloudMaterial,
   createCoronaMaterial,
+  createDustMaterial,
   createOrbitMaterial,
   createRingMaterial,
   createSkyMaterial,
@@ -307,6 +309,8 @@ export class SceneView {
 
   private orbitGroup = new Group()
   private orbitLines = new Map<string, { line: Line; material: ShaderMaterial }>()
+  private dust: LineSegments | null = null
+  private dustMaterial: ShaderMaterial | null = null
   private orbitRebuildTimer = 0
 
   private labelHost: HTMLElement | null = null
@@ -408,6 +412,7 @@ export class SceneView {
     )
     this.buildMinorPoints()
     this.buildSwarms()
+    this.buildDust()
     this.buildPromotionPool()
     this.rebuildComposer()
   }
@@ -723,6 +728,66 @@ export class SceneView {
         reliefExaggeration: 1,
       })
     }
+  }
+
+  /**
+   * Build the travel dust: a fixed cloud of unit-cube positions, two vertices
+   * per particle so the vertex shader can drag one end into a streak.
+   *
+   * Added to the scene root rather than to the world group, because it lives in
+   * camera-relative space and must not be moved by the floating origin.
+   */
+  private buildDust(): void {
+    const count = 700
+    const positions = new Float32Array(count * 2 * 3)
+    const ends = new Float32Array(count * 2)
+    for (let i = 0; i < count; i++) {
+      const x = Math.random()
+      const y = Math.random()
+      const z = Math.random()
+      for (let end = 0; end < 2; end++) {
+        const v = i * 2 + end
+        positions[v * 3] = x
+        positions[v * 3 + 1] = y
+        positions[v * 3 + 2] = z
+        ends[v] = end
+      }
+    }
+    const geo = new BufferGeometry()
+    geo.setAttribute('position', new BufferAttribute(positions, 3))
+    geo.setAttribute('aEnd', new BufferAttribute(ends, 1))
+
+    this.dustMaterial = createDustMaterial()
+    this.dust = new LineSegments(geo, this.dustMaterial)
+    this.dust.frustumCulled = false
+    this.dust.renderOrder = 8
+    this.dust.visible = false
+    this.scene.add(this.dust)
+  }
+
+  /**
+   * Point the dust at wherever the camera is and however fast it is going.
+   *
+   * The cell is sized from the distance covered per second, so the field is
+   * always dense enough to read as motion and never so dense it becomes fog.
+   */
+  updateDust(position: Vector3, velocity: Vector3, dt: number, intensity: number): void {
+    if (!this.dust || !this.dustMaterial) return
+
+    const perSecond = velocity.length()
+    // Nothing to draw when parked, and the field is pure noise on a still
+    // image — a streak shorter than a pixel is just a speck in the way.
+    const show = intensity > 0.01 && perSecond > 1e-6
+    this.dust.visible = show
+    if (!show) return
+
+    const u = this.dustMaterial.uniforms
+    u.uCamPos!.value.copy(position)
+    u.uStreak!.value.copy(velocity).multiplyScalar(dt)
+    // Roughly one second of travel across the cell, so the density reads the
+    // same whether the motion is kilometres or AU per second.
+    u.uCell!.value = Math.max(perSecond * 1.4, 1e-4)
+    u.uIntensity!.value = intensity
   }
 
   private rebuildComposer(): void {

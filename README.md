@@ -60,7 +60,8 @@ Everything has both a pointer gesture and a key.
 | `+` / `−` | zoom |
 | `Shift` / `Alt` | move faster / finer |
 | `V` | toggle orbit ↔ free flight |
-| `Q` `E` / `R` `F` | roll / up-down (free mode) |
+| `Q` `E` | roll (both modes) |
+| `R` `F` | up / down (free mode) |
 | `C` | point the free camera back at the focus |
 
 **Time**
@@ -78,7 +79,7 @@ Everything has both a pointer gesture and a key.
 
 | Input | Action |
 | --- | --- |
-| click / double-click | select / select and fly to |
+| click / double-click | select / fly to, as a timed approach |
 | `Tab` | next planet |
 | `1`–`9`, `0` | Mercury…Pluto, the Sun |
 | `/` | search all 687 bodies |
