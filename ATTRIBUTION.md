@@ -44,9 +44,20 @@ surfaces as illustration, not observation.
 | Ganymede | `Ganymede_Voyager_GalileoSSI_global_mosaic_1km` | Voyager + Galileo SSI, 1 km/px |
 | Callisto | `Callisto_Voyager_GalileoSSI_global_mosaic_1km` | Voyager + Galileo SSI, 1 km/px |
 | Enceladus | `Enceladus_Cassini_mosaic_global_110m` | Cassini ISS, 110 m/px |
+| Mimas | `Mimas_PDS_8ppd_dd360` | Cassini ISS, 8 px/deg |
+| Phoebe | `Phoebe_PDS_8ppd_dd360` | Cassini ISS, 8 px/deg |
 
 Courtesy NASA / JPL-Caltech / USGS Astrogeology Science Center. Downloaded as
 GeoTIFF and downsampled to 4096 px wide.
+
+Mimas and Phoebe are absent from both the mosaic set and Astropedia; their maps
+come instead from the Cassini Imaging Team basemaps that back the USGS map
+viewer, credited in the archive to NASA / Cassini Imaging Team. Two differences
+from the mosaics: they are **pyramidal** TIFFs, so the conversion selects page 0
+or it writes one file per overview level; and their names end `dd360` because
+they start at the prime meridian rather than 180° west, so they are rolled half a
+turn to sit in the same frame as every other map here. The world files
+(`.tfw`) state both facts, and were read rather than assumed.
 
 ### USGS Astropedia — global mosaics for the most-visited small bodies
 
@@ -63,6 +74,7 @@ GeoTIFF and downsampled to 4096 px wide.
 | Rhea | `rhea_cassini_voyager_global_mosaic_417m` | Cassini + Voyager, 417 m/px |
 | Iapetus | `iapetus_cassini_voyager_global_mosaic_803m` | Cassini + Voyager, 803 m/px |
 | Vesta | `vesta_dawn_fc_hamo_global_mosaic_60m` | Dawn FC HAMO, 60 m/px |
+| Eros | `near_msi_albedo_mosaics` | NEAR MSI albedo mosaic, 1024 px |
 
 Retrieved as 1024 x 512 browse JPEGs from Astropedia's CKAN store. These are
 lower resolution than the Galilean mosaics above; they were chosen because these
@@ -127,9 +139,17 @@ order — MOLA is big-endian, LOLA little-endian — which is not something to i
 | --- | --- | --- |
 | Phobos | `phobos_quad128q.tab` (Gaskell) | 6 cube faces × 129² vertices, km |
 | Deimos | `m2deimos.tab` (Thomas) | 37 × 73 lat/lon/radius table, 5° grid |
+| Mimas | `mimas_quad128q.tab` (Cassini ISS) | cube-quad |
+| Tethys | `tethys_quad128q.tab` (Cassini ISS) | cube-quad |
+| Dione | `dione_quad128q.tab` (Cassini ISS) | cube-quad |
+| Phoebe | `phoebe_quad128q.tab` (Cassini ISS) | cube-quad |
+| Eros | `quad128q.tab` (Gaskell, NEAR) | cube-quad |
+| Vesta | `4vesta.tab` (Thomas, HST) | lat/lon/radius table, 5° grid |
 
 - <https://sbn.psi.edu/pds/resource/phobosshape.html>
 - <https://sbnarchive.psi.edu/pds4/non_mission/ast-sat.thomas.shape-models_V1_0/>
+- <https://sbnarchive.psi.edu/pds4/non_mission/gaskell.ast-eros.shape-model_V1_1/>
+- <https://sbnarchive.psi.edu/pds3/multi_mission/> (the Cassini `*SHAPE*` archives)
 
 Phobos is 27 × 22 × 18 km and Deimos 15 × 12 × 11 km, so "elevation above a
 datum" would be meaningless for either; Aphelion resamples both onto the same
@@ -144,10 +164,24 @@ resolved Deimos properly — so Deimos comes out smooth and correctly shaped rat
 than detailed. That is the whole of what has been measured, and Deimos genuinely
 is smoother than Phobos, its craters being buried in regolith.
 
-`pnpm validate` reads the IAU triaxial figures back out of both maps — long axis
-toward Mars, short axis polar — along with Stickney appearing as a depression on
-Phobos's Mars-facing hemisphere and Deimos's broad southern depression appearing
-in the south.
+`pnpm validate` reads a published figure back out of every one of these maps
+rather than trusting the conversion: the Martian moons' triaxial axes, Herschel
+as the deepest point on Mimas, the tidal bulge on Tethys and Dione, Phoebe's 27%
+radius spread, Eros's four-to-one elongation, and Rheasilvia leaving Vesta's
+southern hemisphere 23 km lower than its northern.
+
+**Two caveats.** Vesta's model is Thomas's HST-derived one, which predates Dawn —
+it captures Rheasilvia and the overall figure but not fine detail; no Dawn shape
+model is in this archive. And Phoebe rotates every 9.3 hours rather than
+synchronously, which Aphelion does not model — it orients every satellite by
+tidal locking — so Phoebe has the right shape in the wrong orientation. That was
+already true when it was a sphere; the shape makes it easier to notice.
+
+Vesta and Eros also needed measured radii (`SMALL_BODY_RADII`). The
+magnitude-and-albedo estimator used for minor planets put Vesta at 384 km against
+a real 262.7, and it cannot represent Eros at all — the estimator assumes a
+sphere, and Eros is 34 × 11 × 11 km. A shape model's radii are absolute, so the
+body's stated radius has to be right or the whole figure inflates.
 
 **Vertical exaggeration is applied at explore scale and is disclosed.** Mars's
 entire elevation range is under one percent of its radius and the Moon's is

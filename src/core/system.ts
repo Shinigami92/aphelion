@@ -41,6 +41,7 @@ import {
   MOON_TEXTURES,
   MOON_TINTS,
   PLANETS,
+  SMALL_BODY_RADII,
   SMALL_BODY_TEXTURES,
   SUN,
   type BodySpec,
@@ -287,7 +288,8 @@ export class SolarSystem {
       void smallByName
 
       const albedo = GROUP_ALBEDO[sb.group] ?? 0.1
-      const radius = diameterFromMagnitude(sb.h, albedo) / 2
+      const measured = SMALL_BODY_RADII[sb.name]
+      const radius = measured ?? diameterFromMagnitude(sb.h, albedo) / 2
       const body = makeBody({
         key: `sb:${sb.name}`,
         name: sb.name,
@@ -303,7 +305,7 @@ export class SolarSystem {
         minor: true,
       })
       body.small = sb
-      body.radiusEstimated = true
+      body.radiusEstimated = measured === undefined
       body.elements = elementsFromSmallBody(sb)
       body.periodDays = TWO_PI / body.elements.n
       this.register(body, this.sun)

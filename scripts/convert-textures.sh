@@ -36,7 +36,7 @@ echo "Converting queued textures with $CONVERTER"
 failed=0
 converted=0
 
-while IFS=$'\t' read -r src dest maxdim; do
+while IFS=$'\t' read -r src dest maxdim roll; do
   [[ -z "${src:-}" ]] && continue
   if [[ ! -f "$src" ]]; then
     echo "  skip    $(basename "$dest") (source missing)"
@@ -55,7 +55,24 @@ while IFS=$'\t' read -r src dest maxdim; do
     *)     fmt=jpeg ;;
   esac
 
-  if [[ "$CONVERTER" == "sips" ]]; then
+  if [[ -n "${roll:-}" ]]; then
+    # A source whose left edge is 0 degrees rather than 180 west has to be
+    # turned half way round to match every other map here. Only ImageMagick can
+    # do it, and `[0]` picks the full-resolution page: these basemaps are
+    # pyramidal TIFFs, so without it one file per overview level comes out.
+    if [[ "$CONVERTER" == "sips" ]]; then
+      if command -v magick >/dev/null 2>&1; then ROLLER=magick
+      elif command -v convert >/dev/null 2>&1; then ROLLER=convert
+      else
+        echo "SKIPPED (needs ImageMagick to roll)"
+        failed=$((failed + 1))
+        continue
+      fi
+    else
+      ROLLER="$CONVERTER"
+    fi
+    "$ROLLER" "${src}[0]" -roll "+${roll}+0" -resize "${maxdim}x${maxdim}>" -quality 90 "$dest" >/dev/null 2>&1
+  elif [[ "$CONVERTER" == "sips" ]]; then
     if [[ "$fmt" == "jpeg" ]]; then
       sips -s format jpeg -s formatOptions 90 -Z "$maxdim" "$src" --out "$dest" >/dev/null 2>&1
     else

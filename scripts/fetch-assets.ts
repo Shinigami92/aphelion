@@ -124,8 +124,8 @@ async function fetchText(url: string, cacheName: string, label: string): Promise
 
 /** Queue an image for format conversion / downsampling by the shell helper. */
 const convertQueue: string[] = []
-function queueConvert(src: string, dest: string, maxDim: number): void {
-  convertQueue.push(`${src}\t${dest}\t${maxDim}`)
+function queueConvert(src: string, dest: string, maxDim: number, roll = ''): void {
+  convertQueue.push(`${src}\t${dest}\t${maxDim}\t${roll}`)
   console.log(`  ${C.dim('queued ')} ${path.basename(dest)} ${C.dim(`<= ${path.basename(src)}`)}`)
 }
 
@@ -183,6 +183,12 @@ interface UsgsSpec {
   out: string
   url: string
   maxDim: number
+  /**
+   * Horizontal shift to apply, e.g. '50%'. The mosaics run -180..180 and need
+   * none; the WMS basemaps are named `dd360` and start at the prime meridian,
+   * so they need half a turn to sit in the same frame as everything else.
+   */
+  roll?: string
   note: string
 }
 
@@ -217,6 +223,23 @@ const USGS: UsgsSpec[] = [
     maxDim: 4096,
     note: 'Cassini ISS, 110 m/px',
   },
+  // Mimas and Phoebe are absent from the mosaic set and from Astropedia, but the
+  // Cassini Imaging Team basemaps behind the USGS map viewer cover both. They
+  // are 8 px/deg pyramidal GeoTIFFs starting at longitude 0, hence the roll.
+  {
+    out: 'mimas.jpg',
+    url: 'https://asc-pds-services.s3.us-west-2.amazonaws.com/wms_basemaps/Saturn/Mimas/Cassini/Mimas_PDS_8ppd_dd360.tif',
+    maxDim: 2048,
+    roll: '50%',
+    note: 'Cassini ISS, 8 px/deg',
+  },
+  {
+    out: 'phoebe.jpg',
+    url: 'https://asc-pds-services.s3.us-west-2.amazonaws.com/wms_basemaps/Saturn/Phoebe/Cassini/Phoebe_PDS_8ppd_dd360.tif',
+    maxDim: 2048,
+    roll: '50%',
+    note: 'Cassini ISS, 8 px/deg',
+  },
 ]
 
 // ---------------------------------------------------------------------------
@@ -248,6 +271,7 @@ const ASTROPEDIA: AstropediaSpec[] = [
   { out: 'rhea.jpg', id: 'rhea_cassini_voyager_global_mosaic_417m', note: 'Cassini + Voyager, 417 m/px' },
   { out: 'tethys.jpg', id: 'tethys_cassini_global_mosaic_293m', note: 'Cassini ISS, 293 m/px' },
   { out: 'vesta.jpg', id: 'vesta_dawn_fc_hamo_global_mosaic_60m', note: 'Dawn FC HAMO, 60 m/px' },
+  { out: 'eros.jpg', id: 'near_msi_albedo_mosaics', note: 'NEAR MSI albedo mosaic, 1024 px' },
 ]
 
 /**
@@ -465,6 +489,81 @@ const SHAPE_MODELS: ShapeModelSpec[] = [
     referenceRadiusKm: 11.08,
     credit: 'Gaskell Phobos shape model — PDS Small Bodies Node',
     note: 'Gaskell 128q, 6 x 129² vertices',
+  },
+  // Cassini-derived Gaskell models for the Saturnians whose defining feature is
+  // a crater big enough to change the body's outline — Herschel on Mimas is 139
+  // km across on a 198 km moon, Odysseus on Tethys 450 km on a 531 km one.
+  // Rendered as spheres they lose exactly the thing they are known for.
+  {
+    body: 'moon:Mimas',
+    out: 'mimas_relief.png',
+    url: 'https://sbnarchive.psi.edu/pds3/multi_mission/CO_SA_ISSNA_5_MIMASSHAPE_V2_0/data/mimas_quad128q.tab',
+    format: 'cube-quad',
+    width: 512,
+    height: 256,
+    referenceRadiusKm: 198.2,
+    credit: 'Cassini ISS Mimas shape model — PDS Small Bodies Node',
+    note: 'Gaskell 128q, Cassini ISS',
+  },
+  {
+    body: 'moon:Tethys',
+    out: 'tethys_relief.png',
+    url: 'https://sbnarchive.psi.edu/pds3/multi_mission/CO_SA_ISSNA_5_TETHYSSHAPE_V1_0/data/tethys_quad128q.tab',
+    format: 'cube-quad',
+    width: 512,
+    height: 256,
+    referenceRadiusKm: 531.1,
+    credit: 'Cassini ISS Tethys shape model — PDS Small Bodies Node',
+    note: 'Gaskell 128q, Cassini ISS',
+  },
+  {
+    body: 'moon:Dione',
+    out: 'dione_relief.png',
+    url: 'https://sbnarchive.psi.edu/pds3/multi_mission/CO_SA_ISSNA_ISSWA_5_DIONESHAPE_V1_0/data/dione_quad128q.tab',
+    format: 'cube-quad',
+    width: 512,
+    height: 256,
+    referenceRadiusKm: 561.4,
+    credit: 'Cassini ISS Dione shape model — PDS Small Bodies Node',
+    note: 'Gaskell 128q, Cassini ISS',
+  },
+  {
+    body: 'moon:Phoebe',
+    out: 'phoebe_relief.png',
+    url: 'https://sbnarchive.psi.edu/pds3/multi_mission/CO_SA_ISSNA_5_PHOEBESHAPE_V2_0/data/phoebe_quad128q.tab',
+    format: 'cube-quad',
+    width: 512,
+    height: 256,
+    referenceRadiusKm: 106.5,
+    credit: 'Cassini ISS Phoebe shape model — PDS Small Bodies Node',
+    note: 'Gaskell 128q, Cassini ISS',
+  },
+  {
+    body: 'sb:Eros',
+    out: 'eros_relief.png',
+    url: 'https://sbnarchive.psi.edu/pds4/non_mission/gaskell.ast-eros.shape-model_V1_1/data/quad/quad128q.tab',
+    format: 'cube-quad',
+    width: 512,
+    height: 256,
+    // NEAR orbited Eros for a year, so this is among the best-resolved shapes of
+    // any small body. 34 x 11 x 11 km — the most elongated thing in the app.
+    referenceRadiusKm: 8.42,
+    credit: 'Gaskell Eros shape model (NEAR) — PDS Small Bodies Node',
+    note: 'Gaskell 128q, NEAR',
+  },
+  {
+    body: 'sb:Vesta',
+    out: 'vesta_relief.png',
+    url: 'https://sbnarchive.psi.edu/pds4/non_mission/ast-sat.thomas.shape-models_V1_0/data/4vesta.tab',
+    format: 'lat-lon-table',
+    width: 256,
+    height: 128,
+    // Vesta's radius in our catalogue is derived from absolute magnitude, which
+    // overestimates it by nearly half; SMALL_BODY_RADII overrides it with the
+    // measured value so the shape reconstructs at the right size.
+    referenceRadiusKm: 262.7,
+    credit: 'Thomas Vesta shape model — PDS Small Bodies Node',
+    note: 'Thomas HST model, 5 deg grid',
   },
   {
     body: 'moon:Deimos',
@@ -1753,7 +1852,7 @@ async function main(): Promise<void> {
           failures.push(spec.out)
           continue
         }
-        queueConvert(cachePath, outPath, spec.maxDim)
+        queueConvert(cachePath, outPath, spec.maxDim, spec.roll)
       }
     } else {
       step('USGS mosaics -- skipped (--skip-usgs)')

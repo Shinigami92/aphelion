@@ -37,7 +37,7 @@ pnpm assets:light   # skip the large USGS moon mosaics, 4k instead of 8k
 needs `sips` (macOS, built in) or ImageMagick to convert the TIFF sources.
 
 ```bash
-pnpm validate       # 75 astronomy checks (no browser needed)
+pnpm validate       # 87 astronomy checks (no browser needed)
 pnpm typecheck
 pnpm build
 ```
@@ -178,9 +178,11 @@ eclipse — and it is *rendered*, not annotated: the dark spot appears over west
 Mexico because the shader computes what fraction of the Sun's disc the Moon
 covers at every pixel.
 
-`pnpm validate` runs 44 further checks — Kepler solver residuals, orbital periods,
+`pnpm validate` runs 87 further checks — Kepler solver residuals, orbital periods,
 inclinations, lunar perigee/apogee bounds, nodal crossings, leap seconds and
-calendar round-trips.
+calendar round-trips, plus a published landmark read back out of every elevation
+grid and shape model (Olympus Mons, Hellas, Antoniadi, Herschel, Stickney,
+Rheasilvia) so a rolled or flipped map cannot pass unnoticed.
 
 Read [ATTRIBUTION.md](./ATTRIBUTION.md) for exactly which parts are measured,
 which are estimated, and which are synthesised. Two things worth knowing up

@@ -697,6 +697,83 @@ function probeRelief(key: string): ReliefProbe | null {
   }
 }
 
+{
+  // Every shape model here is stored in its body's own IAU frame, so reading a
+  // known figure back out of the resampled map is what proves the conversion
+  // kept the axes — the same test applied to Phobos and Deimos above.
+  const shaped: [string, number, string][] = [
+    ['moon:Mimas', 198.2, 'Mimas'],
+    ['moon:Tethys', 531.1, 'Tethys'],
+    ['moon:Dione', 561.4, 'Dione'],
+    ['moon:Phoebe', 106.5, 'Phoebe'],
+    ['sb:Eros', 8.42, 'Eros'],
+    ['sb:Vesta', 262.7, 'Vesta'],
+  ]
+  for (const [key, ref, name] of shaped) {
+    const p = probeRelief(key)
+    if (!p) {
+      ok(`${name} shape (skipped, not on disk)`, true)
+      continue
+    }
+    const r = (lat: number, lon: number): number => ref + p.at(lat, lon)
+
+    if (name === 'Mimas') {
+      // Herschel is 139 km across on a 198 km moon and 10 km deep — easily the
+      // deepest point, and its position pins the longitude convention exactly.
+      const { loAt } = p.extremes()
+      ok(
+        'Mimas deepest point is Herschel',
+        Math.abs(loAt[0]) < 10 && lonApart(loAt[1], 249) < 10,
+        `at ${loAt[0].toFixed(0)}N ${loAt[1].toFixed(0)}E, expected 0N 249E`,
+      )
+    }
+
+    if (name === 'Eros') {
+      // 34 x 11 x 11 km. Nothing else in the app is this elongated.
+      ok(
+        'Eros long axis is four times its waist',
+        r(0, 0) > 13 && r(0, 180) > 13 && r(0, 90) < 8,
+        `ends ${r(0, 0).toFixed(1)}/${r(0, 180).toFixed(1)} km, waist ${r(0, 90).toFixed(1)} km`,
+      )
+    }
+
+    if (name === 'Vesta') {
+      // Rheasilvia excavated most of the southern hemisphere; the north-south
+      // asymmetry is the single most obvious thing about Vesta's figure.
+      const north = p.mean((lat) => lat > 50)
+      const south = p.mean((lat) => lat < -50)
+      ok(
+        'Vesta southern hemisphere is excavated by Rheasilvia',
+        north - south > 8,
+        `north ${(ref + north).toFixed(1)} km, south ${(ref + south).toFixed(1)} km`,
+      )
+    }
+
+    if (name === 'Phoebe') {
+      // A captured body that never relaxed: its radius varies by a quarter.
+      const { hiAt, loAt } = p.extremes()
+      const spread = (r(hiAt[0], hiAt[1]) - r(loAt[0], loAt[1])) / ref
+      ok(
+        'Phoebe is strongly irregular',
+        spread > 0.2,
+        `radius spread ${(spread * 100).toFixed(0)}% of the mean`,
+      )
+    }
+
+    if (name === 'Tethys' || name === 'Dione') {
+      // Synchronous rotation raises a tidal bulge along the planet-facing axis,
+      // so both ends of the prime meridian stand above the 90 degree flanks.
+      const ends = (r(0, 0) + r(0, 180)) / 2
+      const flanks = (r(0, 90) + r(0, 270)) / 2
+      ok(
+        `${name} is elongated toward Saturn`,
+        ends > flanks,
+        `ends ${ends.toFixed(1)} km, flanks ${flanks.toFixed(1)} km`,
+      )
+    }
+  }
+}
+
 // ---------------------------------------------------------------------------
 console.log(
   `\n\x1b[1m${checks - failures}/${checks} checks passed\x1b[0m${failures ? ` \x1b[31m(${failures} failed)\x1b[0m` : ''}\n`,

@@ -587,7 +587,12 @@ export class InfoPanel {
       rows.push(['Rotation', 'tidally locked'])
     } else if (body.small) {
       rows.push(['Absolute magnitude', `H = ${body.small.h.toFixed(2)}`])
-      rows.push(['Diameter (from H)', `${fmt(radius * 2, 0)} km`])
+      // Only say "from H" when it really is: a body with a measured radius
+      // (SMALL_BODY_RADII) is no longer being sized by its brightness.
+      rows.push([
+        body.radiusEstimated ? 'Diameter (from H)' : 'Diameter',
+        `${fmt(radius * 2, 0)} km`,
+      ])
     }
     this.rowsInto(this.physFacts, rows)
   }
