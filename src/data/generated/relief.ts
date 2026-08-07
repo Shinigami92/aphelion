@@ -42,6 +42,14 @@ export const RELIEF_MAPS: Readonly<Record<string, ReliefMap>> = {
     maxKm: 10.5040,
     credit: 'LRO LOLA LDEM — NASA/GSFC, PDS Geosciences Node',
   },
+  'earth': {
+    file: 'earth_relief.png',
+    width: 2048,
+    height: 1024,
+    minKm: 0.0000,
+    maxKm: 6.3973,
+    credit: 'ETOPO2v2 — NOAA National Centers for Environmental Information',
+  },
   'moon:Phobos': {
     file: 'phobos_relief.png',
     width: 512,

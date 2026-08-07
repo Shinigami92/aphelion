@@ -90,9 +90,20 @@ is tinted.
 | --- | --- | --- |
 | Mars | `megt90n000cb.img` (MEGDR) | MGS MOLA, 4 px/deg |
 | Moon | `ldem_4.img` (LOLA GDR) | LRO LOLA, 4 px/deg |
+| Earth | `ETOPO2v2g_i2_LSB` | NOAA ETOPO2v2, 2 arc-min |
 
 - <https://pds-geosciences.wustl.edu/mgs/mgs-m-mola-5-megdr-l3-v1/>
 - <https://pds-geosciences.wustl.edu/lro/lro-l-lola-3-rdr-v1/>
+- <https://www.ngdc.noaa.gov/mgg/global/relief/ETOPO2/>
+
+Earth's grid is courtesy NOAA National Centers for Environmental Information and
+is block-averaged from 10801 × 5401 down to 2048 × 1024. **Its bathymetry is
+deliberately discarded**: over an ocean the visible surface is the water, not the
+sea bed, so everything below sea level is clamped to zero before averaging. The
+alternative would carve a 270 km trench through the blue Pacific at explore
+scale. Clamping before averaging rather than after also means a coastal cell
+blends land down to the waterline instead of being dragged under by the sea floor
+just offshore, so coastlines have no cliff at the water's edge.
 
 Courtesy NASA / JPL / GSFC. This is measured elevation, not a bump map derived
 from imagery: both are 16-bit signed grids — MOLA in metres relative to the
@@ -133,9 +144,14 @@ a sphere.
 **Vertical exaggeration is applied at explore scale and is disclosed.** Mars's
 entire elevation range is under one percent of its radius and the Moon's is
 barely over, so at true scale the relief is real and all but invisible; explore
-scale multiplies it (Mars ×12, Moon ×8), in the same spirit as the sixfold body
-enlargement that mode already applies. The info panel names the factor on any
-body it affects. At true scale relief is 1:1.
+scale multiplies it (Mars ×12, Moon ×8, Earth ×25 — Earth is the flattest of the
+three by a wide margin, 6.4 km of land relief on a 6,378 km radius), in the same
+spirit as the sixfold body enlargement that mode already applies. The info panel
+names the factor on any body it affects. At true scale relief is 1:1.
+
+One knock-on: Earth's cloud deck nominally sits 0.4% of a radius up, which is
+lower than exaggerated Himalaya, so the shell is lifted to clear the highest
+terrain. Otherwise the mountains would stand through the clouds.
 
 ### Everything else — synthesised
 

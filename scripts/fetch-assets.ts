@@ -23,7 +23,7 @@
  *   - IAU Minor Planet Center MPCORB / Distant.txt orbit catalogues
  */
 
-import { createGunzip, deflateSync } from 'node:zlib'
+import { createGunzip, deflateSync, inflateRawSync } from 'node:zlib'
 import { createReadStream } from 'node:fs'
 import { createInterface } from 'node:readline'
 import fs from 'node:fs/promises'
@@ -305,8 +305,60 @@ interface ReliefSpec {
   endian: 'msb' | 'lsb'
   /** East longitude of the source raster's left-hand column, degrees. */
   originLonEast: number
+  /**
+   * Name fragment of the entry to pull out, when the download is a zip. Only
+   * stored/deflated entries without data descriptors, which is what these
+   * archives use.
+   */
+  zipEntry?: string
+  /**
+   * True when samples sit on cell *corners* rather than centres, so the grid
+   * includes both poles and repeats the 180 degree meridian. ETOPO does this;
+   * the PDS products do not.
+   */
+  gridRegistered?: boolean
+  /** Output grid, when it should differ from the source. Block-averaged. */
+  outWidth?: number
+  outHeight?: number
+  /**
+   * Clamp elevations below this, in metres. Earth needs it at 0: the visible
+   * surface over an ocean is the water, not the sea bed, and displacing
+   * bathymetry would carve a trench through the blue.
+   */
+  floorMetres?: number
   credit: string
   note: string
+}
+
+/**
+ * Pull one entry out of a zip.
+ *
+ * Node ships no zip reader, but these archives are the simple case — a few
+ * deflated entries with their sizes in the local headers — so walking them is
+ * shorter than taking on a dependency or shelling out to `unzip`.
+ */
+function unzipEntry(buf: Buffer, nameFragment: string): Buffer | null {
+  let pos = 0
+  while (pos + 30 <= buf.length && buf.readUInt32LE(pos) === 0x04034b50) {
+    const flags = buf.readUInt16LE(pos + 6)
+    const method = buf.readUInt16LE(pos + 8)
+    const csize = buf.readUInt32LE(pos + 18)
+    const nameLen = buf.readUInt16LE(pos + 26)
+    const extraLen = buf.readUInt16LE(pos + 28)
+    const name = buf.toString('ascii', pos + 30, pos + 30 + nameLen)
+    const start = pos + 30 + nameLen + extraLen
+    // Bit 3 puts the sizes after the data instead, which would mean scanning for
+    // the descriptor; these archives do not use it, so refuse rather than guess.
+    if (flags & 0x08) return null
+    if (name.includes(nameFragment)) {
+      const data = buf.subarray(start, start + csize)
+      if (method === 0) return Buffer.from(data)
+      if (method === 8) return inflateRawSync(data)
+      return null
+    }
+    pos = start + csize
+  }
+  return null
 }
 
 const RELIEF: ReliefSpec[] = [
@@ -337,6 +389,27 @@ const RELIEF: ReliefSpec[] = [
     originLonEast: 0,
     credit: 'LRO LOLA LDEM — NASA/GSFC, PDS Geosciences Node',
     note: 'LOLA LDEM, 4 px/deg',
+  },
+  {
+    body: 'earth',
+    out: 'earth_relief.png',
+    url: 'https://www.ngdc.noaa.gov/mgg/global/relief/ETOPO2/ETOPO2v2-2006/ETOPO2v2g/raw_binary/ETOPO2v2g_i2_LSB.zip',
+    zipEntry: '.bin',
+    // Straight from the archive's own .hdr rather than assumed: 10801 x 5401,
+    // corner-registered from 180W/90N, little-endian metres.
+    width: 10801,
+    height: 5401,
+    metresPerDn: 1,
+    endian: 'lsb',
+    originLonEast: 180,
+    gridRegistered: true,
+    outWidth: 2048,
+    outHeight: 1024,
+    // Sea level. Earth is the only body here whose visible surface is not its
+    // solid surface over most of its area.
+    floorMetres: 0,
+    credit: 'ETOPO2v2 — NOAA National Centers for Environmental Information',
+    note: 'ETOPO2v2, 2 arc-min, land only',
   },
 ]
 
@@ -472,53 +545,102 @@ async function buildRelief(spec: ReliefSpec): Promise<ReliefResult | null> {
   const cachePath = path.join(CACHE, path.basename(spec.url))
   if (!(await download(spec.url, cachePath, `${spec.out} ${C.dim(spec.note)}`))) return null
 
-  const raw = await fs.readFile(cachePath)
-  const count = spec.width * spec.height
-  if (raw.length !== count * 2) {
-    console.log(
-      `  ${C.red('bad    ')} ${spec.out}: expected ${count * 2} bytes, got ${raw.length}`,
-    )
+  // Widened because inflateRawSync's buffer is not the same flavour readFile's
+  // is, and the two have to share this variable.
+  let raw: Buffer<ArrayBufferLike> = await fs.readFile(cachePath)
+  if (spec.zipEntry) {
+    const entry = unzipEntry(raw, spec.zipEntry)
+    if (!entry) {
+      console.log(`  ${C.red('bad    ')} ${spec.out}: no usable zip entry matching ${spec.zipEntry}`)
+      return null
+    }
+    raw = entry
+  }
+
+  const srcCount = spec.width * spec.height
+  if (raw.length !== srcCount * 2) {
+    console.log(`  ${C.red('bad    ')} ${spec.out}: expected ${srcCount * 2} bytes, got ${raw.length}`)
     return null
   }
 
-  // Roll so output column 0 sits at 180 degrees east longitude.
-  const shift = Math.round((spec.width * (180 - spec.originLonEast)) / 360)
-  const metres = new Float64Array(count)
-  let min = Infinity
-  let max = -Infinity
-  for (let y = 0; y < spec.height; y++) {
-    for (let x = 0; x < spec.width; x++) {
-      const src = y * spec.width + ((x + shift) % spec.width)
-      const dn = spec.endian === 'msb' ? raw.readInt16BE(src * 2) : raw.readInt16LE(src * 2)
-      const v = dn * spec.metresPerDn
-      metres[y * spec.width + x] = v
-      if (v < min) min = v
-      if (v > max) max = v
+  const w = spec.outWidth ?? spec.width
+  const h = spec.outHeight ?? spec.height
+
+  // Where each source sample actually sits. Corner-registered grids repeat the
+  // 180 degree meridian and include both poles, so their spacing is one cell
+  // wider than a centre-registered grid of the same column count.
+  const lonOfCol = spec.gridRegistered
+    ? (c: number) => spec.originLonEast + (c * 360) / (spec.width - 1)
+    : (c: number) => spec.originLonEast + ((c + 0.5) * 360) / spec.width
+  const latOfRow = spec.gridRegistered
+    ? (r: number) => 90 - (r * 180) / (spec.height - 1)
+    : (r: number) => 90 - ((r + 0.5) * 180) / spec.height
+
+  // Scatter every source sample into the output cell it falls in and average.
+  // For a same-size grid this reduces to a pure roll — one sample per cell — so
+  // the products that need no resampling are untouched by the machinery.
+  const sum = new Float64Array(w * h)
+  const hits = new Uint32Array(w * h)
+  for (let r = 0; r < spec.height; r++) {
+    const lat = latOfRow(r)
+    const y = Math.min(h - 1, Math.max(0, Math.floor(((90 - lat) / 180) * h)))
+    for (let c = 0; c < spec.width; c++) {
+      const i = r * spec.width + c
+      const dn = spec.endian === 'msb' ? raw.readInt16BE(i * 2) : raw.readInt16LE(i * 2)
+      if (dn === -32768) continue // NODATA
+      let v = dn * spec.metresPerDn
+      // Clamped before averaging, so a coastal cell blends land down to the
+      // waterline rather than being dragged below it by the sea bed offshore.
+      if (spec.floorMetres !== undefined) v = Math.max(v, spec.floorMetres)
+      const lon = lonOfCol(c)
+      const u = ((((lon - 180) / 360) % 1) + 1) % 1
+      const x = Math.min(w - 1, Math.floor(u * w))
+      sum[y * w + x]! += v
+      hits[y * w + x]!++
     }
   }
 
+  let empty = 0
+  let min = Infinity
+  let max = -Infinity
+  const metres = new Float64Array(w * h)
+  for (let i = 0; i < metres.length; i++) {
+    if (hits[i] === 0) {
+      empty++
+      continue
+    }
+    const v = sum[i]! / hits[i]!
+    metres[i] = v
+    if (v < min) min = v
+    if (v > max) max = v
+  }
+  if (empty > 0) {
+    console.log(`  ${C.red('bad    ')} ${spec.out}: ${empty} output cells received no samples`)
+    return null
+  }
+
   const span = max - min
-  const rgb = Buffer.alloc(count * 3)
-  for (let i = 0; i < count; i++) {
+  const rgb = Buffer.alloc(w * h * 3)
+  for (let i = 0; i < metres.length; i++) {
     const t = Math.round(((metres[i]! - min) / span) * 65535)
     rgb[i * 3] = (t >> 8) & 0xff
     rgb[i * 3 + 1] = t & 0xff
   }
 
   await fs.mkdir(SHAPES, { recursive: true })
-  const png = encodePng(spec.width, spec.height, rgb)
+  const png = encodePng(w, h, rgb)
   await fs.writeFile(outPath, png)
   console.log(
     `  ${C.green('wrote  ')} ${spec.out} ${C.dim(
-      `${spec.width}x${spec.height}, ${(min / 1000).toFixed(2)}..${(max / 1000).toFixed(2)} km, ${mb(png.length)}`,
+      `${w}x${h}, ${(min / 1000).toFixed(2)}..${(max / 1000).toFixed(2)} km, ${mb(png.length)}`,
     )}`,
   )
 
   return {
     body: spec.body,
     out: spec.out,
-    width: spec.width,
-    height: spec.height,
+    width: w,
+    height: h,
     minKm: min / 1000,
     maxKm: max / 1000,
     credit: spec.credit,

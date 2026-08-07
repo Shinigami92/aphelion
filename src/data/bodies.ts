@@ -623,6 +623,10 @@ export const RELIEF_EXAGGERATION: Record<string, number> = {
   // The Moon's range is proportionally larger than Mars's (1.1% of radius
   // against 0.86%) and its terrain is far busier, so it needs less help.
   'moon:Moon': 8,
+  // Earth is the flattest of the three by a wide margin — 6.4 km of land relief
+  // on a 6,378 km radius, a tenth of one percent — so it needs the most. Kept
+  // below the atmosphere shell, and the cloud deck lifts to clear the peaks.
+  earth: 25,
 }
 
 /**

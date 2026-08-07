@@ -590,6 +590,44 @@ function probeRelief(key: string): ReliefProbe | null {
 }
 
 {
+  const earth = probeRelief('earth')
+  if (!earth) ok('Earth relief (skipped, not on disk)', true)
+  else {
+    // Bathymetry is deliberately not displaced: over an ocean the visible
+    // surface is the water. So nothing anywhere may sit below sea level, and
+    // open ocean must read exactly zero.
+    //
+    // Note this does *not* extend to dry basins below sea level. A cell here is
+    // about 19 km across — wider than the Dead Sea rift or Death Valley — so
+    // averaging pulls in the surrounding highlands and both read positive. That
+    // is the average being right, not the clamp being wrong.
+    ok(
+      'Earth relief never goes below sea level',
+      (reliefFor('earth')?.minKm ?? -1) === 0,
+      `declared minimum ${reliefFor('earth')?.minKm ?? 'missing'} km`,
+    )
+    ok(
+      'Earth open ocean is exactly flat',
+      earth.at(0, 200) === 0 && earth.at(0, 335) === 0 && earth.at(-60, 100) === 0,
+      `Pacific ${earth.at(0, 200)}, Atlantic ${earth.at(0, 335)}, Southern ${earth.at(-60, 100)}`,
+    )
+
+    near('Tibetan plateau elevation', earth.at(32, 88), 4.9, 1.2, ' km')
+    near('Altiplano elevation', earth.at(-20, 292), 3.7, 1.5, ' km')
+    near('Sahara (Libya) elevation', earth.at(25, 20), 0.5, 0.5, ' km')
+
+    // Averaged into 10.5 arc-minute cells no single summit survives, so the
+    // maximum is the Himalaya-Karakoram wall rather than Everest itself.
+    const { hiAt } = earth.extremes()
+    ok(
+      'Earth global maximum is the Himalaya',
+      hiAt[0] > 25 && hiAt[0] < 40 && hiAt[1] > 70 && hiAt[1] < 100,
+      `at ${hiAt[0].toFixed(2)}N ${hiAt[1].toFixed(2)}E, expected the Himalaya-Karakoram`,
+    )
+  }
+}
+
+{
   const phobos = probeRelief('moon:Phobos')
   if (!phobos) ok('Phobos shape (skipped, not on disk)', true)
   else {

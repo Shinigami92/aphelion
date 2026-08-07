@@ -816,15 +816,23 @@ export class SceneView {
     const radius = body.sceneRadius
     const squash = 1 - body.flattening
 
+    // The cloud deck sits 0.4% of a radius up, which is roughly right for Earth
+    // until relief is exaggerated 25-fold and the Himalayas stand four times
+    // higher than the clouds. Lift the shell just enough to clear the peaks.
+    let cloudLift = 1.004
     if (visual.relief) {
       // Model space is the unit sphere, so one unit of displacement is one body
       // radius: dividing the elevation by the true radius keeps relief in
       // proportion, and it then rides whatever scaling the body itself gets.
+      const exaggeration = scale.reliefExaggeration(visual.reliefExaggeration)
       const u = visual.material.uniforms
-      u.uReliefScale!.value =
-        scale.reliefExaggeration(visual.reliefExaggeration) / body.radiusKm
+      u.uReliefScale!.value = exaggeration / body.radiusKm
       const seg = LOD_SEGMENTS[visual.lod] ?? LOD_SEGMENTS[0]!
       u.uReliefStep!.value.set(1 / seg[0], 1 / seg[1])
+      cloudLift = Math.max(
+        cloudLift,
+        1 + (visual.relief.maxKm * exaggeration * 1.05) / body.radiusKm,
+      )
     }
 
     basisToMatrix(body.orientation, this.tmpMatrix)
@@ -833,7 +841,7 @@ export class SceneView {
 
     if (visual.clouds) {
       visual.clouds.quaternion.copy(visual.mesh.quaternion)
-      visual.clouds.scale.set(radius * 1.004, radius * 1.004, radius * 1.004 * squash)
+      visual.clouds.scale.set(radius * cloudLift, radius * cloudLift, radius * cloudLift * squash)
     }
     if (visual.atmosphere) {
       const ratio = (visual.atmosphere.userData.shellRatio as number | undefined) ?? null
