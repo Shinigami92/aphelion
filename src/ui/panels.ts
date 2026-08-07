@@ -88,6 +88,10 @@ export class TimePanel {
   private rateSlider = el('input', '') as HTMLInputElement
   private note = el('div', 'note')
 
+  /** The row that survives collapsing, and everything that does not. */
+  head!: HTMLElement
+  body!: HTMLElement
+
   private editing = false
   private lastDate = ''
   private lastTime = ''
@@ -115,13 +119,17 @@ export class TimePanel {
     title.append(helpChip)
 
     this.host.append(title)
+    this.head = title
+    const body = el('div', 'panel__body')
+    this.host.append(body)
+    this.body = body
 
     this.clock.append(this.dateSpan, document.createTextNode('  '), this.timeSpan)
     const zone = el('span', 'clock__zone', 'UTC')
     this.clock.append(zone)
     this.clock.title = 'Click to type a date and time'
     this.clock.addEventListener('click', () => this.beginEdit())
-    this.host.append(this.clock)
+    body.append(this.clock)
 
     this.input.style.display = 'none'
     this.input.spellcheck = false
@@ -132,7 +140,7 @@ export class TimePanel {
     })
     this.input.addEventListener('blur', () => this.cancelEdit())
     this.hint.style.display = 'none'
-    this.host.append(this.input, this.hint)
+    body.append(this.input, this.hint)
 
     const transport = el('div', 'transport')
     this.stepBackBtn.title = 'Step back one rate unit (,)'
@@ -168,7 +176,7 @@ export class TimePanel {
       this.time.setNow()
       this.time.resetRate()
     })
-    this.host.append(transport)
+    body.append(transport)
 
     const rate = el('div', 'rate')
     this.rateSlider.type = 'range'
@@ -181,8 +189,8 @@ export class TimePanel {
       this.time.setRateIndex(Number(this.rateSlider.value))
     })
     rate.append(this.rateLabel, this.rateSlider)
-    this.host.append(rate)
-    this.host.append(this.note)
+    body.append(rate)
+    body.append(this.note)
   }
 
   private beginEdit(): void {
@@ -274,6 +282,9 @@ export class BodyBrowser {
   private rows = new Map<string, HTMLElement>()
   private selectedKey: string | null = null
 
+  head!: HTMLElement
+  body!: HTMLElement
+
   constructor(
     private host: HTMLElement,
     private system: SolarSystem,
@@ -306,8 +317,16 @@ export class BodyBrowser {
         this.render()
       }
     })
-    head.append(this.search)
-    this.host.append(head, this.list)
+    // The search box collapses with the list: a hidden panel should not still
+    // have a focusable input inside it.
+    const body = el('div', 'panel__body')
+    body.append(this.search, this.list)
+    this.host.append(head, body)
+    // The title row, not its padded wrapper: `.panel__title` is already a flex
+    // row with space-between, so the collapse control lands beside the count
+    // instead of stacking under it.
+    this.head = title
+    this.body = body
 
     this.expanded.add('earth')
     this.render()
@@ -488,10 +507,16 @@ export class InfoPanel {
 
   private current: SimBody | null = null
 
+  head = el('div', 'info__head')
+  body = el('div', 'panel__body')
+
   constructor(private host: HTMLElement) {
-    this.host.append(
-      this.nameEl,
-      this.subEl,
+    // This panel has no title row of its own; the body's name and subtitle are
+    // its heading, so they are what stays visible when it collapses. Reading
+    // "Mimas — Saturn I" off a shut panel is more use than the word "Body".
+    this.head.append(this.nameEl, this.subEl)
+    this.host.append(this.head, this.body)
+    this.body.append(
       this.badgeEl,
       this.noteEl,
       this.blurbEl,
@@ -734,6 +759,9 @@ export class TogglePanel {
   private orbitButtons: HTMLElement[] = []
   private scaleButtons: HTMLElement[] = []
 
+  head!: HTMLElement
+  body!: HTMLElement
+
   constructor(
     private host: HTMLElement,
     toggles: ToggleConfig[],
@@ -756,6 +784,10 @@ export class TogglePanel {
     }
 
     this.host.append(title)
+    this.head = title
+    const body = el('div', 'panel__body')
+    this.host.append(body)
+    this.body = body
 
     const grid = el('div', 'toggles__grid')
     for (const config of toggles) {
@@ -768,7 +800,7 @@ export class TogglePanel {
       grid.append(node)
       this.items.push({ config, node })
     }
-    this.host.append(grid)
+    body.append(grid)
 
     const orbitRow = el('div', 'segmented')
     for (const mode of ['none', 'planets', 'all'] as const) {
@@ -780,7 +812,7 @@ export class TogglePanel {
       orbitRow.append(btn)
       this.orbitButtons.push(btn)
     }
-    this.host.append(orbitRow)
+    body.append(orbitRow)
 
     const scaleRow = el('div', 'segmented')
     for (const mode of ['explore', 'true'] as const) {
@@ -793,7 +825,7 @@ export class TogglePanel {
       scaleRow.append(btn)
       this.scaleButtons.push(btn)
     }
-    this.host.append(scaleRow)
+    body.append(scaleRow)
 
     this.refresh()
   }

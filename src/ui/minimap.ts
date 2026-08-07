@@ -38,6 +38,9 @@ export class Minimap {
   /** Half-width of the view in km. */
   private span = AU_KM * 32
 
+  head!: HTMLElement
+  body!: HTMLElement
+
   constructor(
     private host: HTMLElement,
     private system: SolarSystem,
@@ -52,14 +55,20 @@ export class Minimap {
     this.titleContext.style.fontFamily = 'var(--mono)'
     title.append(label, this.titleContext)
     host.append(title)
+    this.head = title
+
+    const body = document.createElement('div')
+    body.className = 'panel__body'
+    host.append(body)
+    this.body = body
 
     this.canvas = document.createElement('canvas')
     this.canvas.className = 'minimap__canvas'
-    host.append(this.canvas)
+    body.append(this.canvas)
 
     this.footer = document.createElement('div')
     this.footer.className = 'minimap__foot'
-    host.append(this.footer)
+    body.append(this.footer)
 
     const ctx = this.canvas.getContext('2d')
     if (!ctx) throw new Error('2D canvas unavailable for the mini-map')

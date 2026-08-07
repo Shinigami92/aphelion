@@ -36,6 +36,7 @@ import {
   formatDistance,
 } from './ui/panels.ts'
 import { Minimap } from './ui/minimap.ts'
+import { makeCollapsible } from './ui/collapse.ts'
 
 // ---------------------------------------------------------------------------
 // DOM
@@ -182,16 +183,26 @@ function syncPanelBounds(): void {
     ? Math.round(viewportHeight - toggles.getBoundingClientRect().top + 12)
     : 14
   browser.style.bottom = `${clearance}px`
+
+  // ...and starts below the time panel, for the same reason in the other
+  // direction. The stylesheet's 186px assumes a fully expanded clock, so
+  // collapsing it used to leave the browser stranded with a band of empty space
+  // above it while the other two edges of the column tracked their neighbours.
+  const timePanel = need('time-panel')
+  browser.style.top = shown(timePanel)
+    ? `${Math.round(timePanel.getBoundingClientRect().bottom + 12)}px`
+    : '14px'
 }
 
-// Neither panel's height is final at startup, and both change later: the orrery
-// caption wraps to a second line once the first frame fills it in, and the view
-// panel grows whenever a toggle is added. Observe them rather than measuring
-// once and trusting the result.
+// No panel's height is final at startup, and all of them change later: the
+// orrery caption wraps to a second line once the first frame fills it in, the
+// view panel grows whenever a toggle is added, and any of them can now be
+// collapsed. Observe them rather than measuring once and trusting the result.
 if (typeof ResizeObserver !== 'undefined') {
   const observer = new ResizeObserver(() => syncPanelBounds())
   observer.observe(minimapHost)
   observer.observe(need('toggles'))
+  observer.observe(need('time-panel'))
 }
 
 const togglePanel = new TogglePanel(
@@ -231,6 +242,16 @@ const togglePanel = new TogglePanel(
   },
   REPO_URL,
 )
+
+// Every panel folds down to its own header, so a crowded screen can be cleared
+// without losing track of what is selected or what the clock reads. Collapsing
+// the view panel changes its height, which the ResizeObserver above already
+// watches, so the browser panel's lower bound follows on its own.
+makeCollapsible(need('time-panel'), timePanel.head, timePanel.body, 'the time controls')
+makeCollapsible(need('browser'), browser.head, browser.body, 'the body browser')
+makeCollapsible(need('info'), infoPanel.head, infoPanel.body, 'the body details')
+makeCollapsible(minimapHost, minimap.head, minimap.body, 'the orrery map')
+makeCollapsible(need('toggles'), togglePanel.head, togglePanel.body, 'the view options')
 
 // Second pass of the shared view: display state, now that the panels exist so
 // their checkboxes and segmented buttons reflect what was restored.

@@ -89,6 +89,13 @@ Everything has both a pointer gesture and a key.
 | `P` | render quality |
 | `H` or `?` | keyboard map |
 
+Every panel folds away individually — click the chevron in its header and it
+collapses to that header alone, so you can clear the view without losing the
+clock reading or which body is selected. Panels sharing an edge follow each other
+as they move: the body browser tracks both the clock above it and the view
+options below, and the info panel grows into the corner when the orrery map
+folds.
+
 ---
 
 ## Sharing a view
