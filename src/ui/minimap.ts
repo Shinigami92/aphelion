@@ -75,6 +75,9 @@ export class Minimap {
     this.ctx = ctx
 
     this.canvas.addEventListener('click', (ev) => {
+      // A pinch ends with a click from the last finger lifted; without this the
+      // gesture would also select whatever happened to be under it.
+      if (performance.now() - this.pinchedAt < 400) return
       const rect = this.canvas.getBoundingClientRect()
       const x = ev.clientX - rect.left
       const y = ev.clientY - rect.top
@@ -92,13 +95,55 @@ export class Minimap {
 
     this.canvas.addEventListener('wheel', (ev) => {
       ev.preventDefault()
-      this.zoomBias *= Math.exp(ev.deltaY * 0.0012)
-      this.zoomBias = Math.max(0.05, Math.min(8, this.zoomBias))
+      this.setZoomBias(this.zoomBias * Math.exp(ev.deltaY * 0.0012))
     })
+
+    // Pinch to zoom the map. Without this the map had no touch zoom at all, and
+    // — worse — no `touch-action`, so a pinch fell through to the browser and
+    // zoomed the entire page. iOS has ignored `user-scalable=no` since iOS 10,
+    // so declaring the gesture ours in CSS is the only way to keep it.
+    this.canvas.addEventListener('pointerdown', (ev) => {
+      this.pointers.set(ev.pointerId, { x: ev.clientX, y: ev.clientY })
+      if (this.pointers.size === 2) this.pinchDistance = this.pinchSpan()
+    })
+
+    this.canvas.addEventListener('pointermove', (ev) => {
+      if (!this.pointers.has(ev.pointerId)) return
+      this.pointers.set(ev.pointerId, { x: ev.clientX, y: ev.clientY })
+      if (this.pointers.size !== 2) return
+      const d = this.pinchSpan()
+      if (this.pinchDistance > 0 && d > 0) {
+        this.setZoomBias(this.zoomBias * (this.pinchDistance / d))
+        this.pinchedAt = performance.now()
+      }
+      this.pinchDistance = d
+    })
+
+    const release = (ev: PointerEvent): void => {
+      this.pointers.delete(ev.pointerId)
+      if (this.pointers.size < 2) this.pinchDistance = 0
+    }
+    this.canvas.addEventListener('pointerup', release)
+    this.canvas.addEventListener('pointercancel', release)
+  }
+
+  private setZoomBias(value: number): void {
+    this.zoomBias = Math.max(0.05, Math.min(8, value))
+  }
+
+  private pinchSpan(): number {
+    const pts = [...this.pointers.values()]
+    if (pts.length < 2) return 0
+    return Math.hypot(pts[0]!.x - pts[1]!.x, pts[0]!.y - pts[1]!.y)
   }
 
   private titleContext: HTMLElement
   private zoomBias = 1
+
+  private pointers = new Map<number, { x: number; y: number }>()
+  private pinchDistance = 0
+  /** When a pinch last moved, so the click it ends with can be ignored. */
+  private pinchedAt = 0
 
   /** Called each frame; cheap enough at this size. */
   update(focus: SimBody, selected: SimBody | null): void {

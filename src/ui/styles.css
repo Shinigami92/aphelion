@@ -921,6 +921,10 @@ kbd {
   display: block;
   border-radius: 6px;
   cursor: crosshair;
+  /* The map handles its own pinch. Left to the browser, a pinch here zooms the
+     whole page — `user-scalable=no` in the viewport meta has been ignored by
+     iOS Safari since iOS 10, so this declaration is what actually holds. */
+  touch-action: none;
 }
 
 .minimap__foot {
@@ -1109,6 +1113,20 @@ body.is-mobile .panel {
      none of that survives a 390px viewport. */
   width: auto;
   max-width: none;
+  /* Sheets scroll vertically and do nothing else. Anything looser and a pinch
+     that starts on a panel zooms the page out from under a fixed layout, which
+     it has no way to recover from. */
+  touch-action: pan-y;
+}
+
+body.is-mobile .help__panel {
+  touch-action: pan-y;
+}
+
+/* Taps only — this also drops the 300ms delay browsers reserve for a possible
+   double-tap zoom. */
+body.is-mobile .tabbar {
+  touch-action: manipulation;
 }
 
 /* The clock keeps its corner but spans the width, so the transport buttons get
