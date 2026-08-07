@@ -401,97 +401,229 @@ section('Orbit geometry survives float32')
 }
 
 // ---------------------------------------------------------------------------
+section('Tidally locked frames')
+
+/** Angular separation in longitude, accounting for the wrap. Always 0..180. */
+const lonApart = (a: number, b: number): number =>
+  Math.abs(((((a - b) % 360) + 540) % 360) - 180)
+
+// A tidally locked moon's prime meridian faces its planet — that is what the
+// IAU convention means, and every satellite map and shape model is drawn in it.
+// Get this backwards and each of the 459 moons is rendered half a turn out,
+// which is invisible on a synthesised surface and wrong on every real one.
+{
+  const system = new SolarSystem()
+  const scale = new ScaleModel()
+  system.update(jdTT, scale)
+
+  for (const key of ['moon:Moon', 'moon:Phobos']) {
+    const body = system.byKey.get(key)
+    if (!body || !body.parent) {
+      ok(`${key} present for the tidal-lock frame check`, false)
+      continue
+    }
+    const p = body.localKm
+    const n = Math.hypot(p.x, p.y, p.z)
+    const toParent = { x: -p.x / n, y: -p.y / n, z: -p.z / n }
+    const b = body.orientation
+    const dot = (u: { x: number; y: number; z: number }, v: typeof u): number =>
+      u.x * v.x + u.y * v.y + u.z * v.z
+    let lon = (Math.atan2(dot(toParent, b.y), dot(toParent, b.x)) * 180) / Math.PI
+    if (lon < 0) lon += 360
+    const lat = (Math.asin(dot(toParent, b.z)) * 180) / Math.PI
+    ok(
+      `${key} points its prime meridian at its parent`,
+      lonApart(lon, 0) < 0.5 && Math.abs(lat) < 0.5,
+      `sub-parent point at ${lat.toFixed(2)}N ${lon.toFixed(2)}E, expected 0N 0E`,
+    )
+  }
+}
+
+// ---------------------------------------------------------------------------
 section('Surface relief')
 
 // The 180 degree texture bug lived for a whole build because a wrongly rotated
 // planet still looks like a planet. An elevation grid has the same failure mode
 // and a much better test: it has named extremes at published coordinates, so a
 // roll, a flip or a mirrored longitude shows up immediately.
-{
-  const relief = reliefFor('mars')
-  const file = relief ? path.join(SHAPES_DIR, relief.file) : ''
-  if (!relief || !existsSync(file)) {
-    // Assets are checked in, so this should not happen — but validate must not
-    // fail on a tree where they have been cleared deliberately.
-    ok('mars relief map present (skipped, not on disk)', true)
-  } else {
-    const img = decodePng(readFileSync(file))
-    ok(
-      'relief map matches its declared grid',
-      img.width === relief.width && img.height === relief.height,
-      `${img.width}x${img.height} vs ${relief.width}x${relief.height}`,
-    )
 
-    /** Elevation in km at a latitude and *east* longitude. */
-    const at = (latDeg: number, lonEast: number): number => {
-      const u = (((lonEast - 180) / 360) % 1 + 1) % 1
+interface ReliefProbe {
+  width: number
+  height: number
+  /** Elevation in km at a latitude and *east* longitude. */
+  at(latDeg: number, lonEast: number): number
+  /** Cosine-weighted mean elevation over every sample the filter accepts. */
+  mean(accept: (lat: number, lonEast: number) => boolean): number
+  /** Where the global extremes fall, as [lat, lonEast]. */
+  extremes(): { hiAt: [number, number]; loAt: [number, number] }
+}
+
+function probeRelief(key: string): ReliefProbe | null {
+  const relief = reliefFor(key)
+  if (!relief) return null
+  const file = path.join(SHAPES_DIR, relief.file)
+  // Assets are checked in, so a missing file should not happen — but validate
+  // must not fail on a tree where they have been cleared deliberately.
+  if (!existsSync(file)) return null
+
+  const img = decodePng(readFileSync(file))
+  ok(
+    `${key} relief map matches its declared grid`,
+    img.width === relief.width && img.height === relief.height,
+    `${img.width}x${img.height} vs ${relief.width}x${relief.height}`,
+  )
+
+  const kmAt = (x: number, y: number): number => {
+    const i = (y * img.width + x) * 3
+    const f = ((img.data[i]! << 8) | img.data[i + 1]!) / 65535
+    return relief.minKm + f * (relief.maxKm - relief.minKm)
+  }
+  const latOf = (y: number): number => 90 - ((y + 0.5) * 180) / img.height
+  const lonOf = (x: number): number => (180 + ((x + 0.5) * 360) / img.width) % 360
+
+  return {
+    width: img.width,
+    height: img.height,
+    at(latDeg, lonEast) {
+      const u = (((((lonEast - 180) / 360) % 1) + 1) % 1)
       const x = Math.min(img.width - 1, Math.round(u * img.width))
       const y = Math.min(img.height - 1, Math.max(0, Math.round(((90 - latDeg) / 180) * img.height)))
-      const i = (y * img.width + x) * 3
-      const f = ((img.data[i]! << 8) | img.data[i + 1]!) / 65535
-      return relief.minKm + f * (relief.maxKm - relief.minKm)
-    }
+      return kmAt(x, y)
+    },
+    mean(accept) {
+      let sum = 0
+      let weight = 0
+      for (let y = 0; y < img.height; y++) {
+        const lat = latOf(y)
+        const w = Math.cos((lat * Math.PI) / 180)
+        for (let x = 0; x < img.width; x++) {
+          if (!accept(lat, lonOf(x))) continue
+          sum += kmAt(x, y) * w
+          weight += w
+        }
+      }
+      return weight > 0 ? sum / weight : NaN
+    },
+    extremes() {
+      let hi = -Infinity
+      let lo = Infinity
+      let hiAt: [number, number] = [0, 0]
+      let loAt: [number, number] = [0, 0]
+      for (let y = 0; y < img.height; y++) {
+        for (let x = 0; x < img.width; x++) {
+          const v = kmAt(x, y)
+          if (v > hi) { hi = v; hiAt = [latOf(y), lonOf(x)] }
+          if (v < lo) { lo = v; loAt = [latOf(y), lonOf(x)] }
+        }
+      }
+      return { hiAt, loAt }
+    },
+  }
+}
 
+{
+  const mars = probeRelief('mars')
+  if (!mars) ok('mars relief (skipped, not on disk)', true)
+  else {
     // Spot heights. Tolerances are wide because the grid is 4 px/deg — one
     // sample spans ~15 km — so these test registration, not altimetry.
-    near('Ascraeus Mons elevation', at(11.8, 255.5), 18.1, 1.5, ' km')
-    near('Isidis basin floor', at(12.9, 87.0), -3.8, 1.5, ' km')
+    near('Ascraeus Mons elevation', mars.at(11.8, 255.5), 18.1, 1.5, ' km')
+    near('Isidis basin floor', mars.at(12.9, 87.0), -3.8, 1.5, ' km')
 
     // The crustal dichotomy: the northern lowlands sit kilometres below the
     // southern highlands. Independent of any single landmark, and it fails loudly
     // if the grid is ever flipped in latitude.
-    const bandMean = (fromLat: number, toLat: number): number => {
-      let sum = 0
-      let weight = 0
-      const y0 = Math.round(((90 - toLat) / 180) * img.height)
-      const y1 = Math.round(((90 - fromLat) / 180) * img.height)
-      for (let y = y0; y < y1; y++) {
-        const lat = 90 - ((y + 0.5) * 180) / img.height
-        const w = Math.cos((lat * Math.PI) / 180)
-        for (let x = 0; x < img.width; x++) {
-          const i = (y * img.width + x) * 3
-          const f = ((img.data[i]! << 8) | img.data[i + 1]!) / 65535
-          sum += (relief.minKm + f * (relief.maxKm - relief.minKm)) * w
-          weight += w
-        }
-      }
-      return sum / weight
-    }
-    const north = bandMean(40, 80)
-    const south = bandMean(-80, -40)
+    const north = mars.mean((lat) => lat > 40 && lat < 80)
+    const south = mars.mean((lat) => lat < -40 && lat > -80)
     ok(
-      'northern lowlands sit below the southern highlands',
+      'Mars northern lowlands sit below the southern highlands',
       south - north > 2,
       `north ${north.toFixed(2)} km, south ${south.toFixed(2)} km, difference ${(south - north).toFixed(2)} km`,
     )
 
     // The decisive one: the global extremes must land on the right features.
-    let hi = -Infinity
-    let lo = Infinity
-    let hiAt: [number, number] = [0, 0]
-    let loAt: [number, number] = [0, 0]
-    for (let y = 0; y < img.height; y++) {
-      for (let x = 0; x < img.width; x++) {
-        const i = (y * img.width + x) * 3
-        const v = ((img.data[i]! << 8) | img.data[i + 1]!) / 65535
-        const lat = 90 - (y * 180) / img.height
-        const lon = (180 + (x * 360) / img.width) % 360
-        if (v > hi) { hi = v; hiAt = [lat, lon] }
-        if (v < lo) { lo = v; loAt = [lat, lon] }
-      }
-    }
+    const { hiAt, loAt } = mars.extremes()
     // Olympus Mons is 600 km across, so its highest sample sits a degree or so
     // off the nominal centre; 3 degrees still excludes every other volcano.
     ok(
-      'global maximum is Olympus Mons',
-      Math.abs(hiAt[0] - 18.65) < 3 && Math.abs(hiAt[1] - 226.2) < 3,
+      'Mars global maximum is Olympus Mons',
+      Math.abs(hiAt[0] - 18.65) < 3 && lonApart(hiAt[1], 226.2) < 3,
       `at ${hiAt[0].toFixed(2)}N ${hiAt[1].toFixed(2)}E, expected 18.65N 226.2E`,
     )
     // Hellas is a 2,300 km basin, so the deepest sample roams within it.
     ok(
-      'global minimum is inside Hellas',
+      'Mars global minimum is inside Hellas',
       loAt[0] > -50 && loAt[0] < -25 && loAt[1] > 45 && loAt[1] < 95,
       `at ${loAt[0].toFixed(2)}N ${loAt[1].toFixed(2)}E, expected the Hellas basin`,
+    )
+  }
+}
+
+{
+  const moon = probeRelief('moon:Moon')
+  if (!moon) ok('lunar relief (skipped, not on disk)', true)
+  else {
+    // The far side averages roughly 1.5-2 km higher than the near side. Being a
+    // hemispheric property centred on 0 and 180 degrees, it pins the longitude
+    // roll the way the crustal dichotomy pins latitude for Mars.
+    const near1 = moon.mean((_lat, lon) => lonApart(lon, 0) < 75)
+    const far = moon.mean((_lat, lon) => lonApart(lon, 180) < 75)
+    ok(
+      'lunar far side stands above the near side',
+      far - near1 > 1,
+      `near ${near1.toFixed(2)} km, far ${far.toFixed(2)} km, difference ${(far - near1).toFixed(2)} km`,
+    )
+
+    const { hiAt, loAt } = moon.extremes()
+    ok(
+      'lunar global maximum is on the far side',
+      Math.abs(hiAt[0] - 5.4) < 6 && lonApart(hiAt[1], 201.4) < 6,
+      `at ${hiAt[0].toFixed(2)}N ${hiAt[1].toFixed(2)}E, expected 5.4N 201.4E`,
+    )
+    // Antoniadi, inside the South Pole-Aitken basin — the lowest point on the Moon.
+    ok(
+      'lunar global minimum is inside South Pole-Aitken',
+      loAt[0] < -60 && lonApart(loAt[1], 187.5) < 25,
+      `at ${loAt[0].toFixed(2)}N ${loAt[1].toFixed(2)}E, expected 70.4S 187.5E`,
+    )
+  }
+}
+
+{
+  const phobos = probeRelief('moon:Phobos')
+  if (!phobos) ok('Phobos shape (skipped, not on disk)', true)
+  else {
+    // Offsets are measured from the mean radius the app gives Phobos.
+    const R = 11.08
+    const r = (lat: number, lon: number): number => R + phobos.at(lat, lon)
+
+    // The IAU triaxial figure is 13.0 x 11.4 x 9.1 km with the long axis locked
+    // toward Mars. Reading it back off the resampled map confirms the cube-quad
+    // conversion kept the model's own axes.
+    ok(
+      'Phobos long axis lies along the sub-Mars meridian',
+      r(0, 0) > 12 && r(0, 180) > 12,
+      `sub-Mars ${r(0, 0).toFixed(2)} km, anti-Mars ${r(0, 180).toFixed(2)} km, expected > 12`,
+    )
+    ok(
+      'Phobos intermediate axis lies at 90 degrees',
+      r(0, 90) > 11 && r(0, 90) < 12.4,
+      `${r(0, 90).toFixed(2)} km, expected 11-12.4`,
+    )
+    ok(
+      'Phobos short axis is polar',
+      r(89, 0) < 10.4 && r(-89, 0) < 10.4,
+      `north ${r(89, 0).toFixed(2)} km, south ${r(-89, 0).toFixed(2)} km, expected < 10.4`,
+    )
+
+    // Stickney is centred at 1N 49W, on the Mars-facing hemisphere. Comparing it
+    // with the point diametrically opposite in longitude cancels the ellipsoid —
+    // both sit the same distance round from the long axis — so what is left is
+    // the crater. If the map were ever rolled half a turn, this flips sign.
+    ok(
+      'Stickney is a depression on the Mars-facing hemisphere',
+      r(1, 131) - r(1, 311) > 0.4,
+      `Stickney ${r(1, 311).toFixed(2)} km vs opposite ${r(1, 131).toFixed(2)} km`,
     )
   }
 }

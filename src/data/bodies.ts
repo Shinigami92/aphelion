@@ -620,6 +620,9 @@ export const SMALL_BODY_TEXTURES: Record<string, string> = {
  */
 export const RELIEF_EXAGGERATION: Record<string, number> = {
   mars: 12,
+  // The Moon's range is proportionally larger than Mars's (1.1% of radius
+  // against 0.86%) and its terrain is far busier, so it needs less help.
+  'moon:Moon': 8,
 }
 
 /**

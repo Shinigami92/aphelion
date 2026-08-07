@@ -205,10 +205,13 @@ export function spinBasis(spin: SpinModel, daysSinceJ2000: number, centuries: nu
  * correct for all ~450 satellites without any extra data.
  */
 export function tidallyLockedBasis(toParent: Vec3, orbitalVelocity: Vec3): Basis {
-  // x-axis: away from the parent (the anti-parent meridian faces outward, and
-  // the near side stays fixed — either convention is a 180 degree texture
-  // rotation, so we pick the outward one to match the usual sub-planetary
-  // longitude definition).
+  // x-axis: toward the parent. `toParent` is the satellite's position relative
+  // to its planet, so it points parent-to-body and negating it aims the prime
+  // meridian at the planet. That is the IAU convention for a locked satellite —
+  // the Moon's zero meridian faces Earth, Phobos's faces Mars — and it is not a
+  // free choice: every real satellite map and shape model is drawn in it, so the
+  // opposite convention renders all 459 moons half a turn out. `pnpm validate`
+  // pins it by checking the sub-parent point lands at 0N 0E.
   const x = normalize({ x: -toParent.x, y: -toParent.y, z: -toParent.z })
   // Pole: orbit normal = r x v.
   const z = normalize(cross(toParent, orbitalVelocity))

@@ -89,21 +89,53 @@ is tinted.
 | Body | Source | Instrument |
 | --- | --- | --- |
 | Mars | `megt90n000cb.img` (MEGDR) | MGS MOLA, 4 px/deg |
+| Moon | `ldem_4.img` (LOLA GDR) | LRO LOLA, 4 px/deg |
 
-<https://pds-geosciences.wustl.edu/mgs/mgs-m-mola-5-megdr-l3-v1/>
+- <https://pds-geosciences.wustl.edu/mgs/mgs-m-mola-5-megdr-l3-v1/>
+- <https://pds-geosciences.wustl.edu/lro/lro-l-lola-3-rdr-v1/>
 
 Courtesy NASA / JPL / GSFC. This is measured elevation, not a bump map derived
-from imagery: the MEGDR grid is 16-bit signed metres relative to the areoid, and
-Aphelion resamples it to `public/shapes/mars_relief.png`, splitting each height
-across the red and green channels because browsers decode 16-bit PNGs down to
-8 bits. The decoded range is −8.07 km to 21.13 km, and its extremes land on
-Hellas and Olympus Mons respectively, which is what `pnpm validate` checks.
+from imagery: both are 16-bit signed grids — MOLA in metres relative to the
+areoid, LOLA in half-metres of radius relative to a 1737.4 km sphere — which
+Aphelion resamples into `public/shapes/`, splitting each height across the red
+and green channels because browsers decode 16-bit PNGs down to 8 bits. Decoded
+ranges are −8.07 to 21.13 km for Mars and −8.88 to 10.50 km for the Moon.
+
+`pnpm validate` checks these against published landmarks rather than trusting
+them: Mars's extremes must land on Olympus Mons and Hellas and its northern
+lowlands sit below the southern highlands, while the Moon's must land on the
+far-side maximum (5.4°N 201.4°E) and Antoniadi inside South Pole–Aitken, with
+the far side averaging above the near side. Note the two products differ in byte
+order — MOLA is big-endian, LOLA little-endian — which is not something to infer.
+
+### PDS Small Bodies Node — Gaskell shape models
+
+**Licence: public domain** (US Government work, NASA mission data).
+
+| Body | Source | Form |
+| --- | --- | --- |
+| Phobos | `phobos_quad128q.tab` | 6 cube faces × 129² vertices, km |
+
+<https://sbn.psi.edu/pds/resource/phobosshape.html>
+
+R. Gaskell, Phobos shape model, PDS Small Bodies Node. Phobos is 27 × 22 × 18 km
+and nothing like a sphere, so "elevation above a datum" would be meaningless for
+it; Aphelion resamples the vertex cube onto the same equirectangular grid as the
+planetary grids above, storing radius offsets from the 11.08 km mean radius. The
+resampled map reproduces the model's full 8.10–13.94 km radius range, and
+`pnpm validate` reads the IAU triaxial figure back out of it — long axis toward
+Mars, short axis polar — along with Stickney showing up as a depression on the
+Mars-facing hemisphere. **No exaggeration is applied**: the shape is the shape.
+
+Deimos has no published shape model in these collections and is still drawn as
+a sphere.
 
 **Vertical exaggeration is applied at explore scale and is disclosed.** Mars's
-entire elevation range is under one percent of its radius, so at true scale the
-relief is real and all but invisible; explore scale multiplies it by 12, in the
-same spirit as the sixfold body enlargement that mode already applies. The info
-panel names the factor on any body it affects. At true scale relief is 1:1.
+entire elevation range is under one percent of its radius and the Moon's is
+barely over, so at true scale the relief is real and all but invisible; explore
+scale multiplies it (Mars ×12, Moon ×8), in the same spirit as the sixfold body
+enlargement that mode already applies. The info panel names the factor on any
+body it affects. At true scale relief is 1:1.
 
 ### Everything else — synthesised
 
@@ -235,6 +267,7 @@ All shaders in `src/render/materials.ts` are original to this project.
 | Minor planet diameters | Derived from magnitude + assumed albedo |
 | Belt particles | **Generated** from real distributions |
 | Surface relief | Real measured topography; **exaggerated** at explore scale |
+| Phobos's shape | Real shape model, unexaggerated |
 | Illumination falloff | Deliberately compressed (see below) |
 
 Two knowing departures from physics, both confined and both labelled in the UI.

@@ -26,13 +26,29 @@ export interface ReliefMap {
 }
 
 export const RELIEF_MAPS: Readonly<Record<string, ReliefMap>> = {
-  mars: {
+  'mars': {
     file: 'mars_relief.png',
     width: 1440,
     height: 720,
     minKm: -8.0680,
     maxKm: 21.1340,
     credit: 'MGS MOLA MEGDR — NASA/JPL/GSFC, PDS Geosciences Node',
+  },
+  'moon:Moon': {
+    file: 'moon_relief.png',
+    width: 1440,
+    height: 720,
+    minKm: -8.8785,
+    maxKm: 10.5040,
+    credit: 'LRO LOLA LDEM — NASA/GSFC, PDS Geosciences Node',
+  },
+  'moon:Phobos': {
+    file: 'phobos_relief.png',
+    width: 512,
+    height: 256,
+    minKm: -2.9795,
+    maxKm: 2.8546,
+    credit: 'Gaskell Phobos shape model — PDS Small Bodies Node',
   },
 }
 

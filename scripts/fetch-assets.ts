@@ -297,6 +297,12 @@ interface ReliefSpec {
   height: number
   /** Metres of elevation per stored raster unit. */
   metresPerDn: number
+  /**
+   * Byte order of the 16-bit samples. Not a detail worth guessing: MOLA ships
+   * MSB and LOLA ships LSB, and reading one as the other yields a full-range
+   * grid of plausible-looking noise rather than an obvious failure.
+   */
+  endian: 'msb' | 'lsb'
   /** East longitude of the source raster's left-hand column, degrees. */
   originLonEast: number
   credit: string
@@ -311,17 +317,76 @@ const RELIEF: ReliefSpec[] = [
     width: 1440,
     height: 720,
     metresPerDn: 1,
+    endian: 'msb',
     originLonEast: 0,
     credit: 'MGS MOLA MEGDR — NASA/JPL/GSFC, PDS Geosciences Node',
     note: 'MOLA MEGDR, 4 px/deg',
   },
+  {
+    body: 'moon:Moon',
+    out: 'moon_relief.png',
+    url: 'https://pds-geosciences.wustl.edu/lro/lro-l-lola-3-rdr-v1/lrolol_1xxx/data/lola_gdr/cylindrical/img/ldem_4.img',
+    width: 1440,
+    height: 720,
+    // LOLA's LDEM is a shape map: radius minus a 1737.4 km reference sphere,
+    // stored at half-metre resolution. Our own lunar radius differs from that
+    // reference by a few hundred metres, which is a uniform sphere-size offset
+    // of 0.02% and invisible.
+    metresPerDn: 0.5,
+    endian: 'lsb',
+    originLonEast: 0,
+    credit: 'LRO LOLA LDEM — NASA/GSFC, PDS Geosciences Node',
+    note: 'LOLA LDEM, 4 px/deg',
+  },
 ]
 
 interface ReliefResult {
-  spec: ReliefSpec
+  body: string
+  out: string
+  width: number
+  height: number
   minKm: number
   maxKm: number
+  credit: string
 }
+
+/**
+ * Shape models, for bodies too irregular for "elevation above a datum" to mean
+ * anything. Same output format as the raster grids above — an equirectangular
+ * map of offsets from the body's mean radius — so the renderer needs no second
+ * code path. The conversion is the whole job: these arrive as a cube of
+ * vertices, not as a lat/lon grid.
+ */
+interface ShapeModelSpec {
+  body: string
+  out: string
+  url: string
+  width: number
+  height: number
+  /**
+   * Radius the offsets are measured from, km. Must match the radius the app
+   * gives this body, or the shape inflates or shrinks uniformly.
+   */
+  referenceRadiusKm: number
+  credit: string
+  note: string
+}
+
+const SHAPE_MODELS: ShapeModelSpec[] = [
+  {
+    body: 'moon:Phobos',
+    out: 'phobos_relief.png',
+    url: 'https://sbnarchive.psi.edu/pds4/non_mission/gaskell.phobos.shape-model/data/phobos_quad128q.tab',
+    // The model's own spacing is ~0.12 km, which on an 11 km body is 0.63
+    // degrees of arc — so 512 x 256 (0.70 deg/px) samples it about right and
+    // anything finer would just interpolate.
+    width: 512,
+    height: 256,
+    referenceRadiusKm: 11.08,
+    credit: 'Gaskell Phobos shape model — PDS Small Bodies Node',
+    note: 'Gaskell 128q, 6 x 129² vertices',
+  },
+]
 
 // -- a minimal 8-bit RGB PNG writer -----------------------------------------
 //
@@ -424,7 +489,8 @@ async function buildRelief(spec: ReliefSpec): Promise<ReliefResult | null> {
   for (let y = 0; y < spec.height; y++) {
     for (let x = 0; x < spec.width; x++) {
       const src = y * spec.width + ((x + shift) % spec.width)
-      const v = raw.readInt16BE(src * 2) * spec.metresPerDn
+      const dn = spec.endian === 'msb' ? raw.readInt16BE(src * 2) : raw.readInt16LE(src * 2)
+      const v = dn * spec.metresPerDn
       metres[y * spec.width + x] = v
       if (v < min) min = v
       if (v > max) max = v
@@ -448,19 +514,223 @@ async function buildRelief(spec: ReliefSpec): Promise<ReliefResult | null> {
     )}`,
   )
 
-  return { spec, minKm: min / 1000, maxKm: max / 1000 }
+  return {
+    body: spec.body,
+    out: spec.out,
+    width: spec.width,
+    height: spec.height,
+    minKm: min / 1000,
+    maxKm: max / 1000,
+    credit: spec.credit,
+  }
+}
+
+/**
+ * Resample a Gaskell cube-quad shape model onto the equirectangular grid the
+ * renderer already understands.
+ *
+ * The file is six square faces of (N+1)² vertices in body-fixed kilometres —
+ * verified here rather than assumed, because a wrong row/column order would
+ * still parse and would still produce a closed surface, just not this body's.
+ * Each face's cells are split into triangles and scan-converted in latitude and
+ * longitude, interpolating radius barycentrically; because the faces tile the
+ * whole surface, every output pixel centre falls inside some triangle and the
+ * map comes out hole-free except at the poles, where the projection is singular.
+ *
+ * Longitude here is measured from the model's own +x axis, matching the IAU
+ * frame the colour mosaic uses, so relief and albedo stay registered with each
+ * other whatever the render frame does with the pair.
+ */
+async function buildShapeModel(spec: ShapeModelSpec): Promise<ReliefResult | null> {
+  const cachePath = path.join(CACHE, path.basename(spec.url))
+  if (!(await download(spec.url, cachePath, `${spec.out} ${C.dim(spec.note)}`))) return null
+
+  const lines = (await fs.readFile(cachePath, 'utf8')).split('\n').filter((l) => l.trim().length > 0)
+  const n = Number(lines[0]!.trim())
+  const side = n + 1
+  const perFace = side * side
+  if (!Number.isFinite(n) || lines.length - 1 !== 6 * perFace) {
+    console.log(
+      `  ${C.red('bad    ')} ${spec.out}: header says ${n}, expected ${6 * perFace} vertices, got ${lines.length - 1}`,
+    )
+    return null
+  }
+
+  const vx = new Float64Array(6 * perFace)
+  const vy = new Float64Array(6 * perFace)
+  const vz = new Float64Array(6 * perFace)
+  for (let i = 0; i < 6 * perFace; i++) {
+    const parts = lines[i + 1]!.trim().split(/\s+/)
+    vx[i] = Number(parts[0])
+    vy[i] = Number(parts[1])
+    vz[i] = Number(parts[2])
+  }
+
+  // Guard the layout assumption: on a regular grid, stepping one column is a
+  // short hop. A shuffled ordering would jump across the body instead.
+  let longest = 0
+  for (let f = 0; f < 6; f++) {
+    for (let j = 0; j < side; j++) {
+      for (let i = 0; i + 1 < side; i++) {
+        const k = f * perFace + j * side + i
+        longest = Math.max(longest, Math.hypot(vx[k]! - vx[k + 1]!, vy[k]! - vy[k + 1]!, vz[k]! - vz[k + 1]!))
+      }
+    }
+  }
+  if (longest > spec.referenceRadiusKm * 0.25) {
+    console.log(`  ${C.red('bad    ')} ${spec.out}: grid neighbours up to ${longest.toFixed(2)} km apart`)
+    return null
+  }
+
+  const w = spec.width
+  const h = spec.height
+  const radii = new Float64Array(w * h)
+  const filled = new Uint8Array(w * h)
+
+  const lonOf = (i: number) => {
+    const d = (Math.atan2(vy[i]!, vx[i]!) * 180) / Math.PI
+    return d < 0 ? d + 360 : d
+  }
+  const latOf = (i: number) => {
+    const r = Math.hypot(vx[i]!, vy[i]!, vz[i]!)
+    return (Math.asin(vz[i]! / r) * 180) / Math.PI
+  }
+  const radOf = (i: number) => Math.hypot(vx[i]!, vy[i]!, vz[i]!)
+
+  const rasterise = (a: number, b: number, c: number): void => {
+    let l0 = lonOf(a)
+    let l1 = lonOf(b)
+    let l2 = lonOf(c)
+    // A triangle straddling the 0/360 seam looks 350 degrees wide; put all three
+    // on one branch so it is a degree wide again.
+    if (Math.max(l0, l1, l2) - Math.min(l0, l1, l2) > 180) {
+      if (l0 < 180) l0 += 360
+      if (l1 < 180) l1 += 360
+      if (l2 < 180) l2 += 360
+    }
+    const t0 = latOf(a)
+    const t1 = latOf(b)
+    const t2 = latOf(c)
+    const r0 = radOf(a)
+    const r1 = radOf(b)
+    const r2 = radOf(c)
+
+    const det = (l1 - l0) * (t2 - t0) - (l2 - l0) * (t1 - t0)
+    if (Math.abs(det) < 1e-12) return
+
+    const x0 = Math.floor(((Math.min(l0, l1, l2) - 180) / 360) * w - 0.5)
+    const x1 = Math.ceil(((Math.max(l0, l1, l2) - 180) / 360) * w - 0.5)
+    const y0 = Math.max(0, Math.floor(((90 - Math.max(t0, t1, t2)) / 180) * h - 0.5))
+    const y1 = Math.min(h - 1, Math.ceil(((90 - Math.min(t0, t1, t2)) / 180) * h - 0.5))
+
+    for (let y = y0; y <= y1; y++) {
+      const lat = 90 - ((y + 0.5) * 180) / h
+      for (let x = x0; x <= x1; x++) {
+        const lon = 180 + ((x + 0.5) * 360) / w
+        const u = ((l1 - lon) * (t2 - lat) - (l2 - lon) * (t1 - lat)) / det
+        const v = ((l2 - lon) * (t0 - lat) - (l0 - lon) * (t2 - lat)) / det
+        const t = 1 - u - v
+        if (u < -1e-9 || v < -1e-9 || t < -1e-9) continue
+        const col = ((x % w) + w) % w
+        radii[y * w + col] = u * r0 + v * r1 + t * r2
+        filled[y * w + col] = 1
+      }
+    }
+  }
+
+  for (let f = 0; f < 6; f++) {
+    for (let j = 0; j + 1 < side; j++) {
+      for (let i = 0; i + 1 < side; i++) {
+        const k = f * perFace + j * side + i
+        rasterise(k, k + 1, k + side)
+        rasterise(k + 1, k + side + 1, k + side)
+      }
+    }
+  }
+
+  // The projection is singular at the poles, so a handful of pixels there can
+  // fall outside every triangle. Fill them from their filled neighbours.
+  let holes = 0
+  for (let pass = 0; pass < 8; pass++) {
+    holes = 0
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        if (filled[y * w + x]) continue
+        let sum = 0
+        let count = 0
+        for (let dy = -1; dy <= 1; dy++) {
+          for (let dx = -1; dx <= 1; dx++) {
+            const ny = y + dy
+            if (ny < 0 || ny >= h) continue
+            const nx = ((x + dx) % w + w) % w
+            if (!filled[ny * w + nx]) continue
+            sum += radii[ny * w + nx]!
+            count++
+          }
+        }
+        if (count > 0) {
+          radii[y * w + x] = sum / count
+          filled[y * w + x] = 2
+        } else holes++
+      }
+    }
+    for (let i = 0; i < filled.length; i++) if (filled[i] === 2) filled[i] = 1
+    if (holes === 0) break
+  }
+  if (holes > 0) {
+    console.log(`  ${C.red('bad    ')} ${spec.out}: ${holes} pixels never covered`)
+    return null
+  }
+
+  let min = Infinity
+  let max = -Infinity
+  for (let i = 0; i < radii.length; i++) {
+    const v = radii[i]! - spec.referenceRadiusKm
+    radii[i] = v
+    if (v < min) min = v
+    if (v > max) max = v
+  }
+
+  const span = max - min
+  const rgb = Buffer.alloc(w * h * 3)
+  for (let i = 0; i < radii.length; i++) {
+    const t = Math.round(((radii[i]! - min) / span) * 65535)
+    rgb[i * 3] = (t >> 8) & 0xff
+    rgb[i * 3 + 1] = t & 0xff
+  }
+
+  await fs.mkdir(SHAPES, { recursive: true })
+  const png = encodePng(w, h, rgb)
+  await fs.writeFile(path.join(SHAPES, spec.out), png)
+  console.log(
+    `  ${C.green('wrote  ')} ${spec.out} ${C.dim(
+      `${w}x${h}, ${min.toFixed(2)}..${max.toFixed(2)} km about r=${spec.referenceRadiusKm}, ${mb(png.length)}`,
+    )}`,
+  )
+
+  return {
+    body: spec.body,
+    out: spec.out,
+    width: w,
+    height: h,
+    minKm: min,
+    maxKm: max,
+    credit: spec.credit,
+  }
 }
 
 async function writeReliefModule(results: ReliefResult[]): Promise<void> {
   const entries = results
     .map(
-      (r) => `  ${r.spec.body}: {
-    file: '${r.spec.out}',
-    width: ${r.spec.width},
-    height: ${r.spec.height},
+      // Keys are quoted because moons are keyed 'moon:Moon', which is not an
+      // identifier.
+      (r) => `  '${r.body}': {
+    file: '${r.out}',
+    width: ${r.width},
+    height: ${r.height},
     minKm: ${r.minKm.toFixed(4)},
     maxKm: ${r.maxKm.toFixed(4)},
-    credit: '${r.spec.credit.replace(/'/g, "\\'")}',
+    credit: '${r.credit.replace(/'/g, "\\'")}',
   },`,
     )
     .join('\n')
@@ -1166,9 +1436,14 @@ async function main(): Promise<void> {
       if (result) relief.push(result)
       else failures.push(spec.out)
     }
-    // Rewrite only on a complete run: the module mirrors RELIEF exactly, so
+    for (const spec of SHAPE_MODELS) {
+      const result = await buildShapeModel(spec)
+      if (result) relief.push(result)
+      else failures.push(spec.out)
+    }
+    // Rewrite only on a complete run: the module mirrors the tables exactly, so
     // publishing a partial set would silently drop maps that are still on disk.
-    if (relief.length === RELIEF.length) await writeReliefModule(relief)
+    if (relief.length === RELIEF.length + SHAPE_MODELS.length) await writeReliefModule(relief)
     else console.log(C.yellow('  incomplete; existing relief module left in place'))
   }
 

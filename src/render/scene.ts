@@ -718,8 +718,7 @@ export class SceneView {
         rings: [],
         lod: 1,
         pendingProcedural: false,
-        // Promoted minor bodies are the ones with no published topography by
-        // definition; if that ever changes, promotion has to load it per body.
+        // Assigned per body when the slot is claimed, since these are recycled.
         relief: null,
         reliefExaggeration: 1,
       })
@@ -1053,6 +1052,28 @@ export class SceneView {
       // new rock never costs a dropped frame.
       visual.material.uniforms.uMap!.value = solidTexture(body.color)
       visual.material.needsUpdate = true
+
+      // Published shape, if this body has one — Phobos does. Cleared first:
+      // these slots are recycled, and a slot that has just finished being
+      // Phobos would otherwise hand its terrain to the next rock that lands in
+      // it, which would look entirely convincing.
+      visual.relief = null
+      visual.reliefExaggeration = RELIEF_EXAGGERATION[body.key] ?? 1
+      visual.material.uniforms.uHasRelief!.value = 0
+      const relief = reliefFor(body.key)
+      if (relief) {
+        const target = visual
+        void this.library.loadRelief(relief.file).then((tex) => {
+          if (!tex || target.body !== body) return
+          const u = target.material.uniforms
+          u.uRelief!.value = tex
+          u.uReliefMinKm!.value = relief.minKm
+          u.uReliefSpanKm!.value = relief.maxKm - relief.minKm
+          u.uHasRelief!.value = 1
+          target.relief = relief
+          target.material.needsUpdate = true
+        })
+      }
 
       const file = body.textureFile
       if (file && this.library.available(file)) {
