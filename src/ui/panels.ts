@@ -95,6 +95,7 @@ export class TimePanel {
   constructor(
     private host: HTMLElement,
     private time: TimeController,
+    private onHelp: () => void,
   ) {
     this.build()
   }
@@ -102,6 +103,15 @@ export class TimePanel {
   private build(): void {
     const title = el('div', 'panel__title')
     title.append(el('span', undefined, 'Coordinated Universal Time'))
+
+    // The keyboard map was reachable only by pressing H, which nobody discovers
+    // on their own — this is the affordance for everyone who reaches for a mouse.
+    const helpChip = el('button', 'chip', '?')
+    helpChip.title = 'Keyboard map and credits (H)'
+    helpChip.setAttribute('aria-label', 'Show the keyboard map')
+    helpChip.addEventListener('click', () => this.onHelp())
+    title.append(helpChip)
+
     this.host.append(title)
 
     this.clock.append(this.dateSpan, document.createTextNode('  '), this.timeSpan)
@@ -707,9 +717,22 @@ export class TogglePanel {
     toggles: ToggleConfig[],
     private orbits: { get: () => string; set: (mode: 'none' | 'planets' | 'all') => void },
     private scale: { get: () => string; set: (mode: 'true' | 'explore') => void },
+    repoUrl?: string,
   ) {
     const title = el('div', 'panel__title')
     title.append(el('span', undefined, 'View'))
+
+    if (repoUrl) {
+      const link = document.createElement('a')
+      link.className = 'title-link'
+      link.href = repoUrl
+      link.target = '_blank'
+      link.rel = 'noopener noreferrer'
+      link.textContent = 'GitHub ↗'
+      link.title = 'Source, data provenance and licences'
+      title.append(link)
+    }
+
     this.host.append(title)
 
     const grid = el('div', 'toggles__grid')
@@ -845,7 +868,10 @@ const KEY_HELP: [string, [string, string][]][] = [
 ]
 
 export class HelpOverlay {
-  constructor(private host: HTMLElement) {
+  constructor(
+    private host: HTMLElement,
+    repoUrl?: string,
+  ) {
     const panel = el('div', 'help__panel')
     panel.append(el('div', 'help__title', 'Aphelion'))
     panel.append(
@@ -902,6 +928,9 @@ export class HelpOverlay {
         'The four dwarf planet maps are artistic, and ~450 small bodies have synthesised surfaces — no resolved imagery of them exists.',
       ),
     )
+    if (repoUrl) {
+      credits.append(line('Source, full provenance and licences —', { label: repoUrl.replace(/^https?:\/\//, ''), href: repoUrl }))
+    }
     panel.append(credits)
 
     panel.append(el('div', 'help__close', 'press H, ? or Esc to close'))

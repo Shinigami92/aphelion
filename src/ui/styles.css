@@ -132,6 +132,45 @@ body {
   gap: 8px;
 }
 
+/* Round affordance in a panel header — currently the help "?". Sits in the
+   header's own line box, so it costs no vertical space. */
+.chip {
+  appearance: none;
+  flex: 0 0 auto;
+  width: 17px;
+  height: 17px;
+  border-radius: 50%;
+  border: 1px solid var(--border-strong);
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-dim);
+  font-family: var(--sans);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0;
+  transition: all 110ms ease;
+}
+
+.chip:hover {
+  background: var(--accent-dim);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.title-link {
+  flex: 0 0 auto;
+  color: var(--text-faint);
+  text-decoration: none;
+  font-size: 9.5px;
+  letter-spacing: 0.1em;
+  transition: color 110ms ease;
+}
+
+.title-link:hover {
+  color: var(--accent);
+}
+
 /* ------------------------------------------------------------------ time --- */
 
 .clock {

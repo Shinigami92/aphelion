@@ -131,10 +131,13 @@ camera.attach(canvas)
 // UI
 // ---------------------------------------------------------------------------
 
-const timePanel = new TimePanel(need('time-panel'), time)
+/** Canonical home for source, data provenance and licences. */
+const REPO_URL = 'https://github.com/Shinigami92/aphelion'
+
+const timePanel = new TimePanel(need('time-panel'), time, () => help.toggle())
 const infoPanel = new InfoPanel(need('info'))
 const toast = new Toast(need('toast'))
-const help = new HelpOverlay(need('help'))
+const help = new HelpOverlay(need('help'), REPO_URL)
 
 const browser = new BodyBrowser(need('browser'), system, (body) => {
   select(body)
@@ -226,6 +229,7 @@ const togglePanel = new TogglePanel(
       toast.show(mode === 'true' ? 'True scale — 1:1' : 'Explore scale — bodies enlarged, distances compressed')
     },
   },
+  REPO_URL,
 )
 
 // Second pass of the shared view: display state, now that the panels exist so
