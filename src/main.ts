@@ -721,6 +721,65 @@ window.aphelion = {
 let lastFrame = performance.now()
 let elapsed = 0
 
+// ---------------------------------------------------------------------------
+// Frame governor
+// ---------------------------------------------------------------------------
+
+/**
+ * How often we actually redraw.
+ *
+ * The scene is never GPU-bound — it holds the vsync ceiling even at Retina
+ * resolution with bloom, atmospheres and 75,000 belt points. The cost is that it
+ * was drawing *every* frame the display offered, which on a 120 Hz panel meant
+ * 120 full-quality renders a second whether or not anything had changed. Sitting
+ * still with the clock at one second per second, consecutive frames are
+ * identical, and all that work does is heat the machine and compete with
+ * anything else wanting the GPU — a video call, for instance.
+ *
+ * So: 60 fps while something is actually happening, 10 while nothing is. Input
+ * is checked before the throttle, so the first frame after you touch anything is
+ * never delayed and the app stays responsive.
+ */
+const ACTIVE_FPS = 60
+const IDLE_FPS = 10
+/** Keep drawing at full rate for this long after the last input. */
+const ACTIVE_LINGER_MS = 900
+/**
+ * Above this time rate the scene visibly moves on its own, so idling would look
+ * like stutter rather than stillness. One hour per second moves Earth about
+ 0.04 degrees along its orbit per frame at 10 fps.
+ */
+const MOVING_RATE = 3600
+
+let lastRenderAt = -Infinity
+let pendingDt = 0
+let lastInteractionAt = performance.now()
+let wasChanging = true
+
+/** Anything that should wake the renderer up. */
+function markActive(): void {
+  lastInteractionAt = performance.now()
+}
+
+function sceneIsChanging(now: number): boolean {
+  if (now - lastInteractionAt < ACTIVE_LINGER_MS) return true
+  if (now - camera.lastInputAt < ACTIVE_LINGER_MS) return true
+  if (scale.isTransitioning || camera.isSettling) return true
+  if (!time.paused && Math.abs(time.selectedRate) >= MOVING_RATE) return true
+  return false
+}
+
+// Pointer and wheel events reach the camera, but the governor needs to know
+// about them too, and about the ones the camera never sees. Pointer-down is
+// window-wide so that clicking a checkbox or a body in the sidebar wakes the
+// renderer just as readily as dragging the sky; drag and zoom stay on the canvas
+// so that merely sweeping the cursor across a panel does not.
+window.addEventListener('pointerdown', markActive, { passive: true })
+window.addEventListener('keydown', markActive)
+window.addEventListener('resize', markActive)
+canvas.addEventListener('pointermove', markActive, { passive: true })
+canvas.addEventListener('wheel', markActive, { passive: true })
+
 /** Camera distance from the focused body, in true kilometres. */
 let cameraDistanceKm = 0
 /** The same distance expressed in radii of the focused body. */
@@ -780,33 +839,61 @@ function currentSharedView(): SharedView {
   }
 }
 
+/** The orrery map is a schematic; it does not need to keep up with the scene. */
+let lastMinimapAt = -Infinity
+const MINIMAP_INTERVAL_MS = 125
+
 function frame(now: number): void {
+  requestAnimationFrame(frame)
+
   // Clamp so a backgrounded tab does not leap years on return.
   const dt = Math.min((now - lastFrame) / 1000, 0.1)
   lastFrame = now
-  elapsed += dt
 
-  time.advance(dt)
-  scale.update(dt)
+  // Accumulate real time even on frames we skip, so the clock stays exact and
+  // every easing term still receives the true elapsed interval.
+  pendingDt += dt
+
+  const changing = sceneIsChanging(now)
+  // Waking from idle draws on the very next display frame instead of waiting out
+  // an active-rate interval, so touching anything responds immediately rather
+  // than up to 17 ms later.
+  if (changing && !wasChanging) lastRenderAt = -Infinity
+  wasChanging = changing
+
+  const interval = 1000 / (changing ? ACTIVE_FPS : IDLE_FPS)
+  // Half a millisecond of slack, or a 60 fps target quietly becomes 30 on a
+  // 120 Hz display when a frame lands a hair early.
+  if (now - lastRenderAt < interval - 0.5) return
+  lastRenderAt = now
+
+  const step = pendingDt
+  pendingDt = 0
+  elapsed += step
+
+  time.advance(step)
+  scale.update(step)
   system.update(time.jdTT, scale)
-  camera.update(dt)
+  camera.update(step)
 
   // Read the focus once per frame: the camera owns it, and the renderer, the
   // info panel and the mini-map must all agree on the same body.
   const current = focused()
 
-  scene.update(system, scale, current, elapsed, dt)
+  scene.update(system, scale, current, elapsed, step)
   scene.render(camera.camera)
 
   timePanel.update()
   updateCameraDistance()
   infoPanel.update(system, current, cameraDistanceKm, cameraRadii)
-  if (minimap.visible) minimap.update(current, selected)
+
+  if (minimap.visible && now - lastMinimapAt >= MINIMAP_INTERVAL_MS) {
+    lastMinimapAt = now
+    minimap.update(current, selected)
+  }
 
   // Throttled inside; only touches history when the encoded view changes.
   urlWriter.sync(now, currentSharedView)
-
-  requestAnimationFrame(frame)
 }
 
 requestAnimationFrame(frame)

@@ -188,6 +188,22 @@ export class CameraController {
     return this.distance
   }
 
+  /**
+   * True while the camera is still easing toward its target. The frame governor
+   * uses this to keep drawing at full rate through a fly-to, and to stop as soon
+   * as the motion has actually settled.
+   */
+  get isSettling(): boolean {
+    return (
+      Math.abs(this.distance - this.targetDistance) > this.targetDistance * 1e-4 ||
+      Math.abs(this.azimuth - this.targetAzimuth) > 1e-4 ||
+      Math.abs(this.elevation - this.targetElevation) > 1e-4
+    )
+  }
+
+  /** performance.now() of the last real user input. */
+  lastInputAt = -Infinity
+
   /** Distance from the focus surface, scene units (negative inside the body). */
   altitude(): number {
     if (!this._focus) return this.distance
@@ -402,7 +418,16 @@ export class CameraController {
   }
 
   private onPointerDown(ev: PointerEvent): void {
-    this.element?.setPointerCapture?.(ev.pointerId)
+    // Capture is an optimisation, not a requirement: it keeps a drag alive when
+    // the cursor leaves the canvas. It throws NotFoundError if the pointer is no
+    // longer active — which a synthetic or already-released event can be — and an
+    // uncaught throw here would abandon the rest of this handler, leaving
+    // `dragging` unset so the drag silently never starts.
+    try {
+      this.element?.setPointerCapture?.(ev.pointerId)
+    } catch {
+      /* drag still works, it just stops if the cursor leaves the canvas */
+    }
     this.activePointers.set(ev.pointerId, { x: ev.clientX, y: ev.clientY })
     this.lastPointer = { x: ev.clientX, y: ev.clientY }
 
@@ -425,6 +450,7 @@ export class CameraController {
       if (this.pinchDistance > 0 && d > 0) {
         this.zoomBy(this.pinchDistance / d)
         this.interacted = true
+        this.lastInputAt = performance.now()
       }
       this.pinchDistance = d
       return
@@ -435,6 +461,7 @@ export class CameraController {
     this.lastPointer = { x: ev.clientX, y: ev.clientY }
     if (dx === 0 && dy === 0) return
     this.interacted = true
+    this.lastInputAt = performance.now()
 
     if (this.mode === 'free') {
       if (this.dragging === 'none') return
@@ -467,6 +494,7 @@ export class CameraController {
   private onWheel(ev: WheelEvent): void {
     ev.preventDefault()
     this.interacted = true
+    this.lastInputAt = performance.now()
 
     // A trackpad pinch arrives as a wheel event with ctrlKey set; plain
     // two-finger scrolling arrives as small deltas. Both should zoom, but at
