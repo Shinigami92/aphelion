@@ -887,6 +887,9 @@ function sceneIsChanging(now: number): boolean {
   if (now - camera.lastInputAt < ACTIVE_LINGER_MS) return true
   if (scale.isTransitioning || camera.isSettling) return true
   if (!time.paused && Math.abs(time.selectedRate) >= MOVING_RATE) return true
+  // Ring particles tumble and shear at any running rate, including the slowest,
+  // where no planet moves enough to wake the renderer on its own.
+  if (!time.paused && scene.ringParticlesActive) return true
   return false
 }
 

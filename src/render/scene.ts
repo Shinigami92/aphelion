@@ -25,6 +25,8 @@ import {
   BufferGeometry,
   Color,
   Group,
+  InstancedBufferAttribute,
+  InstancedBufferGeometry,
   Line,
   LineSegments,
   Matrix4,
@@ -58,6 +60,7 @@ import {
   classifySurface,
   pointSprite,
   proceduralRing,
+  ringProfile,
   proceduralSurface,
   seedFromName,
   solidTexture,
@@ -70,6 +73,7 @@ import {
   createDustMaterial,
   createOrbitMaterial,
   createRingMaterial,
+  createRingParticleMaterial,
   createSkyMaterial,
   createSunMaterial,
   createSwarmMaterial,
@@ -178,31 +182,173 @@ function createSphere(widthSegments: number, heightSegments: number): BufferGeom
   return geo
 }
 
-/** Flat annulus in the xy plane, for ring systems. */
-function createAnnulus(inner: number, outer: number, segments: number): BufferGeometry {
+/**
+ * Radial subdivisions per ring. Enough that the power-law remap reads as a
+ * curve rather than a fan of chords, and cheap: the whole solar system's rings
+ * come to about 3 MB of vertices.
+ */
+const RING_RADIAL_STEPS = 48
+
+/** Instanced rocks in the camera-local ring patch. */
+const RING_PARTICLE_COUNT = 80000
+
+/**
+ * Largest simulated step the ring clocks will take in one frame, seconds.
+ *
+ * Time in this app runs to a century per second, at which a literal treatment
+ * spins every rock into a strobing blur — so past a point, more rate stops
+ * adding information and starts destroying it. Spin saturates early, because a
+ * tumbling rock reads as fast long before a shear flow does.
+ */
+const RING_ORBIT_MAX_RATE = 150
+const RING_SPIN_MAX_RATE = 3.6
+
+/**
+ * Spin runs this many times faster than the clock it is driven by.
+ *
+ * Real ring particles turn about once in the time they take to orbit — 14 hours
+ * at Saturn — so honest spin is invisible at any rate you would actually watch
+ * the rings at. Shifting the whole mapping up by a minute-per-second puts the
+ * tumble where it reads well at 1 sec/s, and the step cap above still catches
+ * everything faster, so the ceiling is unchanged and nothing strobes.
+ */
+const RING_SPIN_TIME_SCALE = 60
+
+/** Field half-extent, counted in particle radii. Sets how dense the field looks. */
+const RING_FIELD_IN_PARTICLES = 400
+
+/** Field half-thickness, in particle radii. A ring is a sheet, not a slab. */
+const RING_THICKNESS_IN_PARTICLES = 2.5
+
+/**
+ * Drawn radius of a ring particle, km.
+ *
+ * Pure exaggeration, and by a long way: real ring particles run from
+ * centimetres to about ten metres, which is far below a pixel at any distance
+ * this app can put you at, so drawing them honestly would draw nothing. The
+ * size is pinned to the ring's own width instead, which keeps the field
+ * looking similar whether you are in Saturn's main rings or Uranus's epsilon.
+ */
+function ringParticleSizeKm(spec: RingSpec): number {
+  return Math.max((spec.outerKm - spec.innerKm) * 2e-4, 0.4)
+}
+
+/** GM in km^3/s^2, from the body's mass, for the local orbital rate. */
+function gravitationalParameter(body: SimBody): number {
+  const massKg = body.spec?.facts.mass ?? 0
+  // 6.674e-20 is G in km^3 kg^-1 s^-2.
+  const gm = massKg * 6.6743e-20
+  return gm > 0 ? gm : 3.7931207e7
+}
+
+/**
+ * Local kilometres per scene unit at a given rendered ring radius.
+ *
+ * Inverts the radial remap numerically rather than in closed form: the blended
+ * power law has no analytic inverse, and this runs once per frame rather than
+ * per vertex, so a short bisection is cheaper to trust than to be clever about.
+ */
+function ringKmPerUnit(radiusUnits: number, parentRadiusKm: number, scale: ScaleModel): number {
+  if (radiusUnits <= 0) return SCENE_UNIT_KM
+  let lo = 1
+  let hi = parentRadiusKm * 400
+  for (let i = 0; i < 40; i++) {
+    const mid = (lo + hi) * 0.5
+    if (scale.satelliteDistance(mid, parentRadiusKm) < radiusUnits) lo = mid
+    else hi = mid
+  }
+  return (lo + hi) * 0.5 / radiusUnits
+}
+
+/**
+ * A patch of instanced rocks. `position` is a unit sphere the vertex shader
+ * deforms per instance; everything about where a rock *is* comes from its slot
+ * attributes, so the buffer is uploaded once and never touched again.
+ */
+function createRingParticleGeometry(count: number): InstancedBufferGeometry {
+  const base = createSphere(6, 4)
+  const geo = new InstancedBufferGeometry()
+  geo.index = base.index
+  geo.setAttribute('position', base.getAttribute('position'))
+  geo.instanceCount = count
+
+  const offsets = new Float32Array(count * 3)
+  const seeds = new Float32Array(count)
+  // Deterministic, so a ring looks the same every time you fly back into it.
+  let state = 0x9e3779b9
+  const rnd = (): number => {
+    state = (state + 0x6d2b79f5) | 0
+    let t = Math.imul(state ^ (state >>> 15), 1 | state)
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
+  }
+  for (let i = 0; i < count; i++) {
+    offsets[i * 3] = rnd() * 2 - 1
+    offsets[i * 3 + 1] = rnd() * 2 - 1
+    // Concentrated toward the ring plane: a ring is not a uniform slab.
+    offsets[i * 3 + 2] = (rnd() + rnd() + rnd() - 1.5) / 1.5
+    seeds[i] = rnd()
+  }
+  geo.setAttribute('aOffset', new InstancedBufferAttribute(offsets, 3))
+  geo.setAttribute('aSeed', new InstancedBufferAttribute(seeds, 1))
+  return geo
+}
+
+/**
+ * Flat annulus in the xy plane, for ring systems, parameterised in true
+ * kilometres.
+ *
+ * `position` holds only the unit direction around the ring; the real radius
+ * rides alongside in `aRingKm` and the vertex shader turns one into the other.
+ * That split is what lets a single geometry serve both scale models without a
+ * rebuild, and what keeps the profile registered to kilometres rather than to
+ * whatever the radial remap did to them.
+ *
+ * Subdivided radially because that remap is a power law. Two rings of vertices
+ * would draw the curve as a chord — at Saturn, a 66,000 km wide annulus drawn
+ * as a single span misplaces its middle by tens of scene units, which is the
+ * width of several gaps.
+ */
+function createAnnulus(
+  innerKm: number,
+  outerKm: number,
+  segments: number,
+  radialSteps: number,
+): BufferGeometry {
   const seg = Math.max(48, segments)
-  const positions = new Float32Array((seg + 1) * 2 * 3)
+  const steps = Math.max(2, radialSteps)
+  const count = (seg + 1) * (steps + 1)
+  const positions = new Float32Array(count * 3)
+  const radii = new Float32Array(count)
   const indices: number[] = []
+
   for (let i = 0; i <= seg; i++) {
     const a = (i / seg) * Math.PI * 2
     const cos = Math.cos(a)
     const sin = Math.sin(a)
-    const o = i * 6
-    positions[o] = cos * inner
-    positions[o + 1] = sin * inner
-    positions[o + 2] = 0
-    positions[o + 3] = cos * outer
-    positions[o + 4] = sin * outer
-    positions[o + 5] = 0
+    for (let j = 0; j <= steps; j++) {
+      const v = i * (steps + 1) + j
+      const o = v * 3
+      positions[o] = cos
+      positions[o + 1] = sin
+      positions[o + 2] = 0
+      radii[v] = innerKm + ((outerKm - innerKm) * j) / steps
+    }
   }
   for (let i = 0; i < seg; i++) {
-    const a = i * 2
-    indices.push(a, a + 1, a + 2, a + 1, a + 3, a + 2)
+    for (let j = 0; j < steps; j++) {
+      const a = i * (steps + 1) + j
+      const b = (i + 1) * (steps + 1) + j
+      indices.push(a, b, a + 1, b, b + 1, a + 1)
+    }
   }
+
   const geo = new BufferGeometry()
   geo.setAttribute('position', new BufferAttribute(positions, 3))
+  geo.setAttribute('aRingKm', new BufferAttribute(radii, 1))
   geo.setIndex(indices)
-  geo.computeVertexNormals()
+  // No normals: the ring shader takes its normal from the pole uniform, since a
+  // flat sheet's vertex normals say nothing the plane's own normal does not.
   return geo
 }
 
@@ -345,6 +491,7 @@ export class SceneView {
   private tmpMatrix = new Matrix4()
   private tmpVec = new Vector3()
   private tmpVec2 = new Vector3()
+  private tmpVec3 = new Vector3()
   private viewport = new Vector2(1, 1)
 
   constructor(canvas: HTMLCanvasElement, library: TextureLibrary) {
@@ -412,6 +559,7 @@ export class SceneView {
     )
     this.buildMinorPoints()
     this.buildSwarms()
+    this.buildRingParticles()
     this.buildDust()
     this.buildPromotionPool()
     this.rebuildComposer()
@@ -592,31 +740,39 @@ export class SceneView {
     // Rings.
     if (spec?.rings) {
       for (const ring of spec.rings) {
-        const innerRatio = ring.innerKm / body.radiusKm
-        const outerRatio = ring.outerKm / body.radiusKm
+        // Published radial structure wins over noise. It is also the stand-in
+        // while Saturn's photometric strip loads, so the gaps never jump.
         let texture: Texture
-        if (ring.texture && this.library.available(ring.texture)) {
-          texture = proceduralRing(`ring-placeholder:${body.key}:${ring.name}`, {
-            color: body.color,
-            seed: seedFromName(ring.name),
-            gaps: 6,
-            sharpness: 2,
+        if (ring.bands) {
+          texture = ringProfile(`ring:${body.key}:${ring.name}`, {
+            bands: ring.bands,
+            innerKm: ring.innerKm,
+            outerKm: ring.outerKm,
           })
         } else {
           texture = proceduralRing(`ring:${body.key}:${ring.name}`, {
             color: ring.opacity > 0.1 ? 0xbfae92 : 0x8f8878,
             seed: seedFromName(`${body.key}${ring.name}`),
-            gaps: body.key === 'uranus' ? 9 : body.key === 'neptune' ? 5 : 3,
-            sharpness: body.key === 'jupiter' ? 1.4 : 3.2,
+            gaps: 3,
+            sharpness: 3.2,
           })
         }
         const material = createRingMaterial({
           texture,
-          innerRadius: innerRatio,
-          outerRadius: outerRatio,
+          innerKm: ring.innerKm,
+          outerKm: ring.outerKm,
           opacity: ring.opacity,
+          parentRadiusKm: body.radiusKm,
         })
-        const mesh = new Mesh(createAnnulus(innerRatio, outerRatio, 256), material)
+        const mesh = new Mesh(createAnnulus(ring.innerKm, ring.outerKm, 512, RING_RADIAL_STEPS), material)
+        // The shader places vertices in scene units itself, so the mesh must
+        // not also be scaled by the body radius the way the sphere is.
+        mesh.scale.setScalar(1)
+        // ...which also means the geometry's own bounds describe a unit circle
+        // rather than the ring. Left to cull itself, a ring would vanish the
+        // moment the planet's centre left the screen — precisely when you are
+        // flying through it.
+        mesh.frustumCulled = false
         mesh.renderOrder = 4
         group.add(mesh)
         visual.rings.push({ mesh, material, spec: ring })
@@ -817,6 +973,35 @@ export class SceneView {
   }
 
   /** Camera used for rendering; set by the app each frame. */
+  private ringParticles: Mesh | null = null
+  private ringParticleMaterial: ShaderMaterial | null = null
+  /**
+   * Simulated seconds driving ring particle motion, kept as two clocks.
+   *
+   * Both advance with the *simulation* clock rather than the wall clock, so
+   * pausing genuinely stops the rings and running time backwards unwinds them.
+   * Both are also rate-limited per frame, which is the whole reason they are
+   * separate: at a day per second the true orbital shear is a blur and the
+   * tumble is a strobe, so each gets the cap that keeps it legible. Shear can
+   * take a much larger step than spin before it stops reading as motion.
+   */
+  private ringOrbitClock = 0
+  private ringSpinClock = 0
+  /** Previous TT Julian Date, for measuring how much simulated time passed. */
+  private lastRingJdTT: number | null = null
+
+  /**
+   * Whether individual ring particles are on screen.
+   *
+   * The frame governor needs this. It idles at 10 fps unless the clock is
+   * moving fast enough to shift a planet, which is the right call for a solar
+   * system — but ring particles spin and shear at 1 sec/s, where nothing else
+   * does, and at 10 fps that reads as a stutter rather than as motion.
+   */
+  get ringParticlesActive(): boolean {
+    return this.ringParticles?.visible === true
+  }
+
   currentCamera: PerspectiveCamera | null = null
 
   // -- per-frame -----------------------------------------------------------
@@ -845,6 +1030,8 @@ export class SceneView {
       this.updateVisual(visual, scale, sunSceneRadius)
     }
 
+    this.advanceRingClocks(system.jdTT, dt)
+    this.updateRingParticles(scale, sunSceneRadius)
     this.updatePromotions(scale, sunSceneRadius)
     this.updateMinorPoints()
     this.updateSwarms(system, scale)
@@ -940,31 +1127,52 @@ export class SceneView {
     }
 
     // Rings sit in the body's equatorial plane and do not spin with it.
+    //
+    // The radial remap is handed to the shader rather than baked into the mesh
+    // scale, because a ring is a population of orbiting bodies and has to be
+    // compressed exactly as the moons are — see GLSL_RING_SCALE_PARS.
     for (const ring of visual.rings) {
       ring.mesh.visible = this.toggles.rings
       poleMatrix(body.orientation.z, this.tmpMatrix)
       ring.mesh.quaternion.setFromRotationMatrix(this.tmpMatrix)
-      ring.mesh.scale.setScalar(radius)
       const u = ring.material.uniforms
       u.uSunPos!.value.copy(this.sunRender)
       u.uSunRadius!.value = sunSceneRadius
       u.uPlanetCentre!.value.copy(centre)
       u.uPlanetRadius!.value = radius
-      u.uInner!.value = (ring.spec.innerKm / body.radiusKm) * radius
-      u.uOuter!.value = (ring.spec.outerKm / body.radiusKm) * radius
+      u.uParentRadiusKm!.value = body.radiusKm
+      u.uBodyScale!.value = scale.params.bodyScale
+      u.uSatExponent!.value = scale.params.satelliteExponent
+      u.uSatKnee!.value = scale.params.satelliteKnee
+      u.uScaleBlend!.value = scale.blendAmount
+      u.uSceneUnitKm!.value = SCENE_UNIT_KM
+      u.uExploreBoost!.value = ring.spec.exploreBoost ?? 1
+      u.uExploreBrightness!.value = ring.spec.exploreBrightness ?? 1
       this.tmpVec2.set(body.orientation.z.x, body.orientation.z.y, body.orientation.z.z)
       u.uNormal!.value.copy(this.tmpVec2)
     }
 
     // Ring shadow cast onto the planet itself.
-    const mainRing = visual.rings[0]
+    //
+    // Pick the ring that actually blocks light rather than rings[0]: for
+    // Jupiter that was the Halo, a dust sheet of optical depth 0.035 which was
+    // shadowing the planet as hard as Saturn's B ring because the lookup read
+    // the profile's alpha and ignored the ring's own opacity entirely.
+    const mainRing = this.densestRing(visual)
     if (mainRing && this.toggles.rings) {
       const u = visual.material.uniforms
       u.uRingEnabled!.value = 1
       u.uRingTex!.value = mainRing.material.uniforms.uTex!.value
-      u.uRingInner!.value = (mainRing.spec.innerKm / body.radiusKm) * radius
-      u.uRingOuter!.value = (mainRing.spec.outerKm / body.radiusKm) * radius
+      u.uRingInnerKm!.value = mainRing.spec.innerKm
+      u.uRingOuterKm!.value = mainRing.spec.outerKm
+      u.uRingOpacity!.value = mainRing.spec.opacity
       u.uRingNormal!.value.set(body.orientation.z.x, body.orientation.z.y, body.orientation.z.z)
+      u.uParentRadiusKm!.value = body.radiusKm
+      u.uBodyScale!.value = scale.params.bodyScale
+      u.uSatExponent!.value = scale.params.satelliteExponent
+      u.uSatKnee!.value = scale.params.satelliteKnee
+      u.uScaleBlend!.value = scale.blendAmount
+      u.uSceneUnitKm!.value = SCENE_UNIT_KM
     } else {
       visual.material.uniforms.uRingEnabled!.value = 0
     }
@@ -1009,6 +1217,189 @@ export class SceneView {
       // labels still represent it.
       visual.group.visible = apparent > 0.35 || body === this.currentFocus || body === this.selected
     }
+  }
+
+  /**
+   * Move the ring clocks by however much simulated time just passed.
+   *
+   * Measured from the Julian Date rather than taken from the frame's dt, so it
+   * follows the clock's rate and sign for free and needs no knowledge of
+   * either. A paused clock advances nothing, which is what stops the rocks.
+   */
+  private advanceRingClocks(jdTT: number, dt: number): void {
+    const previous = this.lastRingJdTT
+    this.lastRingJdTT = jdTT
+    if (previous === null) return
+    const seconds = (jdTT - previous) * 86400
+    const step = Math.max(dt, 1e-4)
+    const clamp = (v: number, rate: number): number =>
+      Math.max(-rate * step, Math.min(rate * step, v))
+    this.ringOrbitClock += clamp(seconds, RING_ORBIT_MAX_RATE)
+    this.ringSpinClock += clamp(seconds * RING_SPIN_TIME_SCALE, RING_SPIN_MAX_RATE)
+  }
+
+  /**
+   * One patch, built once. Which ring it serves is decided per frame.
+   *
+   * It hangs off the world group rather than a body's group because it is
+   * repositioned onto whichever ring has claimed it, and a body group already
+   * carries that body's own position.
+   */
+  private buildRingParticles(): void {
+    const material = createRingParticleMaterial({
+      profile: solidTexture(0xffffff),
+      innerKm: 1,
+      outerKm: 2,
+      parentRadiusKm: 1,
+    })
+    const mesh = new Mesh(createRingParticleGeometry(RING_PARTICLE_COUNT), material)
+    mesh.frustumCulled = false
+    mesh.visible = false
+    mesh.renderOrder = 4
+    this.world.add(mesh)
+    this.ringParticles = mesh
+    this.ringParticleMaterial = material
+  }
+
+  /**
+   * Populate the ring the camera is actually inside with real geometry.
+   *
+   * Only one patch exists in the whole scene, and it is claimed by whichever
+   * ring the camera is nearest — you can only ever be inside one. It switches
+   * ring by having its uniforms repointed, which costs nothing, so there is no
+   * pool to manage and no allocation while flying.
+   *
+   * The patch stays off entirely unless the camera is close enough that a
+   * particle would cover more than a pixel or so. Far away the sheet is not
+   * merely cheaper, it is more correct: at that distance a real ring *is* a
+   * smooth surface, and swapping in a few thousand boulders would misrepresent
+   * it as gravel.
+   */
+  private updateRingParticles(scale: ScaleModel, sunSceneRadius: number): void {
+    const mesh = this.ringParticles
+    const material = this.ringParticleMaterial
+    const camera = this.currentCamera
+    if (!mesh || !material || !camera) return
+
+    let best: { visual: BodyVisual; ring: RingVisual; distance: number } | null = null
+    if (this.toggles.rings) {
+      for (const visual of this.visuals.values()) {
+        for (const ring of visual.rings) {
+          if (!ring.spec.bands) continue
+          // Distance from the camera to this ring's annulus, in scene units.
+          this.tmpVec
+            .set(visual.body.scene.x, visual.body.scene.y, visual.body.scene.z)
+            .sub(this.origin)
+          const toCam = this.tmpVec2.copy(camera.position).sub(this.tmpVec)
+          const normal = this.tmpVec3.set(
+            visual.body.orientation.z.x,
+            visual.body.orientation.z.y,
+            visual.body.orientation.z.z,
+          )
+          const height = Math.abs(toCam.dot(normal))
+          const radial = Math.sqrt(Math.max(toCam.lengthSq() - height * height, 0))
+          const innerU = scale.satelliteDistance(ring.spec.innerKm, visual.body.radiusKm)
+          const outerU = scale.satelliteDistance(ring.spec.outerKm, visual.body.radiusKm)
+          const radialGap = radial < innerU ? innerU - radial : radial > outerU ? radial - outerU : 0
+          const distance = Math.hypot(height, radialGap)
+          if (!best || distance < best.distance) best = { visual, ring, distance }
+        }
+      }
+    }
+
+    // How wide a patch has to be to fill the view, and how big a particle must
+    // be drawn to be seen at all. Real ring particles are metres across, which
+    // at any scale this app can show is far below a pixel, so the size is an
+    // exaggeration — stated in the info panel, like the relief factor.
+    // Turn on only once the camera is inside the field's own reach, so the
+    // handover to the flat sheet happens exactly where the rocks run out
+    // rather than at an unrelated distance.
+    if (!best) {
+      mesh.visible = false
+      return
+    }
+    const outerUnits = scale.satelliteDistance(best.ring.spec.outerKm, best.visual.body.radiusKm)
+    const unitsPerKm = outerUnits / best.ring.spec.outerKm
+    const reach = ringParticleSizeKm(best.ring.spec) * RING_FIELD_IN_PARTICLES * unitsPerKm
+    if (best.distance > reach) {
+      mesh.visible = false
+      return
+    }
+
+    const { visual, ring } = best
+    const body = visual.body
+    mesh.visible = true
+
+    // Sit the patch in the ring's own plane, then express the camera in that
+    // frame: radius, angle and height, all in true kilometres.
+    // The patch hangs off the world group, whose own position carries the
+    // floating origin — so like every other child here it takes the body's
+    // *absolute* scene position. Subtracting the origin as well would shift it
+    // by the offset twice, which is invisible whenever the Sun is focused and
+    // wrong everywhere else.
+    mesh.position.set(body.scene.x, body.scene.y, body.scene.z)
+    this.tmpVec.set(body.scene.x, body.scene.y, body.scene.z).sub(this.origin)
+    poleMatrix(body.orientation.z, this.tmpMatrix)
+    mesh.quaternion.setFromRotationMatrix(this.tmpMatrix)
+
+    this.tmpVec2.copy(camera.position).sub(this.tmpVec).applyQuaternion(mesh.quaternion.clone().invert())
+    const radiusUnits = Math.hypot(this.tmpVec2.x, this.tmpVec2.y)
+    const kmPerUnit = ringKmPerUnit(radiusUnits, body.radiusKm, scale)
+    const camRadiusKm = Math.min(
+      Math.max(radiusUnits * kmPerUnit, ring.spec.innerKm),
+      ring.spec.outerKm,
+    )
+    const camAngle = Math.atan2(this.tmpVec2.y, this.tmpVec2.x)
+
+    const u = material.uniforms
+    u.uProfile!.value = ring.material.uniforms.uTex!.value
+    u.uInnerKm!.value = ring.spec.innerKm
+    u.uOuterKm!.value = ring.spec.outerKm
+    u.uCamRing!.value.set(camRadiusKm, camAngle, 0)
+
+    // Field extent and rock size are fixed in kilometres for a given ring, and
+    // deliberately not tied to how far away the camera is. Sizing them by
+    // distance is what made the rocks unreachable: the field shrank as you
+    // approached at exactly the rate that kept every rock the same size on
+    // screen, so closing on one achieved nothing.
+    const particleKm = ringParticleSizeKm(ring.spec)
+    const fieldKm = particleKm * RING_FIELD_IN_PARTICLES
+    u.uPatchR!.value = fieldKm
+    u.uPatchS!.value = fieldKm
+    u.uPatchZ!.value = particleKm * RING_THICKNESS_IN_PARTICLES
+    u.uParticleKm!.value = particleKm
+    u.uTime!.value = this.ringOrbitClock
+    u.uSpin!.value = this.ringSpinClock
+
+    u.uGmKm!.value = gravitationalParameter(body)
+    // Both in render space: the shader shades against vWorldPos, which the
+    // model matrix has already carried out of the ring's local frame.
+    u.uSunPos!.value.copy(this.sunRender)
+    u.uPlanetCentre!.value.copy(this.tmpVec)
+    u.uPlanetRadius!.value = body.sceneRadius
+    u.uParentRadiusKm!.value = body.radiusKm
+    u.uBodyScale!.value = scale.params.bodyScale
+    u.uSatExponent!.value = scale.params.satelliteExponent
+    u.uSatKnee!.value = scale.params.satelliteKnee
+    u.uScaleBlend!.value = scale.blendAmount
+    u.uSceneUnitKm!.value = SCENE_UNIT_KM
+    void sunSceneRadius
+  }
+
+  /**
+   * The ring that casts the shadow worth drawing.
+   *
+   * Only one ring can be handed to the body shader, and the list order is
+   * inward-out, not densest-first. Jupiter's rings[0] is the Halo — a dust
+   * sheet you can see stars through — while the Main ring five times denser
+   * sits behind it in the list.
+   */
+  private densestRing(visual: BodyVisual): RingVisual | null {
+    let best: RingVisual | null = null
+    for (const ring of visual.rings) {
+      if (!best || ring.spec.opacity > best.spec.opacity) best = ring
+    }
+    return best
   }
 
   private applyLighting(

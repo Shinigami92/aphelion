@@ -110,6 +110,56 @@ vec2 raySphere(vec3 origin, vec3 dir, vec3 centre, float radius) {
 }
 `
 
+/**
+ * The uniforms describing the radial remap a ring shares with the moons.
+ *
+ * A ring is not a decal painted on the planet at some multiple of its radius:
+ * it is a population of orbiting bodies, and it has to be remapped as one. Pan
+ * orbits *inside* the Encke gap and Daphnis inside the Keeler gap; Prometheus
+ * and Pandora straddle the F ring and hold it in place. Scaling rings linearly
+ * with the body while scaling moon orbits by the satellite power law drove the
+ * two apart by more than 200 scene units at Saturn, which put Pan in the middle
+ * of the B ring and left Mimas embedded in the ring sheet. Sending both through
+ * the same law puts every shepherd back in its own gap for nothing.
+ */
+const GLSL_RING_SCALE_PARS = /* glsl */ `
+uniform float uParentRadiusKm;
+uniform float uBodyScale;
+uniform float uSatExponent;
+uniform float uSatKnee;
+uniform float uScaleBlend;
+uniform float uSceneUnitKm;
+`
+
+/** Mirror of `ScaleModel.satelliteDistance()`. Keep the two in lockstep. */
+const GLSL_RING_TO_UNITS = /* glsl */ `
+float ringRadiusToUnits(float km) {
+  float x = max(km, 1.0) / uParentRadiusKm;
+  float shaped = x <= uSatKnee ? x : uSatKnee * pow(x / uSatKnee, uSatExponent);
+  float compressed = uParentRadiusKm * uBodyScale * shaped;
+  return mix(km, compressed, uScaleBlend) / uSceneUnitKm;
+}
+`
+
+/**
+ * The inverse, for code that starts from a rendered radius — the ring shadow
+ * cast on the planet, which gets its radius from a ray-plane hit rather than
+ * from a vertex.
+ *
+ * Exact at both ends of the scale blend, which is where the camera actually
+ * sits; the two laws are mixed rather than the equation being inverted, since
+ * a partly-blended power law has no closed-form inverse. The error only exists
+ * during the ~0.6 s of a scale transition and only moves the shadow's edge.
+ */
+const GLSL_RING_TO_KM = /* glsl */ `
+float ringUnitsToKm(float units) {
+  float km = units * uSceneUnitKm;
+  float shaped = km / (uParentRadiusKm * uBodyScale);
+  float x = shaped <= uSatKnee ? shaped : uSatKnee * pow(shaped / uSatKnee, 1.0 / uSatExponent);
+  return mix(km, x * uParentRadiusKm, uScaleBlend);
+}
+`
+
 // ---------------------------------------------------------------------------
 // Body (planet / moon / dwarf) surface
 // ---------------------------------------------------------------------------
@@ -154,13 +204,21 @@ export function createBodyMaterial(opts: BodyMaterialOptions): ShaderMaterial {
     uRimStrength: { value: opts.rimColor ? (opts.rimStrength ?? 1) : 0 },
     uShininess: { value: opts.shininess ?? 60 },
     uAmbient: { value: 0.006 },
-    // Ring shadow cast onto the planet.
+    // Ring shadow cast onto the planet. Bounds are in true kilometres, matching
+    // the ring material, and the hit radius is converted back before lookup.
     uRingEnabled: { value: 0 },
     uRingTex: { value: null as Texture | null },
-    uRingInner: { value: 0 },
-    uRingOuter: { value: 1 },
+    uRingInnerKm: { value: 0 },
+    uRingOuterKm: { value: 1 },
+    uRingOpacity: { value: 1 },
     uRingNormal: { value: new Vector3(0, 0, 1) },
     uBodyCentre: { value: new Vector3() },
+    uParentRadiusKm: { value: 1 },
+    uBodyScale: { value: 1 },
+    uSatExponent: { value: 1 },
+    uSatKnee: { value: 3 },
+    uScaleBlend: { value: 0 },
+    uSceneUnitKm: { value: 1000 },
     // Relief displacement. Off for every body without a published elevation
     // grid, which is most of them.
     uRelief: { value: null as Texture | null },
@@ -296,10 +354,12 @@ export function createBodyMaterial(opts: BodyMaterialOptions): ShaderMaterial {
 
       uniform int uRingEnabled;
       uniform sampler2D uRingTex;
-      uniform float uRingInner;
-      uniform float uRingOuter;
+      uniform float uRingInnerKm;
+      uniform float uRingOuterKm;
+      uniform float uRingOpacity;
       uniform vec3 uRingNormal;
       uniform vec3 uBodyCentre;
+      ${GLSL_RING_SCALE_PARS}
 
       varying vec2 vUv;
       varying vec3 vNormal;
@@ -309,6 +369,7 @@ export function createBodyMaterial(opts: BodyMaterialOptions): ShaderMaterial {
 
       ${GLSL_COLOR}
       ${GLSL_ECLIPSE}
+      ${GLSL_RING_TO_KM}
 
       #include <logdepthbuf_pars_fragment>
 
@@ -345,7 +406,10 @@ export function createBodyMaterial(opts: BodyMaterialOptions): ShaderMaterial {
         float eclipse = eclipseFactor(posKm, uSunPosKm, uSunRadiusKm, uOccluders);
 
         // Ring shadow: march from the surface toward the Sun and see whether it
-        // crosses the ring plane inside the annulus.
+        // crosses the ring plane inside the annulus. The hit arrives as a
+        // rendered radius, so it goes back through the remap into kilometres
+        // before the profile is sampled — otherwise the shadow's gaps would sit
+        // at different radii from the gaps casting them.
         float ringShadow = 1.0;
         if (uRingEnabled == 1) {
           float denom = dot(L, uRingNormal);
@@ -353,10 +417,14 @@ export function createBodyMaterial(opts: BodyMaterialOptions): ShaderMaterial {
             float t = dot(uBodyCentre - vWorldPos, uRingNormal) / denom;
             if (t > 0.0) {
               vec3 hit = vWorldPos + L * t;
-              float r = length(hit - uBodyCentre);
-              if (r > uRingInner && r < uRingOuter) {
-                float u = (r - uRingInner) / (uRingOuter - uRingInner);
-                float opacity = texture2D(uRingTex, vec2(u, 0.5)).a;
+              float km = ringUnitsToKm(length(hit - uBodyCentre));
+              if (km > uRingInnerKm && km < uRingOuterKm) {
+                float u = (km - uRingInnerKm) / (uRingOuterKm - uRingInnerKm);
+                // Scaled by the ring's own opacity: the texture alpha is a
+                // profile shape, not an absolute optical depth, so reading it
+                // raw made Jupiter's Halo (opacity 0.035) shadow the planet as
+                // hard as Saturn's B ring.
+                float opacity = texture2D(uRingTex, vec2(u, 0.5)).a * uRingOpacity;
                 ringShadow = 1.0 - clamp(opacity, 0.0, 1.0) * 0.85;
               }
             }
@@ -658,9 +726,12 @@ export function createAtmosphereMaterial(opts: AtmosphereMaterialOptions): Shade
 
 export interface RingMaterialOptions {
   texture: Texture
-  innerRadius: number
-  outerRadius: number
+  /** Inner edge in true kilometres from the planet's centre. */
+  innerKm: number
+  /** Outer edge in true kilometres from the planet's centre. */
+  outerKm: number
   opacity: number
+  parentRadiusKm: number
 }
 
 export function createRingMaterial(opts: RingMaterialOptions): ShaderMaterial {
@@ -670,22 +741,40 @@ export function createRingMaterial(opts: RingMaterialOptions): ShaderMaterial {
     depthWrite: false,
     uniforms: {
       uTex: { value: prepare(opts.texture) },
-      uInner: { value: opts.innerRadius },
-      uOuter: { value: opts.outerRadius },
+      uInnerKm: { value: opts.innerKm },
+      uOuterKm: { value: opts.outerKm },
       uOpacity: { value: opts.opacity },
+      uExploreBoost: { value: 1 },
+      uExploreBrightness: { value: 1 },
       uSunPos: { value: new Vector3() },
       uSunRadius: { value: 1 },
       uPlanetCentre: { value: new Vector3() },
       uPlanetRadius: { value: 1 },
       uNormal: { value: new Vector3(0, 0, 1) },
+      uParentRadiusKm: { value: opts.parentRadiusKm },
+      uBodyScale: { value: 1 },
+      uSatExponent: { value: 1 },
+      uSatKnee: { value: 3 },
+      uScaleBlend: { value: 0 },
+      uSceneUnitKm: { value: 1000 },
     },
     vertexShader: /* glsl */ `
+      // The annulus is built in true kilometres: position carries only the
+      // unit direction in the ring plane and aRingKm the real radius, so the
+      // one geometry serves both scale models and the profile stays registered
+      // to kilometres however the radial remap stretches it.
+      attribute float aRingKm;
       varying vec3 vWorldPos;
+      varying float vRingKm;
+      ${GLSL_RING_SCALE_PARS}
       // <common> supplies isPerspectiveMatrix(), which the log-depth chunk calls.
       #include <common>
       #include <logdepthbuf_pars_vertex>
+      ${GLSL_RING_TO_UNITS}
       void main() {
-        vec4 world = modelMatrix * vec4(position, 1.0);
+        vRingKm = aRingKm;
+        vec3 local = vec3(position.xy * ringRadiusToUnits(aRingKm), position.z);
+        vec4 world = modelMatrix * vec4(local, 1.0);
         vWorldPos = world.xyz;
         gl_Position = projectionMatrix * viewMatrix * world;
         #include <logdepthbuf_vertex>
@@ -694,15 +783,19 @@ export function createRingMaterial(opts: RingMaterialOptions): ShaderMaterial {
     fragmentShader: /* glsl */ `
       precision highp float;
       uniform sampler2D uTex;
-      uniform float uInner;
-      uniform float uOuter;
+      uniform float uInnerKm;
+      uniform float uOuterKm;
       uniform float uOpacity;
+      uniform float uExploreBoost;
+      uniform float uExploreBrightness;
+      uniform float uScaleBlend;
       uniform vec3 uSunPos;
       uniform float uSunRadius;
       uniform vec3 uPlanetCentre;
       uniform float uPlanetRadius;
       uniform vec3 uNormal;
       varying vec3 vWorldPos;
+      varying float vRingKm;
 
       ${GLSL_COLOR}
       ${GLSL_RAY_SPHERE}
@@ -712,13 +805,17 @@ export function createRingMaterial(opts: RingMaterialOptions): ShaderMaterial {
       void main() {
         #include <logdepthbuf_fragment>
 
-        // Radial coordinate across the annulus.
-        float r = length(vWorldPos - uPlanetCentre);
-        float u = (r - uInner) / (uOuter - uInner);
+        // Radial coordinate across the annulus, in kilometres. Looking the
+        // profile up by true radius rather than by rendered radius is what
+        // keeps a gap at the kilometre it belongs to in either scale model.
+        float u = (vRingKm - uInnerKm) / (uOuterKm - uInnerKm);
         if (u < 0.0 || u > 1.0) discard;
 
         vec4 tex = texture2D(uTex, vec2(u, 0.5));
-        float alpha = tex.a * uOpacity;
+        // The boost is 1 at true scale and only rises as explore scale blends
+        // in, so nothing here is ever brighter than the physics in the mode
+        // that claims to be literal.
+        float alpha = tex.a * uOpacity * mix(1.0, uExploreBoost, uScaleBlend);
         if (alpha < 0.004) discard;
 
         vec3 albedo = srgbToLinear(tex.rgb);
@@ -746,8 +843,250 @@ export function createRingMaterial(opts: RingMaterialOptions): ShaderMaterial {
         float grazing = clamp(abs(viewSide), 0.06, 1.0);
         alpha = clamp(alpha / grazing * mix(1.0, 0.55, step(abs(viewSide), 0.12)), 0.0, 1.0);
 
-        vec3 colour = albedo * brightness * shadow;
+        vec3 colour = albedo * brightness * shadow * mix(1.0, uExploreBrightness, uScaleBlend);
         gl_FragColor = vec4(colour, alpha);
+      }
+    `,
+  })
+}
+
+// ---------------------------------------------------------------------------
+// Ring particles
+// ---------------------------------------------------------------------------
+
+/**
+ * Individual ring particles, as instanced geometry placed by the vertex shader.
+ *
+ * A ring is 400,000 km across and its particles are metres wide, so there is no
+ * question of drawing all of them. Instead a *patch* of a few thousand rocks
+ * follows the camera through the ring, expressed in the ring's own cylindrical
+ * frame (radius, arc, height) rather than in world space. Two things fall out
+ * of that choice:
+ *
+ * **Keplerian shear comes for free, and it is the whole effect.** Each particle
+ * orbits at its own radius's mean motion, and only the *difference* from the
+ * camera's own rate is applied, so material inside you visibly overtakes and
+ * material outside falls behind, at the real rate. Standing in the A ring you
+ * are not parked in a static field of rocks — you are inside a shear flow. A
+ * patch expressed in world space could not show this at all.
+ *
+ * **Wrapping is in arc, not in a box.** A particle that trails out the back
+ * re-enters at the front, which is what a shear flow does anyway, so the
+ * recycling is invisible rather than being a seam you can catch.
+ *
+ * Rocks shrink to nothing toward the patch boundary instead of fading, which
+ * avoids needing transparency and therefore avoids sorting several thousand
+ * instances every frame. And density is read from the ring's own profile
+ * texture, so the gaps really are empty: fly along the A ring and the Encke gap
+ * is a clear lane with Pan in it, because the same data drew both.
+ */
+export interface RingParticleMaterialOptions {
+  profile: Texture
+  innerKm: number
+  outerKm: number
+  parentRadiusKm: number
+}
+
+export function createRingParticleMaterial(opts: RingParticleMaterialOptions): ShaderMaterial {
+  return new ShaderMaterial({
+    uniforms: {
+      uProfile: { value: prepare(opts.profile) },
+      uInnerKm: { value: opts.innerKm },
+      uOuterKm: { value: opts.outerKm },
+      uCamRing: { value: new Vector3(0, 0, 0) },
+      uPatchR: { value: 1 },
+      uPatchS: { value: 1 },
+      uPatchZ: { value: 1 },
+      uTime: { value: 0 },
+      uSpin: { value: 0 },
+      uGmKm: { value: 3.7931207e7 },
+      uParticleKm: { value: 1 },
+      uSunPos: { value: new Vector3() },
+      uPlanetCentre: { value: new Vector3() },
+      uPlanetRadius: { value: 1 },
+      uParentRadiusKm: { value: opts.parentRadiusKm },
+      uBodyScale: { value: 1 },
+      uSatExponent: { value: 1 },
+      uSatKnee: { value: 3 },
+      uScaleBlend: { value: 0 },
+      uSceneUnitKm: { value: 1000 },
+    },
+    vertexShader: /* glsl */ `
+      attribute vec3 aOffset;   // radial, arc and vertical slot, each in [-1,1]
+      attribute float aSeed;
+
+      uniform sampler2D uProfile;
+      uniform float uInnerKm;
+      uniform float uOuterKm;
+      uniform vec3 uCamRing;    // camera in ring coords: radius km, angle rad, height km
+      uniform float uPatchR;
+      uniform float uPatchS;
+      uniform float uPatchZ;
+      uniform float uTime;
+      uniform float uSpin;
+      uniform float uGmKm;
+      uniform float uParticleKm;
+      ${GLSL_RING_SCALE_PARS}
+
+      varying vec3 vNormalW;
+      varying vec3 vWorldPos;
+      varying vec3 vTint;
+
+      #include <common>
+      #include <logdepthbuf_pars_vertex>
+      ${GLSL_RING_TO_UNITS}
+
+      // Smallest and largest drawn rock, as multiples of the characteristic
+      // size. The mean lands near 0.8 of it, so the field keeps roughly the
+      // density a single fixed size gave while gaining a tail of boulders.
+      const float SIZE_MIN = 0.45;
+      const float SIZE_MAX = 4.0;
+
+      float hash11(float p) { return fract(sin(p * 127.1) * 43758.5453); }
+
+      // Cheap value noise on the unit sphere, to make each rock its own shape.
+      float lumpiness(vec3 dir, float seed) {
+        float a = sin(dir.x * 4.1 + seed * 6.3) * sin(dir.y * 3.7 - seed * 2.1);
+        float b = sin(dir.z * 5.3 - seed * 4.7) * sin(dir.x * 2.9 + seed * 8.9);
+        return 0.72 + 0.28 * (a * 0.6 + b * 0.4);
+      }
+
+      // Spin axes cluster around the orbit normal rather than pointing
+      // anywhere. A particle in a shear flow is spun up by collisions, and the
+      // shear picks a sense, so the population ends up mostly prograde about
+      // the ring's own axis with collisions tilting it and flipping a minority
+      // retrograde. Uniformly random axes read as chaotic debris; this reads as
+      // a disc. (Physical spin rates are of order the orbital frequency — one
+      // turn in ~14 h at Saturn — far too slow to see, so the *rate* below is
+      // frankly a visual choice, while the axis distribution is not.)
+      mat3 tumble(float seed, float t) {
+        float sense = hash11(seed + 3.3) < 0.15 ? -1.0 : 1.0;
+        vec3 axis = normalize(vec3(
+          (hash11(seed) - 0.5) * 1.1,
+          (hash11(seed + 1.7) - 0.5) * 1.1,
+          sense * 1.6
+        ));
+        float ang = t * (0.05 + hash11(seed + 5.1) * 0.25) + seed * 6.2831;
+        float c = cos(ang), s = sin(ang), ic = 1.0 - c;
+        return mat3(
+          c + axis.x * axis.x * ic,          axis.x * axis.y * ic - axis.z * s, axis.x * axis.z * ic + axis.y * s,
+          axis.y * axis.x * ic + axis.z * s, c + axis.y * axis.y * ic,          axis.y * axis.z * ic - axis.x * s,
+          axis.z * axis.x * ic - axis.y * s, axis.z * axis.y * ic + axis.x * s, c + axis.z * axis.z * ic
+        );
+      }
+
+      void main() {
+        // Each rock has a fixed home in the ring, and the field repeats around
+        // the camera on a lattice. Snapping to the nearest whole period means a
+        // rock's position is *absolute* between jumps: fly at it and it comes
+        // to meet you, fly past and it falls behind. Anchoring positions to the
+        // camera instead — camRadius + offset — welds the whole field to your
+        // eye, so nothing can ever be approached and the ring reads as static
+        // no matter how much shear is applied on top.
+        float period = 2.0 * uPatchR;
+        float rBase = aOffset.x * uPatchR;
+        float r = rBase + floor((uCamRing.x - rBase) / period + 0.5) * period;
+        if (r < uInnerKm || r > uOuterKm) { gl_Position = vec4(2.0, 2.0, 2.0, 1.0); return; }
+
+        // Density from the ring's own profile: a gap has no particles in it
+        // because the same table that drew the gap is what is sampled here.
+        float u = (r - uInnerKm) / (uOuterKm - uInnerKm);
+        float dens = texture2D(uProfile, vec2(u, 0.5)).a;
+
+        // Only the difference from the camera's own orbital rate is applied, so
+        // the camera behaves as a spacecraft in a circular orbit at its own
+        // radius: material beside you keeps station and can be flown to, while
+        // material inside overtakes and material outside falls behind, at the
+        // true rate. Applying the full rate instead sweeps everything past at
+        // 16 km/s, which is honest and completely unusable.
+        float rc = max(uCamRing.x, 1.0);
+        float n = sqrt(uGmKm / (r * r * r));
+        float nc = sqrt(uGmKm / (rc * rc * rc));
+
+        // Same lattice trick azimuthally. The angle is formed *then* differenced
+        // against the camera, so flying along the ring carries you past rocks
+        // rather than dragging them with you.
+        float dPeriod = period / max(r, 1.0);
+        float dTheta = aOffset.y * 3.14159265 + (n - nc) * uTime - uCamRing.y;
+        dTheta -= floor(dTheta / dPeriod + 0.5) * dPeriod;
+        float theta = uCamRing.y + dTheta;
+        float zKm = aOffset.z * uPatchZ;
+
+        // Into scene units, through the same radial remap the sheet uses.
+        float ru = ringRadiusToUnits(r);
+        float kmToUnits = ru / max(r, 1.0);
+        vec3 centre = vec3(ru * cos(theta), ru * sin(theta), zKm * kmToUnits);
+
+        // Shrink to nothing at the field edge rather than fading, which keeps
+        // the material opaque and spares sorting several thousand instances.
+        // Measured from the wrapped offsets, not the raw slots, so the taper
+        // stays put in space while rocks move through it.
+        float edge = max(abs(r - uCamRing.x) / uPatchR, abs(dTheta) / (dPeriod * 0.5));
+        // Sizes follow a power law rather than being uniformly jittered, which
+        // is what a collisional population actually looks like: mostly gravel,
+        // with occasional boulders standing well above it. Occultations put the
+        // differential index near 3 across Saturn's rings, so that is the index
+        // used, sampled by inverting its cumulative distribution.
+        //
+        //   n(a) da ~ a^-3 da  =>  a(u) = [ a0^-2 + u (a1^-2 - a0^-2) ]^(-1/2)
+        //
+        // which is one inversesqrt of a mix. The absolute *range* is exaggerated
+        // like everything else here — real particles run centimetres to about
+        // ten metres, a spread far too fine to draw — but the shape of the
+        // distribution is the real one, and it is what gives the field depth
+        // instead of a single repeated pebble size.
+        float u01 = hash11(aSeed + 9.1);
+        float sizeMul = inversesqrt(
+          mix(1.0 / (SIZE_MIN * SIZE_MIN), 1.0 / (SIZE_MAX * SIZE_MAX), u01)
+        );
+        // Size is an absolute number of kilometres, not a fraction of the
+        // patch. That is what lets a rock grow as you close on it; scaling it
+        // with the patch held its angular size fixed however near you got.
+        float size = uParticleKm * kmToUnits
+          * sizeMul
+          * (1.0 - smoothstep(0.75, 1.0, edge))
+          * smoothstep(0.015, 0.12, dens);
+
+        mat3 spin = tumble(aSeed, uSpin);
+        vec3 dir = normalize(position);
+        vec3 local = spin * (dir * lumpiness(dir, aSeed) * size);
+
+        vec4 world = modelMatrix * vec4(centre + local, 1.0);
+        vWorldPos = world.xyz;
+        vNormalW = normalize(mat3(modelMatrix) * (spin * dir));
+        // Carry the local ring colour so a rock matches the band it sits in.
+        vTint = texture2D(uProfile, vec2(clamp(u, 0.0, 1.0), 0.5)).rgb;
+
+        gl_Position = projectionMatrix * viewMatrix * world;
+        #include <logdepthbuf_vertex>
+      }
+    `,
+    fragmentShader: /* glsl */ `
+      precision highp float;
+      uniform vec3 uSunPos;
+      uniform vec3 uPlanetCentre;
+      uniform float uPlanetRadius;
+      varying vec3 vNormalW;
+      varying vec3 vWorldPos;
+      varying vec3 vTint;
+
+      ${GLSL_COLOR}
+      ${GLSL_RAY_SPHERE}
+      #include <logdepthbuf_pars_fragment>
+
+      void main() {
+        #include <logdepthbuf_fragment>
+        vec3 L = normalize(uSunPos - vWorldPos);
+        vec3 N = normalize(vNormalW);
+
+        // The planet's shadow falls across the particles exactly as it does
+        // across the sheet, so flying into Saturn's shadow really does go dark.
+        vec2 hit = raySphere(vWorldPos, L, uPlanetCentre, uPlanetRadius);
+        float shadow = (hit.y >= hit.x && hit.x > 0.0) ? 0.06 : 1.0;
+
+        float diffuse = 0.12 + 0.88 * max(dot(N, L), 0.0);
+        vec3 albedo = srgbToLinear(vTint);
+        gl_FragColor = vec4(albedo * diffuse * shadow, 1.0);
       }
     `,
   })

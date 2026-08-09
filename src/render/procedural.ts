@@ -22,6 +22,7 @@ import {
   SRGBColorSpace,
   type Texture,
 } from 'three'
+import type { RingBand } from '../data/bodies.ts'
 
 export type SurfaceClass = 'rocky' | 'icy' | 'dark' | 'sulfurous' | 'metallic'
 
@@ -498,6 +499,102 @@ export function proceduralRing(
   const tex = new CanvasTexture(canvas)
   tex.colorSpace = SRGBColorSpace
   tex.wrapS = RepeatWrapping
+  tex.needsUpdate = true
+  cache.set(cacheKey, tex)
+  return tex
+}
+
+/**
+ * Ring profile generated from published radial structure.
+ *
+ * Opacity comes from the physics rather than from taste: a band of normal
+ * optical depth `tau` transmits `exp(-tau)` of the light behind it, so it
+ * covers `1 - exp(-tau)`. That one line is what separates the B ring from the
+ * Cassini Division without either being tuned by hand, and what keeps the
+ * Uranian rings as faint as they really are next to Saturn's.
+ *
+ * Each texel **integrates** the bands crossing it rather than sampling the
+ * midpoint. Uranus forces this: its rings are 2 to 8 km wide across a 9,700 km
+ * span, so at any sane resolution a ring is *narrower than a texel*. Point
+ * sampling would drop most of them entirely and make the rest flicker with
+ * resolution. Averaging optical depth over the texel's own width is both the
+ * physically meaningful quantity and inherently anti-aliased.
+ */
+export function ringProfile(
+  cacheKey: string,
+  opts: { bands: readonly RingBand[]; innerKm: number; outerKm: number },
+): Texture {
+  const hit = cache.get(cacheKey)
+  if (hit) return hit
+
+  // Fine enough that Uranus's narrowest ring still lands inside a texel or two.
+  const width = 4096
+  const canvas = document.createElement('canvas')
+  canvas.width = width
+  canvas.height = 1
+  const ctx = canvas.getContext('2d')!
+  const img = ctx.createImageData(width, 1)
+  const px = img.data
+
+  const spanKm = opts.outerKm - opts.innerKm
+  const texelKm = spanKm / width
+
+  for (let i = 0; i < width; i++) {
+    const loKm = opts.innerKm + i * texelKm
+    const hiKm = loKm + texelKm
+
+    // Optical depth averaged over this texel, and colour weighted by how much
+    // of the texel's opacity each band actually contributes.
+    let tau = 0
+    let r = 0
+    let g = 0
+    let b = 0
+    let weight = 0
+    for (const band of opts.bands) {
+      const overlap = Math.min(hiKm, band.outerKm) - Math.max(loKm, band.innerKm)
+      if (overlap <= 0) continue
+      const fraction = overlap / texelKm
+      tau += band.tau * fraction
+      const w = band.tau * fraction
+      if (w > 0) {
+        r += ((band.color >> 16) & 255) * w
+        g += ((band.color >> 8) & 255) * w
+        b += (band.color & 255) * w
+        weight += w
+      }
+    }
+
+    // A ring that is there must not quantise to nothing. Optical depths this
+    // low — the E ring is 1e-5 — land far below one part in 255, so an 8-bit
+    // alpha channel rounds them to zero and every later brightness control is
+    // then multiplying zero. Floor anything with material in it to the
+    // smallest value the channel can hold and let the explore boost lift it.
+    const alpha = tau > 0 ? Math.max(1 - Math.exp(-tau), 1 / 255) : 0
+    const o = i * 4
+    if (weight > 0) {
+      px[o] = clamp255(r / weight)
+      px[o + 1] = clamp255(g / weight)
+      px[o + 2] = clamp255(b / weight)
+    }
+    px[o + 3] = clamp255(alpha * 255)
+  }
+  ctx.putImageData(img, 0, 0)
+
+  const tex = new CanvasTexture(canvas)
+  tex.colorSpace = SRGBColorSpace
+  tex.wrapS = RepeatWrapping
+  // Mipmaps stay on, and they are doing something specific here. These profiles
+  // are mostly vacuum punctuated by very narrow features — Uranus's epsilon
+  // ring is 59 km inside a 9,700 km strip — so at any real viewing distance a
+  // ring is far narrower than a screen pixel. Without a mip chain the GPU point
+  // samples and the ring flickers in and out as it happens to hit or miss a
+  // pixel centre; with one it averages down to a faint but *stable* line at the
+  // right radius. Averaging is the correct answer; the brightness lost to it is
+  // restored explicitly, and only in explore scale, by the ring material's
+  // visibility boost.
+  tex.minFilter = LinearMipmapLinearFilter
+  tex.magFilter = LinearFilter
+  tex.generateMipmaps = true
   tex.needsUpdate = true
   cache.set(cacheKey, tex)
   return tex

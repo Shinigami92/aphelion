@@ -29,12 +29,34 @@ export interface ScaleParams {
   heliocentricExponent: number
   /** Exponent for satellite distance compression, in parent radii. */
   satelliteExponent: number
+  /** Parent radii below which satellite distances are left proportional. */
+  satelliteKnee: number
 }
 
 export const DEFAULT_PARAMS: ScaleParams = {
   bodyScale: 6,
   heliocentricExponent: 0.6,
   satelliteExponent: 0.62,
+  satelliteKnee: 3,
+}
+
+/**
+ * Below the knee the satellite remap is the identity: distances within a few
+ * radii of a planet are already legible and compressing them only does damage.
+ *
+ * That inner region is where the rings live — Saturn's span 1.24 to 2.33 radii
+ * — and where their shepherd moons live with them. Compressing it drew Saturn's
+ * rings at 72% of their true proportion, which is visibly not the silhouette
+ * everyone knows. Compression exists to rein in the far irregulars: Phoebe at
+ * 215 radii, not Pan at 2.2.
+ *
+ * So the law is piecewise: proportional near the planet, a power law beyond.
+ * It stays monotone, which is the property the whole scale model rests on, and
+ * it is continuous at the knee; only the slope steps, which nothing can see.
+ */
+function shapeSatellite(inParentRadii: number, exponent: number, knee: number): number {
+  if (inParentRadii <= knee) return inParentRadii
+  return knee * Math.pow(inParentRadii / knee, exponent)
 }
 
 export class ScaleModel {
@@ -128,17 +150,23 @@ export class ScaleModel {
   /**
    * Remap a satellite's distance from its parent (km) to scene units.
    *
-   * Expressed in parent radii and compressed there, then re-expanded against
-   * the parent's *rendered* radius. The upshot: the innermost moons always
-   * clear the enlarged planet's limb, and the far irregulars stay on screen
-   * instead of being flung a hundred times too far out.
+   * Expressed in parent radii and shaped there, then re-expanded against the
+   * parent's *rendered* radius. The upshot: the innermost moons always clear
+   * the enlarged planet's limb, and the far irregulars stay on screen instead
+   * of being flung a hundred times too far out.
+   *
+   * Ring radii go through this same function, because a ring is a population of
+   * orbiting bodies and has to be remapped as one. Anything else parts the
+   * shepherds from their gaps — see `GLSL_RING_SCALE_PARS` in render/materials.
    */
   satelliteDistance(km: number, parentRadiusKm: number): number {
     const inParentRadii = Math.max(km, 1) / parentRadiusKm
-    const compressed =
-      parentRadiusKm *
-      this.params.bodyScale *
-      Math.pow(inParentRadii, this.params.satelliteExponent)
+    const shaped = shapeSatellite(
+      inParentRadii,
+      this.params.satelliteExponent,
+      this.params.satelliteKnee,
+    )
+    const compressed = parentRadiusKm * this.params.bodyScale * shaped
     return this.lerp(km, compressed) / SCENE_UNIT_KM
   }
 

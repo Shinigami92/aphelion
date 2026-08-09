@@ -25,6 +25,31 @@ export interface AtmosphereSpec {
   groundTint: [number, number, number]
 }
 
+/**
+ * One radial band of a ring system, at its published boundaries.
+ *
+ * `tau` is the normal optical depth — the physical quantity occultations
+ * actually measure — so opacity comes out as `1 - exp(-tau)` rather than being
+ * dialled in by eye. That is what makes the B ring read as dense, the Cassini
+ * Division as a real dark lane rather than a painted stripe, and the Uranian
+ * rings as the near-invisible threads they are.
+ *
+ * A band with `tau: 0` is a gap. Gaps are listed explicitly rather than left as
+ * holes because the whole point is that a named gap sits where a named moon put
+ * it, and `pnpm validate` checks exactly that.
+ */
+export interface RingBand {
+  name: string
+  innerKm: number
+  outerKm: number
+  /** Normal optical depth. 0 for a gap. */
+  tau: number
+  /** sRGB colour of the particles in this band. */
+  color: number
+  /** What clears or confines this band, when something does. */
+  cause?: string
+}
+
 export interface RingSpec {
   name: string
   innerKm: number
@@ -35,6 +60,38 @@ export interface RingSpec {
   opacity: number
   /** Optional description for the info panel. */
   note?: string
+  /**
+   * Radial structure. When present the profile is generated from these bands
+   * instead of from noise, so every edge lands at a real kilometre.
+   */
+  bands?: RingBand[]
+  /**
+   * Brightness multiplier applied in explore scale only, 1 by default.
+   *
+   * The honest render of Uranus's rings is nothing at all: charcoal at 3%
+   * albedo, a few kilometres wide across a 9,700 km span, so they average out
+   * below one pixel long before you are close enough to see them. Every
+   * published image of them is contrast-stretched for exactly this reason.
+   *
+   * This is the same bargain relief exaggeration already makes — true scale
+   * stays literal, explore scale trades a stated amount of photometric
+   * fidelity for being able to see the thing at all. It changes opacity only:
+   * no radius, no width, no gap moves.
+   */
+  exploreBoost?: number
+  /**
+   * Albedo multiplier in explore scale only, 1 by default.
+   *
+   * Separate from `exploreBoost` because opacity and darkness are different
+   * problems and want wildly different numbers. A tenuous dust ring is
+   * transparent — optical depth 1e-5 — and needs its *alpha* lifted by orders
+   * of magnitude. Uranus's narrow rings are the opposite: nearly opaque, and
+   * simply black, charcoal decoding to about 0.037 in linear light. Boosting
+   * their alpha achieves nothing, because it already saturates; what is needed
+   * is a few times more light. Folding both into one number would blow one of
+   * them out while barely touching the other.
+   */
+  exploreBrightness?: number
 }
 
 export interface BodyFacts {
@@ -272,9 +329,66 @@ export const PLANETS: BodySpec[] = [
       groundTint: [0.95, 0.85, 0.7],
     },
     rings: [
-      { name: 'Halo', innerKm: 92_000, outerKm: 122_500, opacity: 0.035, note: 'dust lofted by electromagnetic forces' },
-      { name: 'Main ring', innerKm: 122_500, outerKm: 129_000, opacity: 0.16, note: 'debris from Adrastea and Metis' },
-      { name: 'Gossamer rings', innerKm: 129_000, outerKm: 226_000, opacity: 0.025, note: 'fed by Amalthea and Thebe' },
+      {
+        name: 'Halo',
+        innerKm: 92_000,
+        outerKm: 122_500,
+        opacity: 0.035,
+        exploreBoost: 60,
+        exploreBrightness: 3,
+        note: 'dust lofted by electromagnetic forces',
+        bands: [{ name: 'Halo', innerKm: 92_000, outerKm: 122_500, tau: 1e-6, color: 0x7a6250 }],
+      },
+      {
+        name: 'Main ring',
+        innerKm: 122_500,
+        outerKm: 129_000,
+        opacity: 0.16,
+        exploreBoost: 25,
+        exploreBrightness: 3,
+        note: 'debris from Adrastea and Metis',
+        // Jupiter's rings are dust, not ice: reddish, and optically thin enough
+        // to see stars through. The outer edge is Adrastea's orbit, because
+        // that is where the dust comes from.
+        bands: [
+          { name: 'Main ring (inner)', innerKm: 122_500, outerKm: 128_000, tau: 3e-6, color: 0x9a7358 },
+          {
+            name: 'Main ring (bright core)',
+            innerKm: 128_000,
+            outerKm: 129_000,
+            tau: 6e-6,
+            color: 0xa87d5e,
+            cause: 'bounded by the orbits of Metis and Adrastea, its sources',
+          },
+        ],
+      },
+      {
+        name: 'Gossamer rings',
+        innerKm: 129_000,
+        outerKm: 226_000,
+        opacity: 0.025,
+        exploreBoost: 90,
+        exploreBrightness: 4,
+        note: 'fed by Amalthea and Thebe',
+        bands: [
+          {
+            name: 'Amalthea gossamer ring',
+            innerKm: 129_000,
+            outerKm: 182_000,
+            tau: 1e-7,
+            color: 0x8a6a56,
+            cause: 'dust knocked off Amalthea, bounded by its orbit',
+          },
+          {
+            name: 'Thebe gossamer ring',
+            innerKm: 182_000,
+            outerKm: 226_000,
+            tau: 3e-8,
+            color: 0x8a6a56,
+            cause: 'dust knocked off Thebe, bounded by its orbit',
+          },
+        ],
+      },
     ],
     facts: {
       mass: 1.8982e27,
@@ -309,14 +423,129 @@ export const PLANETS: BodySpec[] = [
     },
     rings: [
       {
+        name: 'D ring',
+        innerKm: 66_900,
+        outerKm: 74_510,
+        opacity: 1,
+        exploreBoost: 3,
+        exploreBrightness: 1.4,
+        note: 'faint, innermost, almost touching the cloud tops',
+        bands: [{ name: 'D ring', innerKm: 66_900, outerKm: 74_510, tau: 0.001, color: 0x8c8378 }],
+      },
+      {
+        // Kept at the photometric strip's own registration: saturn_ring.png
+        // spans exactly this range, so moving the edges would slide every
+        // ringlet in it. The bands below cover the same span and stand in until
+        // the image loads.
         name: 'Main rings (C, B, Cassini division, A, F)',
         innerKm: 74_500,
         outerKm: 140_220,
         texture: 'saturn_ring.png',
         opacity: 1.0,
         note: 'over 99% water ice, on average only ~10 m thick',
+        // Boundaries from Voyager and Cassini occultations. The two colours
+        // are real: the B ring's dense, fresh ice reads warm and tan, while the
+        // sparse C ring and Cassini Division are greyer, being both thinner and
+        // more contaminated. Every named gap here is cross-checked in
+        // `pnpm validate` against the moon or resonance that clears it — if a
+        // radius is wrong, its shepherd is no longer standing in it.
+        bands: [
+          { name: 'C ring', innerKm: 74_500, outerKm: 77_870, tau: 0.08, color: 0x9c9080 },
+          {
+            name: 'Colombo Gap (Titan Ringlet)',
+            innerKm: 77_870,
+            outerKm: 77_970,
+            tau: 0,
+            color: 0x9c9080,
+            cause: 'Titan 1:0 apsidal resonance',
+          },
+          { name: 'C ring (outer)', innerKm: 77_970, outerKm: 87_491, tau: 0.1, color: 0x9c9080 },
+          {
+            name: 'Maxwell Gap',
+            innerKm: 87_491,
+            outerKm: 87_591,
+            tau: 0,
+            color: 0x9c9080,
+            cause: 'a confined eccentric ringlet',
+          },
+          { name: 'C ring (outermost)', innerKm: 87_591, outerKm: 91_975, tau: 0.12, color: 0x9c9080 },
+          { name: 'B ring (inner)', innerKm: 91_975, outerKm: 99_000, tau: 0.9, color: 0xc4ab8a },
+          { name: 'B ring (central)', innerKm: 99_000, outerKm: 110_000, tau: 2.1, color: 0xd8c2a0 },
+          { name: 'B ring (outer)', innerKm: 110_000, outerKm: 117_580, tau: 1.4, color: 0xcdb694 },
+          {
+            name: 'Huygens Gap',
+            innerKm: 117_580,
+            outerKm: 117_930,
+            tau: 0,
+            color: 0x9c9080,
+            cause: 'Mimas 2:1 resonance, which also holds the B ring edge',
+          },
+          {
+            name: 'Cassini Division',
+            innerKm: 117_930,
+            outerKm: 122_170,
+            tau: 0.12,
+            color: 0x9a8e7d,
+            cause: 'cleared by the Mimas 2:1 resonance',
+          },
+          { name: 'A ring (inner)', innerKm: 122_170, outerKm: 133_424, tau: 0.62, color: 0xc0a98c },
+          {
+            name: 'Encke Gap',
+            innerKm: 133_424,
+            outerKm: 133_749,
+            tau: 0,
+            color: 0xc0a98c,
+            cause: 'swept clear by Pan, which orbits inside it',
+          },
+          { name: 'A ring (outer)', innerKm: 133_749, outerKm: 136_487, tau: 0.5, color: 0xc0a98c },
+          {
+            name: 'Keeler Gap',
+            innerKm: 136_487,
+            outerKm: 136_522,
+            tau: 0,
+            color: 0xc0a98c,
+            cause: 'swept clear by Daphnis, which raises waves on its edges',
+          },
+          {
+            name: 'A ring (edge)',
+            innerKm: 136_522,
+            outerKm: 136_775,
+            tau: 0.45,
+            color: 0xc0a98c,
+            cause: 'outer edge held by the Janus/Epimetheus 7:6 resonance',
+          },
+          { name: 'Roche Division', innerKm: 136_775, outerKm: 139_380, tau: 0.002, color: 0x8c8378 },
+          {
+            name: 'F ring',
+            innerKm: 140_140,
+            outerKm: 140_220,
+            tau: 0.1,
+            color: 0xd5c7ae,
+            cause: 'shepherded by Prometheus and Pandora',
+          },
+        ],
       },
-      { name: 'E ring', innerKm: 180_000, outerKm: 480_000, opacity: 0.02, note: 'fed by the plumes of Enceladus' },
+      {
+        name: 'E ring',
+        innerKm: 180_000,
+        outerKm: 480_000,
+        opacity: 1,
+        exploreBoost: 4,
+        exploreBrightness: 1.4,
+        note: 'fed by the plumes of Enceladus',
+        bands: [
+          { name: 'E ring (inner)', innerKm: 180_000, outerKm: 230_000, tau: 1e-6, color: 0xaebccc },
+          {
+            name: 'E ring (peak)',
+            innerKm: 230_000,
+            outerKm: 250_000,
+            tau: 1e-5,
+            color: 0xc2d2e4,
+            cause: 'densest at the orbit of Enceladus, its source',
+          },
+          { name: 'E ring (outer)', innerKm: 250_000, outerKm: 480_000, tau: 1e-6, color: 0xaebccc },
+        ],
+      },
     ],
     facts: {
       mass: 5.6834e26,
@@ -350,8 +579,62 @@ export const PLANETS: BodySpec[] = [
       groundTint: [0.6, 0.9, 0.95],
     },
     rings: [
-      { name: 'Inner rings (6 through epsilon)', innerKm: 41_800, outerKm: 51_200, opacity: 0.28, note: 'nine narrow, dark, sharply confined rings' },
-      { name: 'Outer rings (nu, mu)', innerKm: 66_100, outerKm: 103_000, opacity: 0.03, note: 'dusty; mu peaks at the orbit of Mab' },
+      {
+        name: 'Inner rings (6 through epsilon)',
+        innerKm: 41_600,
+        outerKm: 51_300,
+        opacity: 1,
+        exploreBoost: 6,
+        exploreBrightness: 7,
+        note: 'nine narrow, dark, sharply confined rings',
+        // Among the darkest objects in the solar system — geometric albedo
+        // around 0.03, charcoal rather than the tan of Saturn's ice. They are
+        // also extraordinarily narrow: several are a couple of kilometres wide
+        // across a 9,000 km span, which is why the profile is integrated per
+        // texel rather than point-sampled. Epsilon is both the widest and the
+        // most eccentric, running 20 km at periapse to 96 km at apoapse.
+        bands: [
+          { name: 'Ring 6', innerKm: 41_836, outerKm: 41_838, tau: 0.3, color: 0x2a2724 },
+          { name: 'Ring 5', innerKm: 42_234, outerKm: 42_236, tau: 0.5, color: 0x2a2724 },
+          { name: 'Ring 4', innerKm: 42_570, outerKm: 42_573, tau: 0.3, color: 0x2a2724 },
+          { name: 'Alpha ring', innerKm: 44_714, outerKm: 44_722, tau: 0.4, color: 0x2e2b27 },
+          { name: 'Beta ring', innerKm: 45_657, outerKm: 45_665, tau: 0.3, color: 0x2e2b27 },
+          { name: 'Eta ring', innerKm: 47_175, outerKm: 47_177, tau: 0.25, color: 0x2a2724 },
+          {
+            name: 'Gamma ring',
+            innerKm: 47_625, outerKm: 47_628, tau: 0.5, color: 0x2a2724,
+            cause: 'confined by an Ophelia 6:5 resonance',
+          },
+          { name: 'Delta ring', innerKm: 48_298, outerKm: 48_303, tau: 0.4, color: 0x2a2724 },
+          { name: 'Lambda ring', innerKm: 50_023, outerKm: 50_026, tau: 0.1, color: 0x333029 },
+          {
+            name: 'Epsilon ring',
+            innerKm: 51_120, outerKm: 51_179, tau: 1.5, color: 0x38342e,
+            cause: 'shepherded between Cordelia and Ophelia',
+          },
+        ],
+      },
+      {
+        name: 'Outer rings (nu, mu)',
+        innerKm: 66_100,
+        outerKm: 103_000,
+        opacity: 1,
+        exploreBoost: 5,
+        exploreBrightness: 2.5,
+        note: 'dusty; mu peaks at the orbit of Mab',
+        // The odd pair: nu is red like most dusty rings, while mu is blue —
+        // the only other blue ring known besides Saturn's E ring, and for the
+        // same reason, a small icy moon feeding it fresh sub-micron grains.
+        bands: [
+          { name: 'Nu ring', innerKm: 66_100, outerKm: 69_900, tau: 1e-5, color: 0x6b4b3c },
+          { name: '(empty)', innerKm: 69_900, outerKm: 86_000, tau: 0, color: 0x000000 },
+          {
+            name: 'Mu ring',
+            innerKm: 86_000, outerKm: 103_000, tau: 8e-6, color: 0x8fa8c4,
+            cause: 'peaks at the orbit of Mab, its source',
+          },
+        ],
+      },
     ],
     facts: {
       mass: 8.681e25,
@@ -385,8 +668,40 @@ export const PLANETS: BodySpec[] = [
       groundTint: [0.4, 0.6, 1.0],
     },
     rings: [
-      { name: 'Galle, Le Verrier, Lassell, Arago', innerKm: 41_900, outerKm: 57_600, opacity: 0.05 },
-      { name: 'Adams ring', innerKm: 62_600, outerKm: 63_300, opacity: 0.12, note: 'contains five bright dust arcs' },
+      {
+        name: 'Galle, Le Verrier, Lassell, Arago',
+        innerKm: 40_900,
+        outerKm: 57_600,
+        opacity: 0.05,
+        exploreBoost: 220,
+        exploreBrightness: 6,
+        bands: [
+          { name: 'Galle ring', innerKm: 40_900, outerKm: 42_900, tau: 1e-4, color: 0x4a3a33 },
+          { name: '(empty)', innerKm: 42_900, outerKm: 53_150, tau: 0, color: 0x000000 },
+          { name: 'Le Verrier ring', innerKm: 53_150, outerKm: 53_250, tau: 0.01, color: 0x5a453b },
+          {
+            name: 'Lassell ring (plateau)',
+            innerKm: 53_250, outerKm: 57_200, tau: 1e-4, color: 0x4a3a33,
+          },
+          { name: 'Arago ring', innerKm: 57_200, outerKm: 57_300, tau: 1e-3, color: 0x5a453b },
+        ],
+      },
+      {
+        name: 'Adams ring',
+        innerKm: 62_800,
+        outerKm: 63_100,
+        opacity: 0.12,
+        exploreBoost: 220,
+        exploreBrightness: 6,
+        note: 'contains five bright dust arcs',
+        bands: [
+          {
+            name: 'Adams ring',
+            innerKm: 62_915, outerKm: 62_950, tau: 0.01, color: 0x5a453b,
+            cause: 'arcs confined by a Galatea 42:43 resonance',
+          },
+        ],
+      },
     ],
     facts: {
       mass: 1.02413e26,
