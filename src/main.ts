@@ -124,6 +124,15 @@ camera.restoreView({
   elevation: shared.elevation,
   distanceRadii: shared.distanceRadii,
 })
+// ...and then back out of orbit mode if the link says the camera was flying.
+// Without a position there is nothing to restore, so the link falls back to the
+// orbit view rather than dropping the camera at the origin.
+if (shared.cameraMode === 'free' && shared.freePosition) {
+  camera.restoreFreeView({
+    position: shared.freePosition,
+    orientation: shared.freeOrientation ?? null,
+  })
+}
 
 scene.build(system)
 scene.setSelected(selected)
@@ -950,6 +959,13 @@ function currentSharedView(): SharedView {
     azimuth: camera.orbitAzimuth,
     elevation: camera.orbitElevation,
     distanceRadii: cameraRadii,
+    cameraMode: camera.mode,
+    // Evaluated once here rather than twice below; null in orbit mode, where
+    // azimuth/elevation/distance already say everything.
+    ...(() => {
+      const free = camera.freeView()
+      return { freePosition: free?.position ?? null, freeOrientation: free?.orientation ?? null }
+    })(),
     orbits: scene.toggles.orbits,
     labels: scene.toggles.labels,
     toggles: {

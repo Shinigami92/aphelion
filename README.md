@@ -136,8 +136,16 @@ same angle. A reload restores it too, rather than resetting to Earth.
 | `paused` | `1` when the clock is held |
 | `az`, `el` | camera azimuth and elevation about the focus, radians |
 | `d` | camera distance **in radii of the focused body** |
+| `cam` | `free` when the camera is flying rather than orbiting |
+| `fp`, `fq` | free-flight position (in radii of the focus) and orientation quaternion |
 | `orbits`, `labels` | `none` / `planets` / `all` and `none` / `major` / `all` |
 | `belts`, `rings`, `atmo`, `milkyway`, `minor`, `orrery` | `0` to switch a layer off |
+
+Free flight is carried too, which is what makes a link shareable rather than
+merely a bookmark: `cam=free` with a position and an orientation, so a reload
+puts you back where you were *facing the way you were facing*. Orbit mode can
+reconstruct its aim from the focus; free flight cannot, and without the
+quaternion a reload swings the camera back to stare at the focused body.
 
 Two details worth knowing. Distance is stored in *body radii* rather than
 kilometres, so a link frames its subject identically whether the recipient lands

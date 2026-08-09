@@ -28,10 +28,12 @@ import { formatUtc, parseUtc } from '../astro/timescales.ts'
 const ORBIT_MODES = ['none', 'planets', 'all'] as const
 const LABEL_MODES = ['none', 'major', 'all'] as const
 const SCALE_MODES = ['explore', 'true'] as const
+const CAMERA_MODES = ['orbit', 'free'] as const
 
 export type UrlOrbitMode = (typeof ORBIT_MODES)[number]
 export type UrlLabelMode = (typeof LABEL_MODES)[number]
 export type UrlScaleMode = (typeof SCALE_MODES)[number]
+export type UrlCameraMode = (typeof CAMERA_MODES)[number]
 
 export interface ViewToggles {
   belts: boolean
@@ -57,6 +59,21 @@ export interface SharedView {
   elevation: number
   /** Camera distance from the focus centre, in radii of the focused body. */
   distanceRadii: number
+  /** Whether the camera is orbiting the focus or flying free. */
+  cameraMode: UrlCameraMode
+  /**
+   * Free-flight position relative to the focus, in radii of the focused body,
+   * and orientation as a quaternion. Null unless the camera is flying free.
+   *
+   * Radii for the same reason `distanceRadii` uses them: a free camera parked
+   * beside a moon has to arrive beside that moon whichever scale mode the
+   * recipient opens the link in. The orientation is stored outright rather than
+   * as a look-at target, because in free flight where you are pointing is not
+   * derivable from anything else — that is the whole difference from orbit mode,
+   * and losing it is what made a reload snap back to facing the focus.
+   */
+  freePosition: readonly [number, number, number] | null
+  freeOrientation: readonly [number, number, number, number] | null
   orbits: UrlOrbitMode
   labels: UrlLabelMode
   toggles: ViewToggles
@@ -110,6 +127,14 @@ export function encodeView(v: SharedView): string {
   parts.push(`az=${round(v.azimuth)}`)
   parts.push(`el=${round(v.elevation)}`)
   parts.push(`d=${round(v.distanceRadii, 3)}`)
+  if (v.cameraMode === 'free') {
+    parts.push('cam=free')
+    // Six places, not the usual four. In radii of the focused body, four places
+    // is ~36 km at Saturn — invisible for a planet, but enough to drop you
+    // beside a different boulder when you were parked in the rings.
+    if (v.freePosition) parts.push(`fp=${v.freePosition.map((n) => round(n, 6)).join(',')}`)
+    if (v.freeOrientation) parts.push(`fq=${v.freeOrientation.map((n) => round(n, 5)).join(',')}`)
+  }
   if (v.orbits !== DEFAULT_ORBITS) parts.push(`orbits=${v.orbits}`)
   if (v.labels !== DEFAULT_LABELS) parts.push(`labels=${v.labels}`)
   for (const [key, param] of TOGGLE_PARAMS) {
@@ -173,6 +198,25 @@ export function parseView(search: string): Partial<SharedView> {
   const d = num('d')
   if (d !== undefined && d > 0) out.distanceRadii = d
 
+  const cam = q.get('cam')
+  if (cam && (CAMERA_MODES as readonly string[]).includes(cam)) out.cameraMode = cam as UrlCameraMode
+
+  /** A fixed-length list of finite numbers, or undefined if it is anything else. */
+  const vector = (name: string, length: number): number[] | undefined => {
+    const raw = q.get(name)
+    if (raw === null) return undefined
+    const parts = raw.split(',').map(Number)
+    if (parts.length !== length || parts.some((n) => !Number.isFinite(n))) return undefined
+    return parts
+  }
+  const fp = vector('fp', 3)
+  if (fp) out.freePosition = [fp[0]!, fp[1]!, fp[2]!]
+  const fq = vector('fq', 4)
+  // A zero-length quaternion cannot be normalised into a rotation.
+  if (fq && Math.hypot(fq[0]!, fq[1]!, fq[2]!, fq[3]!) > 1e-6) {
+    out.freeOrientation = [fq[0]!, fq[1]!, fq[2]!, fq[3]!]
+  }
+
   const orbits = q.get('orbits')
   if (orbits && (ORBIT_MODES as readonly string[]).includes(orbits)) {
     out.orbits = orbits as UrlOrbitMode
@@ -234,7 +278,13 @@ export class UrlWriter {
   private lastQuery: string | null = null
   private lastWriteAt = -Infinity
 
-  constructor(private intervalMs = 400) {}
+  private intervalMs: number
+
+  // Written out rather than as a constructor parameter property: `pnpm validate`
+  // runs this module under Node's type-stripping, which does not support them.
+  constructor(intervalMs = 400) {
+    this.intervalMs = intervalMs
+  }
 
   /** Call once per frame with a lazily-evaluated snapshot. */
   sync(nowMs: number, snapshot: () => SharedView): void {

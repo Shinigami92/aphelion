@@ -390,6 +390,60 @@ export class CameraController {
     this.focusTransition = 1
   }
 
+  /**
+   * Free-flight position and orientation, for writing into a shareable link.
+   *
+   * Position comes back in radii of the focused body rather than scene units,
+   * so a link frames its subject the same way whichever scale mode the
+   * recipient lands in — the same reasoning as `distanceInRadii`. Orientation
+   * is the raw quaternion: in free flight, where you are looking is independent
+   * of where you are, so there is nothing else to derive it from.
+   */
+  freeView(): { position: [number, number, number]; orientation: [number, number, number, number] } | null {
+    const radius = this._focus?.sceneRadius ?? 0
+    if (this.mode !== 'free' || radius <= 0) return null
+    const q = this.freeQuaternion
+    return {
+      position: [
+        this.freePosition.x / radius,
+        this.freePosition.y / radius,
+        this.freePosition.z / radius,
+      ],
+      orientation: [q.x, q.y, q.z, q.w],
+    }
+  }
+
+  /**
+   * Put the camera back into free flight exactly where a link left it.
+   *
+   * Called after `restoreView`, which unconditionally selects orbit mode — a
+   * shared link has to be able to say "and they were flying", or reloading the
+   * page swings the camera back to face the focus and throws the view away.
+   */
+  restoreFreeView(view: {
+    position: readonly [number, number, number]
+    orientation?: readonly [number, number, number, number] | null
+  }): void {
+    const radius = this._focus?.sceneRadius ?? 0
+    if (radius <= 0) return
+    this.freePosition.set(
+      view.position[0] * radius,
+      view.position[1] * radius,
+      view.position[2] * radius,
+    )
+    if (view.orientation) {
+      const [x, y, z, w] = view.orientation
+      this.freeQuaternion.set(x, y, z, w).normalize()
+    }
+    this.mode = 'free'
+    this.camera.position.copy(this.freePosition)
+    this.camera.quaternion.copy(this.freeQuaternion)
+    // Keep the orbit state coherent so pressing V is not a jump.
+    this.distance = Math.max(this.freePosition.length(), 1e-4)
+    this.targetDistance = this.distance
+    this.focusTransition = 1
+  }
+
   // -- per-frame -----------------------------------------------------------
 
   update(dt: number): void {
