@@ -50,6 +50,14 @@ export const RELIEF_MAPS: Readonly<Record<string, ReliefMap>> = {
     maxKm: 6.3973,
     credit: 'ETOPO2v2 — NOAA National Centers for Environmental Information',
   },
+  'moon:Titan': {
+    file: 'titan_relief.png',
+    width: 720,
+    height: 360,
+    minKm: -1.6311,
+    maxKm: 0.4460,
+    credit: 'Cassini RADAR GTDR (Lorenz et al. 2013) — USGS Astrogeology',
+  },
   'moon:Phobos': {
     file: 'phobos_relief.png',
     width: 512,

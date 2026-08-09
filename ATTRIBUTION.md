@@ -106,20 +106,51 @@ Ochsenbein, Bauer & Marcout (2000), A&AS 143, 23.
 | Ganymede | `Ganymede_Voyager_GalileoSSI_global_mosaic_1km` | Voyager + Galileo SSI, 1 km/px |
 | Callisto | `Callisto_Voyager_GalileoSSI_global_mosaic_1km` | Voyager + Galileo SSI, 1 km/px |
 | Enceladus | `Enceladus_Cassini_mosaic_global_110m` | Cassini ISS, 110 m/px |
+| Titan | `Titan_ISS_P19658_Mosaic_Global_4km_clon0` | Cassini ISS 938 nm, 4 km/px |
 | Mimas | `Mimas_PDS_8ppd_dd360` | Cassini ISS, 8 px/deg |
 | Phoebe | `Phoebe_PDS_8ppd_dd360` | Cassini ISS, 8 px/deg |
 
 Courtesy NASA / JPL-Caltech / USGS Astrogeology Science Center. Downloaded as
 GeoTIFF and downsampled to 4096 px wide.
 
-Mimas and Phoebe are absent from both the mosaic set and Astropedia; their maps
-come instead from the Cassini Imaging Team basemaps that back the USGS map
-viewer, credited in the archive to NASA / Cassini Imaging Team. Two differences
-from the mosaics: they are **pyramidal** TIFFs, so the conversion selects page 0
-or it writes one file per overview level; and their names end `dd360` because
-they start at the prime meridian rather than 180° west, so they are rolled half a
-turn to sit in the same frame as every other map here. The world files
-(`.tfw`) state both facts, and were read rather than assumed.
+Titan, Mimas and Phoebe are absent from both the mosaic set and Astropedia;
+their maps come instead from the Cassini Imaging Team basemaps that back the
+USGS map viewer, credited in the archive to NASA / Cassini Imaging Team. Mimas
+and Phoebe differ from the mosaics in two ways: they are **pyramidal** TIFFs, so
+the conversion selects page 0 or it writes one file per overview level; and their
+names end `dd360` because they start at the prime meridian rather than 180° west,
+so they are rolled half a turn to sit in the same frame as every other map here.
+The world files (`.tfw`) state both facts, and were read rather than assumed.
+Titan's needs neither — it is a single page, and `clon0` means it is already
+centred on longitude 0 with its left edge at 180. Its PDS3 label independently
+says the same thing, describing the un-rolled product as centred on 180° west.
+
+**Titan is a special case worth spelling out**, because what this map shows is
+not what Titan looks like.
+
+Titan in visible light is a featureless orange ball: the haze is optically thick
+and nothing at those wavelengths reaches the ground. This mosaic is built from
+ISS's 938 nm channel, a methane window the haze is comparatively transparent in,
+and it is the only global picture of Titan's *surface* that exists. Aphelion
+renders it under Titan's atmosphere rather than instead of it, so the dark
+equatorial sand seas — Belet, Shangri-La, Fensal-Aztlan — and the bright
+continent Xanadu are all there to be found, seen the one way they have ever been
+seen.
+
+The mosaic carries **visible frame seams**: polygonal patches where individual
+ISS observations meet at different brightness. They are in the published product,
+not introduced here, and they are a consequence of the same haze — photometric
+normalisation between frames taken at different phase angles through a scattering
+atmosphere is close to unsolvable. The alternative product, the older
+`Titan_PDS_10ppd_dd360` basemap, has stronger seams *and* leaves the whole north
+polar region blank, so this is the better of the two rather than a good one. As
+with every other panchromatic mosaic here, no tint is applied.
+
+Registration was checked rather than assumed, against the IAU Gazetteer's own
+coordinates for Titan (`TITAN_nomenclature_center_pts`, published by the USGS
+Astrogeology Science Center as a point shapefile). Divided into 30° bands along
+the equator, the brightest lands at 240–270°E and the darkest at 90–120°E; the
+Gazetteer puts Xanadu's centre at 260°E and Belet's at 105°E.
 
 ### USGS Astropedia — global mosaics for the most-visited small bodies
 
@@ -193,6 +224,54 @@ far-side maximum (5.4°N 201.4°E) and Antoniadi inside South Pole–Aitken, wit
 the far side averaging above the near side. Note the two products differ in byte
 order — MOLA is big-endian, LOLA little-endian — which is not something to infer.
 
+### Cassini RADAR GTDR — Titan's topography
+
+**Licence: public domain** (US Government work, NASA mission data).
+
+| Body | Source | Instrument |
+| --- | --- | --- |
+| Titan | `GTIEB00N090` + `GTIEB00N270` (GTDR) | Cassini RADAR altimetry + SARTopo, 2 px/deg |
+
+- <https://astrogeology.usgs.gov/search/map/titan_cassini_gtdr_data>
+
+The Global Topographic Data Record is the Cassini RADAR Science Team's set of
+shape models for Titan, produced by H. Zebker (Stanford) and R. Lorenz (JHU/APL).
+Aphelion uses the `GTI` member: a tensioned-spline interpolation through every
+RADAR altimetry and SARTopo track from flybys TA to T77, described in Lorenz et
+al. (2013). The twenty-odd files sitting beside it are ellipsoid and spherical
+harmonic *fits* — smooth analytic figures rather than terrain — which is why the
+archive's own `GTDR_info.pdf` had to be read before choosing.
+
+**This is the one elevation grid here that is mostly interpolation.** Cassini's
+RADAR measured altitude along narrow tracks covering a few percent of Titan;
+everything between them is a spline. The large-scale shape it describes is real
+and the tracks it passes through are measurements, but there is no implied claim
+about any particular hill. For the same reason nothing checks its global extremes
+against a named landmark, as Mars's and the Moon's are checked — for this product
+those extremes are properties of the spline.
+
+Two conventions in the source are the reverse of everything else in this project
+and both are silent if missed: it is in **west longitude**, and it arrives as two
+hemispheres whose `SAMPLE_PROJECTION_OFFSET` values differ by 360 pixels. Rather
+than encode either, `fetch-assets.ts` reads the projection out of each file's
+attached PDS3 label and then checks the result against the latitude and longitude
+bounds the same label declares independently.
+
+Elevations are metres relative to a 2575.0 km reference sphere and are stored
+that way, 0.24 km above the 2574.76 km radius Aphelion gives Titan — a uniform
+change of sphere size, not of shape, and leaving it uncorrected is what makes the
+check below independent. The decoded range is −1.63 to +0.45 km.
+
+`pnpm validate` reads three published results back out of the map. Titan's poles
+sit 437 m below its equator, the flattest large body's most-cited property.
+Kraken, Ligeia and Punga Mare — at their Gazetteer coordinates, three different
+longitudes — are each several hundred metres below the mean surface, which is
+what liquid pooling in topographic lows requires and which pins the longitude
+roll. And averaging the map's own elevations over the sphere gives Titan a mean
+radius of 2574.708 km against JPL's 2574.76: two numbers with no common ancestor,
+since JPL's comes from orbit solutions and limb fits and knows nothing about
+RADAR altimetry.
+
 ### PDS Small Bodies Node — shape models
 
 **Licence: public domain** (US Government work, NASA mission data).
@@ -248,10 +327,11 @@ body's stated radius has to be right or the whole figure inflates.
 **Vertical exaggeration is applied at explore scale and is disclosed.** Mars's
 entire elevation range is under one percent of its radius and the Moon's is
 barely over, so at true scale the relief is real and all but invisible; explore
-scale multiplies it (Mars ×12, Moon ×8, Earth ×25 — Earth is the flattest of the
-three by a wide margin, 6.4 km of land relief on a 6,378 km radius), in the same
-spirit as the sixfold body enlargement that mode already applies. The info panel
-names the factor on any body it affects. At true scale relief is 1:1.
+scale multiplies it (Mars ×12, Moon ×8, Earth ×25, Titan ×30 — the factor tracks
+how flat the body is, and Titan is the flattest thing in the app at 2.1 km of
+range on a 2,575 km radius), in the same spirit as the sixfold body enlargement
+that mode already applies. The info panel names the factor on any body it
+affects. At true scale relief is 1:1.
 
 One knock-on: Earth's cloud deck nominally sits 0.4% of a radius up, which is
 lower than exaggerated Himalaya, so the shell is lifted to clear the highest
@@ -411,6 +491,7 @@ All shaders in `src/render/materials.ts` are original to this project.
 | Star positions, colours, motions | Real Hipparcos astrometry and photometry, 41,394 stars to V 8 |
 | Milky Way | Real Gaia DR2 photometry, in its true celestial frame |
 | Surface relief | Real measured topography; **exaggerated** at explore scale |
+| Titan's relief | Real RADAR altimetry, **spline-interpolated** between sparse tracks |
 | Phobos and Deimos shapes | Real shape models, unexaggerated |
 | Illumination falloff | Deliberately compressed (see below) |
 | Sky exposure | Deliberately raised (see below) |

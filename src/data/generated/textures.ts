@@ -41,6 +41,7 @@ export const AVAILABLE_TEXTURES: ReadonlySet<string> = new Set([
   "sky_milkyway.jpg",
   "sun.jpg",
   "tethys.jpg",
+  "titan.jpg",
   "triton.jpg",
   "uranus.jpg",
   "venus_atmosphere.jpg",

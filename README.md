@@ -322,6 +322,11 @@ scripts/
   Earth.
 - Illumination falloff is compressed rather than inverse-square, and the sky is
   exposed well above the planets in front of it (see ATTRIBUTION.md).
+- Titan's relief is a spline through Cassini RADAR tracks that covered a few
+  percent of the surface, so its large-scale shape is measured but no individual
+  hill is. Its surface mosaic also carries the frame seams the published product
+  has — a consequence of trying to normalise brightness between images taken
+  through a scattering atmosphere (see ATTRIBUTION.md).
 - No general relativity, no light-time correction, no nutation.
 
 ---

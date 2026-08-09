@@ -903,6 +903,11 @@ export const MOON_TEXTURES: Record<string, string> = {
   // Saturn
   Mimas: 'mimas.jpg',
   Enceladus: 'enceladus.jpg',
+  // The only picture of Titan's ground that exists: ISS's 938 nm methane window
+  // sees through the haze, which nothing at visible wavelengths does. Left
+  // untinted — the orange everyone pictures is the atmosphere, and the shell in
+  // MOON_ATMOSPHERES puts it back where it belongs.
+  Titan: 'titan.jpg',
   Tethys: 'tethys.jpg',
   Dione: 'dione.jpg',
   Rhea: 'rhea.jpg',
@@ -912,6 +917,32 @@ export const MOON_TEXTURES: Record<string, string> = {
   Triton: 'triton.jpg',
   // Pluto
   Charon: 'charon.jpg',
+}
+
+/**
+ * Satellites with an atmosphere worth rendering. Only Titan qualifies.
+ *
+ * Every other moon in the solar system has at most a wisp — Io's SO₂ and
+ * Triton's nitrogen are microbars, invisible at any scale — while Titan's
+ * surface pressure is 1.45 bar, half again Earth's, on a body two fifths of
+ * Earth's radius. Rendered as a bare sphere it loses the single fact everyone
+ * knows about it.
+ *
+ * Parameters are appearance, not measurement, the same as the planets': the
+ * shell is five scale heights of the *visible* haze, taken at 120 km so the
+ * shell tops out near 600 km, where Cassini's detached haze layer sits. The
+ * strong Mie term and the near-total loss of blue are what make Titan orange;
+ * the haze is aerosol almost all the way down, which is why it is the one body
+ * here whose Mie scattering outweighs its Rayleigh.
+ */
+export const MOON_ATMOSPHERES: Record<string, AtmosphereSpec> = {
+  Titan: {
+    thicknessKm: 120,
+    rayleigh: [0.95, 0.6, 0.22],
+    mie: 1.2,
+    density: 2.2,
+    groundTint: [1.0, 0.72, 0.35],
+  },
 }
 
 /**
@@ -965,6 +996,12 @@ export const RELIEF_EXAGGERATION: Record<string, number> = {
   // on a 6,378 km radius, a tenth of one percent — so it needs the most. Kept
   // below the atmosphere shell, and the cloud deck lifts to clear the peaks.
   earth: 25,
+  // Flatter still, and the flattest thing in the app: 2.1 km of range on a
+  // 2,575 km radius, eight hundredths of a percent. Titan is a world of dune
+  // seas and shallow methane basins, with no mountain range above about 3 km
+  // anywhere on it. 30x puts that range at the same fraction of a radius as
+  // Earth's 25x does, which is where it stops reading as a smooth ball.
+  'moon:Titan': 30,
 }
 
 /**

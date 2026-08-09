@@ -32,6 +32,7 @@ import {
   parseView,
 } from '../src/core/url-state.ts'
 import { reliefFor } from '../src/data/generated/relief.ts'
+import { SATELLITES } from '../src/data/generated/satellites.ts'
 import { STAR_CATALOGUE } from '../src/data/generated/stars.ts'
 import { unpackStars } from '../src/data/stars.ts'
 import { existsSync, readFileSync } from 'node:fs'
@@ -931,6 +932,64 @@ function probeRelief(key: string): ReliefProbe | null {
       hiAt[0] > 25 && hiAt[0] < 40 && hiAt[1] > 70 && hiAt[1] < 100,
       `at ${hiAt[0].toFixed(2)}N ${hiAt[1].toFixed(2)}E, expected the Himalaya-Karakoram`,
     )
+  }
+}
+
+{
+  const titan = probeRelief('moon:Titan')
+  if (!titan) ok('Titan relief (skipped, not on disk)', true)
+  else {
+    // Titan's grid is the only one here that is an *interpolation* — a tensioned
+    // spline through Cassini RADAR altimetry and SARTopo tracks that touched a
+    // few percent of the surface — so its global extremes are artefacts of the
+    // spline rather than named landmarks, and nothing below tests them. What can
+    // be tested is what the published analysis of that data reports, plus one
+    // number the map has no business knowing.
+    //
+    // Elevations are relative to the 2575.0 km sphere the product is published
+    // against, 0.24 km above the radius Aphelion gives Titan. That is a uniform
+    // change of sphere size rather than of shape, and leaving it alone is what
+    // makes the mean-radius check below independent.
+    const DATUM_KM = 2575.0
+
+    // Titan's poles sit several hundred metres below its equator: the single
+    // most-cited result from this dataset, and it fails loudly on a flipped or
+    // rolled grid because it is a property of latitude alone.
+    const polar = titan.mean((lat) => Math.abs(lat) > 60)
+    const equatorial = titan.mean((lat) => Math.abs(lat) < 30)
+    ok(
+      'Titan polar terrain sits below its equator',
+      equatorial - polar > 0.3,
+      `poles ${(polar * 1000).toFixed(0)} m, equator ${(equatorial * 1000).toFixed(0)} m,` +
+        ` difference ${((equatorial - polar) * 1000).toFixed(0)} m`,
+    )
+
+    // The seas: Kraken, Ligeia and Punga at their Gazetteer centres, every one
+    // of which has to be a hollow. Liquid pooling in topographic lows is physics
+    // rather than a fitted parameter, and the three sit at three different
+    // longitudes, so between them they pin the longitude roll the way the
+    // far-side average pins it for the Moon.
+    const globalMean = titan.mean(() => true)
+    const seas: [string, number, number][] = [
+      ['Kraken Mare', 68.0, 50.0],
+      ['Ligeia Mare', 79.7, 112.1],
+      ['Punga Mare', 85.1, 20.3],
+    ]
+    for (const [name, lat, lonEast] of seas) {
+      const depth = (globalMean - titan.at(lat, lonEast)) * 1000
+      ok(
+        `${name} lies below Titan's mean surface`,
+        depth > 300,
+        `${depth.toFixed(0)} m below the global mean, expected more than 300`,
+      )
+    }
+
+    // And the check the map cannot fudge: average its own elevations over the
+    // sphere and Titan's mean radius falls out. JPL's figure comes from orbit
+    // solutions and limb fits and knows nothing about RADAR altimetry, so two
+    // numbers that have no common ancestor have to agree.
+    const jpl = SATELLITES.find((s) => s.name === 'Titan')?.radius ?? NaN
+    near('Titan mean radius from its elevation grid', DATUM_KM + globalMean, jpl, 0.15, ' km')
   }
 }
 

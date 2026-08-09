@@ -23,7 +23,7 @@
  *   - IAU Minor Planet Center MPCORB / Distant.txt orbit catalogues
  */
 
-import { createGunzip, deflateSync, inflateRawSync } from 'node:zlib'
+import { createGunzip, deflateSync, gunzipSync, inflateRawSync } from 'node:zlib'
 import { createReadStream } from 'node:fs'
 import { createInterface } from 'node:readline'
 import fs from 'node:fs/promises'
@@ -281,6 +281,23 @@ const USGS: UsgsSpec[] = [
     url: 'https://planetarymaps.usgs.gov/mosaic/Enceladus_Cassini_mosaic_global_110m.tif',
     maxDim: 4096,
     note: 'Cassini ISS, 110 m/px',
+  },
+  // Titan comes from the same basemap bucket but needs neither of the two
+  // adjustments Mimas and Phoebe do: it is a single-page TIFF, and `clon0` means
+  // it is already centred on longitude 0 with its left edge at 180, which is
+  // this project's convention. Its PDS3 label agrees — centre longitude 180 W
+  // with the left edge at the prime meridian, half a turn from this file — so
+  // two independent statements say the same thing and neither was assumed.
+  //
+  // What it shows is the surface *through* the haze: ISS's 938 nm methane window
+  // is the only way Titan's ground was ever imaged from orbit. In visible light
+  // Titan is a featureless orange ball, which is what the atmosphere shell over
+  // this map renders.
+  {
+    out: 'titan.jpg',
+    url: 'https://asc-pds-services.s3.us-west-2.amazonaws.com/wms_basemaps/Saturn/Titan/Cassini/Titan_ISS_P19658_Mosaic_Global_4km_clon0.tif',
+    maxDim: 4096,
+    note: 'Cassini ISS 938 nm, 4 km/px',
   },
   // Mimas and Phoebe are absent from the mosaic set and from Astropedia, but the
   // Cassini Imaging Team basemaps behind the USGS map viewer cover both. They
@@ -810,6 +827,321 @@ async function buildRelief(spec: ReliefSpec): Promise<ReliefResult | null> {
   await fs.mkdir(SHAPES, { recursive: true })
   const png = encodePng(w, h, rgb)
   await fs.writeFile(outPath, png)
+  console.log(
+    `  ${C.green('wrote  ')} ${spec.out} ${C.dim(
+      `${w}x${h}, ${(min / 1000).toFixed(2)}..${(max / 1000).toFixed(2)} km, ${mb(png.length)}`,
+    )}`,
+  )
+
+  return {
+    body: spec.body,
+    out: spec.out,
+    width: w,
+    height: h,
+    minKm: min / 1000,
+    maxKm: max / 1000,
+    credit: spec.credit,
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 2c-b. PDS3 elevation grids inside a remote archive  (public domain)
+//
+// Titan's topography is the one grid here that is neither a single raster
+// download nor a shape model. The Cassini RADAR team's GTDR ships as a 256 MB
+// zip of 235 files — twenty-odd competing shape models at two resolutions —
+// of which Aphelion wants two hemispheres totalling under a megabyte. So this
+// path reads the archive over HTTP range requests instead of downloading it,
+// and takes every projection parameter from each file's own attached PDS3
+// label rather than from anything asserted here. That matters more than usual:
+// the two hemispheres carry *different* SAMPLE_PROJECTION_OFFSETs, and the
+// product is in west longitude where every other map in this project is in
+// east, so a hard-coded layout would have half a chance of being mirrored and
+// no way to notice.
+// ---------------------------------------------------------------------------
+
+/** A single HTTP range request. Returns null unless the server honours it. */
+async function fetchRange(url: string, range: string): Promise<Buffer | null> {
+  try {
+    const res = await fetch(url, { headers: { 'User-Agent': UA, Range: `bytes=${range}` } })
+    // 200 means the server ignored the range and is sending the whole file;
+    // reading that as if it were the requested slice is how you get a plausible
+    // but wrong parse, so refuse it and let the caller fall back.
+    if (res.status !== 206) return null
+    return Buffer.from(await res.arrayBuffer())
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Pull named entries out of a zip without downloading the whole archive.
+ *
+ * Walks the same structures `unzipEntry` does, only over the network: the end
+ * of the central directory (in the last 64 KB), the directory itself, then each
+ * wanted entry's local header and payload. Anything unexpected — no ranges, a
+ * zip64 directory, a name that is not there — returns null, and the caller
+ * falls back to fetching the archive in full.
+ */
+async function fetchZipEntries(
+  url: string,
+  names: string[],
+): Promise<Map<string, Buffer> | null> {
+  const tail = await fetchRange(url, '-65536')
+  if (!tail) return null
+
+  const eocd = tail.lastIndexOf(Buffer.from([0x50, 0x4b, 0x05, 0x06]))
+  if (eocd < 0 || eocd + 22 > tail.length) return null
+  const cdSize = tail.readUInt32LE(eocd + 12)
+  const cdOffset = tail.readUInt32LE(eocd + 16)
+  // Zip64 parks 0xffffffff here and puts the real values in a separate record.
+  if (cdOffset === 0xffffffff || cdSize === 0xffffffff) return null
+
+  const cd = await fetchRange(url, `${cdOffset}-${cdOffset + cdSize - 1}`)
+  if (!cd || cd.length !== cdSize) return null
+
+  const found = new Map<string, Buffer>()
+  let pos = 0
+  while (pos + 46 <= cd.length && cd.readUInt32LE(pos) === 0x02014b50) {
+    const csize = cd.readUInt32LE(pos + 20)
+    const nameLen = cd.readUInt16LE(pos + 28)
+    const extraLen = cd.readUInt16LE(pos + 30)
+    const commentLen = cd.readUInt16LE(pos + 32)
+    const localOffset = cd.readUInt32LE(pos + 42)
+    const name = cd.toString('ascii', pos + 46, pos + 46 + nameLen)
+    const wanted = names.find((n) => name.includes(n))
+    if (wanted && !found.has(wanted)) {
+      // The local header repeats the name and may carry a different extra field
+      // than the central one, so over-fetch and let unzipEntry read the real
+      // lengths out of the header it finds at byte 0.
+      const slack = 1024
+      const raw = await fetchRange(url, `${localOffset}-${localOffset + csize + slack - 1}`)
+      // A range clipped at end-of-file would hand inflate a truncated stream,
+      // which throws rather than returning null; either way, give up on ranges
+      // and let the caller fetch the archive whole.
+      let entry: Buffer | null = null
+      try {
+        entry = raw ? unzipEntry(raw, wanted) : null
+      } catch {
+        entry = null
+      }
+      if (!entry) return null
+      found.set(wanted, entry)
+      console.log(`  ${C.dim('ranged ')} ${name} ${C.dim(mb(entry.length))}`)
+    }
+    pos += 46 + nameLen + extraLen + commentLen
+  }
+  return found.size === names.length ? found : null
+}
+
+/** Read a PDS3 keyword. Values carry units (`2.0<PIX/DEG>`), so parse loosely. */
+function pdsValue(label: string, key: string): string | null {
+  const m = label.match(new RegExp(`^\\s*${key}\\s*=\\s*(.+)$`, 'm'))
+  return m ? m[1]!.trim() : null
+}
+
+function pdsNumber(label: string, key: string): number {
+  const raw = pdsValue(label, key)
+  const n = raw === null ? NaN : Number.parseFloat(raw)
+  if (!Number.isFinite(n)) throw new Error(`PDS label has no numeric ${key}`)
+  return n
+}
+
+interface GriddedTopoSpec {
+  body: string
+  out: string
+  /** Zip archive, on a host that serves range requests. */
+  url: string
+  /** Name fragments of the PDS3 images to merge; together they must tile the globe. */
+  entries: string[]
+  /** Output grid. */
+  width: number
+  height: number
+  credit: string
+  note: string
+}
+
+const GRIDDED_TOPO: GriddedTopoSpec[] = [
+  {
+    body: 'moon:Titan',
+    out: 'titan_relief.png',
+    url: 'https://asc-astropedia.s3.us-west-2.amazonaws.com/Titan/Cassini/GTDR/gtdr-data.zip',
+    // GTI = the tensioned-spline interpolation through every Cassini RADAR
+    // altimetry and SARTopo track from flybys TA to T77; EB = 2 px/deg; N090
+    // and N270 are the two hemispheres, named for the west longitude at their
+    // centres. The archive's own GTDR_info.pdf spells the naming out, which is
+    // how the interpolated model was picked out of twenty-odd ellipsoid and
+    // spherical-harmonic fits sitting beside it.
+    entries: ['GTIEB00N090_T077_V01.IMG', 'GTIEB00N270_T077_V01.IMG'],
+    // 2 px/deg globally, so the output grid is the source grid: no resampling.
+    width: 720,
+    height: 360,
+    credit: 'Cassini RADAR GTDR (Lorenz et al. 2013) — USGS Astrogeology',
+    note: 'Cassini RADAR altimetry + SARTopo, 2 px/deg',
+  },
+]
+
+/**
+ * Merge PDS3 equirectangular float grids into one elevation map.
+ *
+ * Everything about where a sample sits comes out of the label: PDS states the
+ * projection as an offset and a resolution, so
+ *
+ *   latitude  = (LINE_PROJECTION_OFFSET + 1 - line) / MAP_RESOLUTION
+ *   longitude = CENTER_LONGITUDE -/+ (sample - SAMPLE_PROJECTION_OFFSET - 1) / MAP_RESOLUTION
+ *
+ * with the sign set by POSITIVE_LONGITUDE_DIRECTION. Both are checked against
+ * the label's own declared latitude and longitude bounds before anything is
+ * written, so a misread offset fails here rather than producing a mirrored
+ * world that still looks like a world.
+ *
+ * Elevations stay on the datum the product publishes them against. Aphelion's
+ * radius for the body may differ by a few hundred metres, but that is a uniform
+ * change of sphere size, not of shape — and leaving the numbers as published is
+ * what lets `pnpm validate` compare the map's mean radius against the entirely
+ * independent JPL figure.
+ */
+async function buildGriddedTopo(spec: GriddedTopoSpec): Promise<ReliefResult | null> {
+  const cachePath = path.join(CACHE, path.basename(spec.url))
+  let entries = (await exists(cachePath)) ? null : await fetchZipEntries(spec.url, spec.entries)
+  if (!entries) {
+    // No ranges, or the archive is already cached in full from an earlier run.
+    console.log(`  ${C.dim('       ')} ${spec.out}: reading the whole archive`)
+    if (!(await download(spec.url, cachePath, `${spec.out} ${C.dim(spec.note)}`))) return null
+    const whole = await fs.readFile(cachePath)
+    entries = new Map()
+    for (const name of spec.entries) {
+      const entry = unzipEntry(whole, name)
+      if (!entry) {
+        console.log(`  ${C.red('bad    ')} ${spec.out}: no zip entry matching ${name}`)
+        return null
+      }
+      entries.set(name, entry)
+    }
+  }
+
+  const w = spec.width
+  const h = spec.height
+  const sum = new Float64Array(w * h)
+  const hits = new Uint32Array(w * h)
+
+  for (const name of spec.entries) {
+    // The archive stores each image gzipped inside the zip.
+    const img = gunzipSync(entries.get(name)!)
+    const label = img.toString('latin1', 0, Math.min(img.length, 32768))
+
+    const recordBytes = pdsNumber(label, 'RECORD_BYTES')
+    const labelRecords = pdsNumber(label, 'LABEL_RECORDS')
+    const lines = pdsNumber(label, 'LINES')
+    const samples = pdsNumber(label, 'LINE_SAMPLES')
+    const bits = pdsNumber(label, 'SAMPLE_BITS')
+    const type = pdsValue(label, 'SAMPLE_TYPE')
+    // PC_REAL is little-endian IEEE 754. Refuse anything else rather than
+    // reading a different layout as if it were this one.
+    if (type !== 'PC_REAL' || bits !== 32) {
+      console.log(`  ${C.red('bad    ')} ${spec.out}: ${name} is ${bits}-bit ${type}, expected 32-bit PC_REAL`)
+      return null
+    }
+    const dataStart = labelRecords * recordBytes
+    if (img.length < dataStart + lines * samples * 4) {
+      console.log(`  ${C.red('bad    ')} ${spec.out}: ${name} is ${img.length} bytes, too short for ${samples}x${lines}`)
+      return null
+    }
+
+    const res = pdsNumber(label, 'MAP_RESOLUTION')
+    const centreLon = pdsNumber(label, 'CENTER_LONGITUDE')
+    const lineOffset = pdsNumber(label, 'LINE_PROJECTION_OFFSET')
+    const sampleOffset = pdsNumber(label, 'SAMPLE_PROJECTION_OFFSET')
+    const positive = pdsValue(label, 'POSITIVE_LONGITUDE_DIRECTION')
+    if (positive !== 'WEST' && positive !== 'EAST') {
+      console.log(`  ${C.red('bad    ')} ${spec.out}: ${name} has POSITIVE_LONGITUDE_DIRECTION ${positive}`)
+      return null
+    }
+    const sign = positive === 'WEST' ? -1 : 1
+
+    // Samples are 1-based in the PDS formulae. `lonOf` stays in the product's
+    // own direction so it can be checked against the label; the conversion to
+    // east longitude happens once, afterwards.
+    const latOf = (line: number) => (lineOffset + 1 - line) / res
+    const lonOf = (sample: number) => centreLon + (sign * (sample - sampleOffset - 1)) / res
+    const eastOf = (lon: number) => ((((positive === 'WEST' ? -lon : lon) % 360) + 360) % 360)
+
+    // The label states its extent independently of the offsets that produce it,
+    // so the two have to agree. This is the only warning either file gives
+    // before a silently mirrored world, and the two hemispheres disagree about
+    // SAMPLE_PROJECTION_OFFSET by 360 pixels, which is exactly the kind of thing
+    // one would otherwise get half right.
+    const halfCell = 0.5 / res
+    const spans = (a: number, b: number, lo: number, hi: number) =>
+      Math.abs(Math.min(a, b) - halfCell - lo) < 1e-3 && Math.abs(Math.max(a, b) + halfCell - hi) < 1e-3
+    if (!spans(latOf(1), latOf(lines), pdsNumber(label, 'MINIMUM_LATITUDE'), pdsNumber(label, 'MAXIMUM_LATITUDE'))) {
+      console.log(
+        `  ${C.red('bad    ')} ${spec.out}: ${name} spans ${latOf(lines).toFixed(2)}..${latOf(1).toFixed(2)}N,` +
+          ` label declares ${pdsNumber(label, 'MINIMUM_LATITUDE')}..${pdsNumber(label, 'MAXIMUM_LATITUDE')}`,
+      )
+      return null
+    }
+    // A whole-globe product declares both bounds equal and the check says
+    // nothing; these hemispheres declare real edges, which is the case worth
+    // catching.
+    const lonLo = pdsNumber(label, 'EASTERNMOST_LONGITUDE')
+    const lonHi = pdsNumber(label, 'WESTERNMOST_LONGITUDE')
+    if (lonLo !== lonHi && !spans(lonOf(1), lonOf(samples), Math.min(lonLo, lonHi), Math.max(lonLo, lonHi))) {
+      console.log(
+        `  ${C.red('bad    ')} ${spec.out}: ${name} spans ${lonOf(1).toFixed(2)}..${lonOf(samples).toFixed(2)}` +
+          ` ${positive}, label declares ${lonLo}..${lonHi}`,
+      )
+      return null
+    }
+
+    const missing = Number.parseInt(
+      (pdsValue(label, 'MISSING_CONSTANT') ?? '').replace(/^16#|#$/g, ''),
+      16,
+    )
+    for (let line = 1; line <= lines; line++) {
+      const lat = latOf(line)
+      const y = Math.min(h - 1, Math.max(0, Math.floor(((90 - lat) / 180) * h)))
+      for (let s = 1; s <= samples; s++) {
+        const at = dataStart + ((line - 1) * samples + (s - 1)) * 4
+        if (Number.isFinite(missing) && img.readUInt32LE(at) === missing) continue
+        const u = ((eastOf(lonOf(s)) - 180) / 360 + 1) % 1
+        const x = Math.min(w - 1, Math.floor(u * w))
+        sum[y * w + x]! += img.readFloatLE(at)
+        hits[y * w + x]!++
+      }
+    }
+  }
+
+  let empty = 0
+  let min = Infinity
+  let max = -Infinity
+  const metres = new Float64Array(w * h)
+  for (let i = 0; i < metres.length; i++) {
+    if (hits[i] === 0) {
+      empty++
+      continue
+    }
+    const v = sum[i]! / hits[i]!
+    metres[i] = v
+    if (v < min) min = v
+    if (v > max) max = v
+  }
+  if (empty > 0) {
+    console.log(`  ${C.red('bad    ')} ${spec.out}: ${empty} output cells received no samples`)
+    return null
+  }
+
+  const span = max - min
+  const rgb = Buffer.alloc(w * h * 3)
+  for (let i = 0; i < metres.length; i++) {
+    const t = Math.round(((metres[i]! - min) / span) * 65535)
+    rgb[i * 3] = (t >> 8) & 0xff
+    rgb[i * 3 + 1] = t & 0xff
+  }
+
+  await fs.mkdir(SHAPES, { recursive: true })
+  const png = encodePng(w, h, rgb)
+  await fs.writeFile(path.join(SHAPES, spec.out), png)
   console.log(
     `  ${C.green('wrote  ')} ${spec.out} ${C.dim(
       `${w}x${h}, ${(min / 1000).toFixed(2)}..${(max / 1000).toFixed(2)} km, ${mb(png.length)}`,
@@ -2248,6 +2580,11 @@ async function main(): Promise<void> {
       if (result) relief.push(result)
       else failures.push(spec.out)
     }
+    for (const spec of GRIDDED_TOPO) {
+      const result = await buildGriddedTopo(spec)
+      if (result) relief.push(result)
+      else failures.push(spec.out)
+    }
     for (const spec of SHAPE_MODELS) {
       const result = await buildShapeModel(spec)
       if (result) relief.push(result)
@@ -2255,7 +2592,8 @@ async function main(): Promise<void> {
     }
     // Rewrite only on a complete run: the module mirrors the tables exactly, so
     // publishing a partial set would silently drop maps that are still on disk.
-    if (relief.length === RELIEF.length + SHAPE_MODELS.length) await writeReliefModule(relief)
+    if (relief.length === RELIEF.length + GRIDDED_TOPO.length + SHAPE_MODELS.length)
+      await writeReliefModule(relief)
     else console.log(C.yellow('  incomplete; existing relief module left in place'))
   }
 

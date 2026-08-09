@@ -54,7 +54,7 @@ import type { ScaleModel } from '../core/scale.ts'
 import type { SimBody, SolarSystem } from '../core/system.ts'
 import type { Basis } from '../astro/frames.ts'
 import { buildSwarms } from '../data/belts.ts'
-import { RELIEF_EXAGGERATION, type RingSpec } from '../data/bodies.ts'
+import { MOON_ATMOSPHERES, RELIEF_EXAGGERATION, type RingSpec } from '../data/bodies.ts'
 import { reliefFor, type ReliefMap } from '../data/generated/relief.ts'
 import {
   classifySurface,
@@ -621,12 +621,15 @@ export class SceneView {
     // never blocks. Real imagery is swapped in when it downloads; bodies with no
     // imagery get a procedural surface synthesised lazily (see updateVisual).
     const spec = body.spec
+    // Satellites carry no BodySpec, so Titan — the one moon with an atmosphere
+    // thick enough to see — reaches its own shell through a separate table.
+    const atmo = spec?.atmosphere ?? (body.type === 'moon' ? MOON_ATMOSPHERES[body.name] : undefined)
     const material = createBodyMaterial({
       map: solidTexture(body.color),
       // Only set where a panchromatic source needs colourising.
       tint: spec?.textureTint ?? 0xffffff,
-      rimColor: spec?.atmosphere ? spec.atmosphere.groundTint : null,
-      rimStrength: spec?.atmosphere ? 0.5 : 0,
+      rimColor: atmo ? atmo.groundTint : null,
+      rimStrength: atmo ? 0.5 : 0,
       shininess: 70,
     })
     const mesh = new Mesh(this.lodGeometries[1]!, material)
@@ -705,8 +708,7 @@ export class SceneView {
     }
 
     // Atmosphere shell.
-    if (spec?.atmosphere) {
-      const atmo = spec.atmosphere
+    if (atmo) {
       const shellRatio = 1 + (atmo.thicknessKm * 5) / body.radiusKm
       const atmoMaterial = createAtmosphereMaterial({
         planetRadius: 1,
