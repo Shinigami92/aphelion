@@ -74,11 +74,11 @@ import {
   createOrbitMaterial,
   createRingMaterial,
   createRingParticleMaterial,
-  createSkyMaterial,
   createSunMaterial,
   createSwarmMaterial,
   MAX_OCCLUDERS,
 } from './materials.ts'
+import { SkyView } from './sky.ts'
 import type { TextureLibrary } from './textures.ts'
 
 export type Quality = 'low' | 'medium' | 'high'
@@ -436,7 +436,7 @@ export class SceneView {
 
   private lodGeometries: BufferGeometry[] = []
 
-  private sky: Mesh | null = null
+  private sky: SkyView | null = null
   private sunVisual: BodyVisual | null = null
   private coronaMesh: Mesh | null = null
   private coronaMaterial: ShaderMaterial | null = null
@@ -566,25 +566,12 @@ export class SceneView {
   }
 
   private buildSky(): void {
-    const geo = createSphere(64, 32)
-    const file = 'milkyway.jpg'
-    const material = createSkyMaterial(solidTexture(0x05070c), { brightness: 0.55 })
-    const mesh = new Mesh(geo, material)
-    mesh.frustumCulled = false
-    // Drawn first, never occluding anything.
-    mesh.renderOrder = -1000
-    mesh.scale.setScalar(1)
-    this.sky = mesh
-    // The sky rides with the camera, so it must not sit under the world group.
-    this.scene.add(mesh)
-
-    void this.library.load(file).then((tex) => {
-      if (tex) {
-        tex.flipY = false
-        material.uniforms.uMap!.value = tex
-        material.needsUpdate = true
-      }
-    })
+    // A unit sphere is enough: SkyView pins its vertices to the far plane, so
+    // the radius carries no meaning. See src/render/sky.ts.
+    this.sky = new SkyView(createSphere(64, 32), this.library)
+    // The sky rides with the camera, so it must not sit under the world group —
+    // that group carries the floating origin.
+    this.scene.add(this.sky.group)
   }
 
   private buildSun(sun: SimBody): void {
@@ -1036,7 +1023,7 @@ export class SceneView {
     this.updateMinorPoints()
     this.updateSwarms(system, scale)
     this.updateOrbits(system, scale, dt)
-    this.updateSky()
+    this.updateSky(system.jdTT)
     this.updateLabels(system)
   }
 
@@ -1707,14 +1694,11 @@ export class SceneView {
     entry.material.uniforms.uOpacity!.value = body === this.selected ? 0.7 : opacity
   }
 
-  private updateSky(): void {
+  private updateSky(jdTT: number): void {
     const camera = this.currentCamera
     if (!this.sky || !camera) return
     this.sky.visible = this.toggles.milkyway
-    // Keep the backdrop centred on the camera and large enough to sit behind
-    // everything; depth testing is off so the radius is cosmetic.
-    this.sky.position.copy(camera.position)
-    this.sky.scale.setScalar(1e8)
+    this.sky.update(camera, jdTT, this.renderer.getPixelRatio())
   }
 
   // -- labels ---------------------------------------------------------------

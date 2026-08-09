@@ -248,7 +248,10 @@ const togglePanel = new TogglePanel(
     { label: 'belts', get: () => scene.toggles.belts, set: (v) => (scene.toggles.belts = v) },
     { label: 'rings', get: () => scene.toggles.rings, set: (v) => (scene.toggles.rings = v) },
     { label: 'atmospheres', get: () => scene.toggles.atmospheres, set: (v) => (scene.toggles.atmospheres = v) },
-    { label: 'Milky Way', get: () => scene.toggles.milkyway, set: (v) => (scene.toggles.milkyway = v) },
+    // One switch for the whole backdrop — the deep sky and the catalogue stars
+    // are two layers of one thing. The URL parameter keeps its old name so
+    // links shared before the stars existed still resolve.
+    { label: 'stars', get: () => scene.toggles.milkyway, set: (v) => (scene.toggles.milkyway = v) },
     { label: 'minor bodies', get: () => scene.toggles.minorBodies, set: (v) => (scene.toggles.minorBodies = v) },
     {
       label: 'orrery map',
@@ -731,7 +734,7 @@ resize()
 bootStatus.textContent = `${system.bodies.length} bodies · 459 satellites · 221 minor planets`
 
 void library.preload([
-  'milkyway.jpg',
+  'sky_milkyway.jpg',
   'sun.jpg',
   'earth_day.jpg',
   'earth_night.jpg',

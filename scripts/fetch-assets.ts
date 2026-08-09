@@ -34,6 +34,7 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const CACHE = path.join(ROOT, '.cache')
 const TEXTURES = path.join(ROOT, 'public', 'textures')
 const SHAPES = path.join(ROOT, 'public', 'shapes')
+const SKY = path.join(ROOT, 'public', 'sky')
 const GENERATED = path.join(ROOT, 'src', 'data', 'generated')
 const QUEUE = path.join(CACHE, 'convert-queue.tsv')
 
@@ -122,10 +123,23 @@ async function fetchText(url: string, cacheName: string, label: string): Promise
   return fs.readFile(dest, 'utf8')
 }
 
-/** Queue an image for format conversion / downsampling by the shell helper. */
+/**
+ * Queue an image for format conversion / downsampling by the shell helper.
+ *
+ * `roll` shifts a map whose left edge is not 180 west; `flop` mirrors one whose
+ * longitude runs the other way (the SVS sky maps, where RA increases to the
+ * left). Both are applied at build time rather than in a shader, so every
+ * equirectangular image in public/ shares one convention.
+ */
 const convertQueue: string[] = []
-function queueConvert(src: string, dest: string, maxDim: number, roll = ''): void {
-  convertQueue.push(`${src}\t${dest}\t${maxDim}\t${roll}`)
+function queueConvert(src: string, dest: string, maxDim: number, roll = '', flop = false): void {
+  // Both go in one comma-separated field rather than a column each. `read`
+  // treats tab as whitespace, and whitespace in IFS collapses runs of it into a
+  // single separator -- so an empty `roll` column would silently shift `flop`
+  // one place left and the image would come out un-mirrored, which is a thing
+  // you can only detect by measuring the sky it produces.
+  const ops = [roll ? `roll:${roll}` : '', flop ? 'flop' : ''].filter(Boolean).join(',')
+  convertQueue.push(`${src}\t${dest}\t${maxDim}\t${ops}`)
   console.log(`  ${C.dim('queued ')} ${path.basename(dest)} ${C.dim(`<= ${path.basename(src)}`)}`)
 }
 
@@ -170,8 +184,53 @@ function sssTextures(): TextureSpec[] {
     { out: 'eris.jpg', candidates: pick('eris_fictional.jpg', ['4k', '2k']) },
     { out: 'haumea.jpg', candidates: pick('haumea_fictional.jpg', ['4k', '2k']) },
     { out: 'makemake.jpg', candidates: pick('makemake_fictional.jpg', ['4k', '2k']) },
-    { out: 'milkyway.jpg', candidates: pick('stars_milky_way.jpg') },
-    { out: 'starfield.jpg', candidates: pick('stars.jpg') },
+  ]
+}
+
+// ---------------------------------------------------------------------------
+// 1b. NASA SVS Deep Star Maps 2020 -- the sky background  (public domain)
+//
+// `milkyway_2020` is the deep sky with the Hipparcos and Tycho stars taken back
+// out: 1.7 billion Gaia DR2 sources too faint to resolve, which is precisely
+// what the Milky Way *is*. Aphelion draws the bright stars itself from the
+// Hipparcos catalogue below, so the two layers reassemble the sky the same way
+// NASA split it, and no star is drawn twice.
+//
+// Three facts about this product decide the whole conversion, and all three are
+// stated on the SVS page rather than guessed:
+//
+//   - It is a plate carree in **celestial (ICRF/J2000) coordinates**, so the
+//     sphere carrying it has to be rotated into Aphelion's ecliptic frame.
+//   - It is centred on RA 0h with **right ascension increasing to the LEFT**,
+//     which is a mirror image of every planetary map here. Flopping it at build
+//     time (as the `dd360` basemaps are rolled at build time) makes u = 0.5 land
+//     on RA 0 with RA increasing east, and leaves the shader with nothing to
+//     know about the convention.
+//   - It is linear-light OpenEXR, so the conversion has to declare the source
+//     linear and let the sRGB transfer do the encoding. Skipping that step
+//     crushes a mean pixel from 15/255 to 1.6/255 -- a black sky that still
+//     looks like a plausible one.
+// ---------------------------------------------------------------------------
+
+const SVS_BASE = 'https://svs.gsfc.nasa.gov/vis/a000000/a004800/a004851/'
+
+interface SkySpec {
+  out: string
+  source: string
+  maxDim: number
+  note: string
+}
+
+function skyTextures(): SkySpec[] {
+  const size = tier === 'lean' ? '4k' : '8k'
+  const maxDim = tier === 'lean' ? 4096 : 8192
+  return [
+    {
+      out: 'sky_milkyway.jpg',
+      source: `milkyway_2020_${size}.exr`,
+      maxDim,
+      note: 'Gaia DR2 deep sky, Hipparcos/Tycho stars removed',
+    },
   ]
 }
 
@@ -1601,6 +1660,281 @@ async function buildSmallBodyData(): Promise<SmallBody[] | null> {
 }
 
 // ---------------------------------------------------------------------------
+// 6. Hipparcos star catalogue  (ESA 1997, via CDS)
+//
+// The stars Aphelion draws as points, complementing the SVS deep-sky texture
+// above: that image has the Hipparcos and Tycho stars removed, and these put
+// them back as real point sources rather than baked texels. Sharp at any
+// display resolution, correctly coloured from B-V, and -- because the clock
+// spans 1600 to 2500 -- carrying their proper motions.
+//
+// Output is a packed binary in public/sky/, not a TypeScript literal: 41k stars
+// is ~540 KB packed and would be several megabytes as source text. The
+// generated module beside it records the layout and the count, so a stale
+// binary is caught by a mismatch rather than by a garbled sky.
+// ---------------------------------------------------------------------------
+
+const HIPPARCOS_URL = 'https://cdsarc.cds.unistra.fr/ftp/I/239/hip_main.dat'
+
+/**
+ * Faintest star to store.
+ *
+ * Hipparcos is complete to V = 7.3 everywhere and to about 9 away from the
+ * galactic plane, so 8.0 is drawn from a near-complete sample and the thinning
+ * that does exist is concentrated in the plane -- exactly where the deep-sky
+ * texture is brightest and hides it. It is also the magnitude at which NASA
+ * switched from Hipparcos to Tycho when building that texture, so the two
+ * layers meet where the source data does.
+ */
+const STAR_MAG_LIMIT = 8.0
+
+/** Catalogue epoch of the Hipparcos astrometry; positions are propagated to J2000. */
+const HIPPARCOS_EPOCH = 1991.25
+
+const STAR_FILE = 'stars.bin'
+const STAR_MAGIC = 0x52545341 // 'ASTR' little-endian
+
+interface Star {
+  /** Right ascension and declination at J2000.0, radians. */
+  ra: number
+  dec: number
+  /** Proper motion, mas/yr; pmRA already carries the cos(dec) factor. */
+  pmRA: number
+  pmDec: number
+  vmag: number
+  rgb: [number, number, number]
+}
+
+/**
+ * Effective temperature from the Johnson B-V colour index (Ballesteros 2012).
+ *
+ * Reproduces the Sun at 5757 K from B-V = 0.656 (true value 5772) and Rigel at
+ * 10516 K from -0.03 (about 11000). The clamp matters: the second term has a
+ * pole at B-V = -0.674, and a handful of catalogue entries carry colours that
+ * unphysical.
+ */
+function temperatureFromBV(bv: number): number {
+  const c = Math.max(-0.4, Math.min(2.0, bv))
+  return 4600 * (1 / (0.92 * c + 1.7) + 1 / (0.92 * c + 0.62))
+}
+
+/**
+ * Blackbody colour, as a multi-lobe Gaussian fit to the CIE 1931 colour
+ * matching functions (Wyman, Sloan & Shirley 2013) integrated against Planck's
+ * law, then converted to sRGB primaries.
+ *
+ * Done here rather than in the shader because it is a per-star constant, and
+ * because getting it wrong is invisible on screen but obvious in a table:
+ * B stars must come out blue-white and M stars orange, never red.
+ */
+function colourFromTemperature(kelvin: number): [number, number, number] {
+  const lobe = (x: number, mu: number, s1: number, s2: number): number => {
+    const t = (x - mu) / (x < mu ? s1 : s2)
+    return Math.exp(-0.5 * t * t)
+  }
+  let X = 0
+  let Y = 0
+  let Z = 0
+  for (let nm = 360; nm <= 830; nm += 2) {
+    const l = nm * 1e-9
+    // Planck's law, spectral radiance per wavelength. The leading constants
+    // cancel in the normalisation below, but are kept so the units are real.
+    const planck = 3.7417718e-16 / (l ** 5 * (Math.exp(1.4387769e-2 / (l * kelvin)) - 1))
+    X +=
+      planck *
+      (1.056 * lobe(nm, 599.8, 37.9, 31.0) +
+        0.362 * lobe(nm, 442.0, 16.0, 26.7) -
+        0.065 * lobe(nm, 501.1, 20.4, 26.2))
+    Y += planck * (0.821 * lobe(nm, 568.8, 46.9, 40.5) + 0.286 * lobe(nm, 530.9, 16.3, 31.1))
+    Z += planck * (1.217 * lobe(nm, 437.0, 11.8, 36.0) + 0.681 * lobe(nm, 459.0, 26.0, 13.8))
+  }
+  const sum = X + Y + Z || 1
+  X /= sum
+  Y /= sum
+  Z /= sum
+
+  // XYZ -> linear sRGB (IEC 61966-2-1, D65).
+  const linear = [
+    3.2404542 * X - 1.5371385 * Y - 0.4985314 * Z,
+    -0.969266 * X + 1.8760108 * Y + 0.041556 * Z,
+    0.0556434 * X - 0.2040259 * Y + 1.0572252 * Z,
+  ].map((c) => Math.max(0, c))
+
+  // Store chromaticity only, normalised so the strongest channel is full. How
+  // *bright* the star is comes from its magnitude, and the renderer divides
+  // this colour by its own luminance so the two never fight.
+  const peak = Math.max(linear[0]!, linear[1]!, linear[2]!) || 1
+  return linear.map((c) => {
+    const u = Math.max(0, Math.min(1, c / peak))
+    const encoded = u <= 0.0031308 ? 12.92 * u : 1.055 * Math.pow(u, 1 / 2.4) - 0.055
+    return Math.round(255 * encoded)
+  }) as [number, number, number]
+}
+
+async function buildStarCatalogue(): Promise<Star[] | null> {
+  const dest = path.join(CACHE, 'hip_main.dat')
+  if (!(await download(HIPPARCOS_URL, dest, 'Hipparcos main catalogue (I/239)'))) return null
+  const text = await fs.readFile(dest, 'utf8')
+
+  const DEG = Math.PI / 180
+  const MAS = (1 / 3_600_000) * DEG
+  // Hipparcos positions are given for 1991.25; everything else in Aphelion is
+  // J2000, so the astrometry is propagated forward once, here.
+  const toJ2000 = 2000.0 - HIPPARCOS_EPOCH
+
+  const stars: Star[] = []
+  let skipped = 0
+  for (const line of text.split('\n')) {
+    // Fixed columns, per the catalogue ReadMe: Vmag H5, RAdeg H8, DEdeg H9,
+    // pmRA H12, pmDE H13, B-V H37.
+    if (line.length < 251) continue
+    const vmag = Number(line.slice(41, 46))
+    const raDeg = Number(line.slice(51, 63))
+    const decDeg = Number(line.slice(64, 76))
+    if (!Number.isFinite(vmag) || !Number.isFinite(raDeg) || !Number.isFinite(decDeg)) {
+      skipped++
+      continue
+    }
+    if (line.slice(51, 63).trim() === '' || line.slice(41, 46).trim() === '') {
+      skipped++
+      continue
+    }
+    if (vmag > STAR_MAG_LIMIT) continue
+
+    const pmRA = Number(line.slice(87, 95)) || 0
+    const pmDec = Number(line.slice(96, 104)) || 0
+    const bvRaw = line.slice(245, 251).trim()
+    // A star with no measured colour is almost always a faint one; A0 (B-V = 0)
+    // is the least committal guess and reads as plain white.
+    const bv = bvRaw === '' ? 0 : Number(bvRaw)
+
+    // Propagate as a vector rather than by adding to RA and dividing by cos(dec):
+    // Polaris sits at dec 89.26, where that division amplifies its 44 mas/yr into
+    // nonsense, and the vector form is singular nowhere.
+    const ra = raDeg * DEG
+    const dec = decDeg * DEG
+    const cd = Math.cos(dec)
+    const sd = Math.sin(dec)
+    const ca = Math.cos(ra)
+    const sa = Math.sin(ra)
+    // East and north unit vectors at the star, in equatorial coordinates.
+    const east = [-sa, ca, 0]
+    const north = [-sd * ca, -sd * sa, cd]
+    const p = [cd * ca, cd * sa, sd].map(
+      (c, i) => c + (pmRA * east[i]! + pmDec * north[i]!) * MAS * toJ2000,
+    )
+    const len = Math.hypot(p[0]!, p[1]!, p[2]!) || 1
+
+    stars.push({
+      ra: Math.atan2(p[1]!, p[0]!),
+      dec: Math.asin(Math.max(-1, Math.min(1, p[2]! / len))),
+      pmRA,
+      pmDec,
+      vmag,
+      rgb: colourFromTemperature(temperatureFromBV(Number.isFinite(bv) ? bv : 0)),
+    })
+  }
+
+  if (skipped) console.log(`  ${C.dim('skip   ')} ${skipped} rows without usable astrometry`)
+  return stars.length ? stars : null
+}
+
+/**
+ * Write the packed catalogue and the module that describes it.
+ *
+ * Struct of arrays rather than interleaved records, so each block uploads to
+ * the GPU as one buffer attribute with no unpacking pass. The 16-byte header
+ * keeps the 2-byte blocks aligned.
+ */
+async function writeStarCatalogue(stars: Star[]): Promise<void> {
+  const n = stars.length
+  const HEADER = 16
+  const bytes = HEADER + n * 2 + n * 2 + n * 4 + n * 2 + n * 3
+  const buf = Buffer.alloc(bytes)
+
+  buf.writeUInt32LE(STAR_MAGIC, 0)
+  buf.writeUInt32LE(1, 4) // format version
+  buf.writeUInt32LE(n, 8)
+  buf.writeFloatLE(STAR_MAG_LIMIT, 12)
+
+  let o = HEADER
+  const raAt = o
+  o += n * 2
+  const decAt = o
+  o += n * 2
+  const pmAt = o
+  o += n * 4
+  const magAt = o
+  o += n * 2
+  const rgbAt = o
+
+  const TWO_PI = Math.PI * 2
+  for (let i = 0; i < n; i++) {
+    const s = stars[i]!
+    // RA spans a full turn, so it uses the whole unsigned range; dec spans half
+    // a turn about zero, so it uses the signed one. Both quantise to under
+    // 20 arcsec, a fifth of a pixel at this field of view.
+    buf.writeUInt16LE(Math.round((((s.ra % TWO_PI) + TWO_PI) % TWO_PI) / TWO_PI * 65536) % 65536, raAt + i * 2)
+    buf.writeInt16LE(Math.max(-32767, Math.min(32767, Math.round((s.dec / (Math.PI / 2)) * 32767))), decAt + i * 2)
+    const clampPm = (v: number) => Math.max(-32767, Math.min(32767, Math.round(v)))
+    buf.writeInt16LE(clampPm(s.pmRA), pmAt + i * 4)
+    buf.writeInt16LE(clampPm(s.pmDec), pmAt + i * 4 + 2)
+    buf.writeInt16LE(Math.max(-32767, Math.min(32767, Math.round(s.vmag * 1000))), magAt + i * 2)
+    buf[rgbAt + i * 3] = s.rgb[0]
+    buf[rgbAt + i * 3 + 1] = s.rgb[1]
+    buf[rgbAt + i * 3 + 2] = s.rgb[2]
+  }
+
+  await fs.mkdir(SKY, { recursive: true })
+  await fs.writeFile(path.join(SKY, STAR_FILE), buf)
+  console.log(`  ${C.green('wrote  ')} public/sky/${STAR_FILE} ${C.dim(`(${n} stars, ${mb(bytes)})`)}`)
+
+  const brightest = [...stars].sort((a, b) => a.vmag - b.vmag)[0]!
+  const src = `/**
+ * GENERATED by scripts/fetch-assets.ts -- do not edit by hand.
+ *
+ * Describes public/sky/${STAR_FILE}, the packed Hipparcos catalogue the sky
+ * draws as point sources. The binary carries the same count and magnitude limit
+ * in its header; the loader compares the two so a stale file is refused rather
+ * than rendered as a wrong sky.
+ *
+ * Positions are ICRF/J2000 right ascension and declination, propagated from the
+ * catalogue epoch J${HIPPARCOS_EPOCH} with each star's own proper motion. They are NOT
+ * precessed to date at runtime and must not be: Aphelion's frame is inertial
+ * (ecliptic J2000), so precession moves the coordinate grid, not the stars.
+ *
+ * Layout, little-endian, after a 16-byte header of
+ * [magic u32, version u32, count u32, magnitudeLimit f32]:
+ *
+ *   Uint16Array[count]      right ascension, full turn over the u16 range
+ *   Int16Array[count]       declination, +-90 deg over the i16 range
+ *   Int16Array[count * 2]   proper motion (RA*cos dec, dec), mas/yr
+ *   Int16Array[count]       Johnson V magnitude, millimagnitudes
+ *   Uint8Array[count * 3]   sRGB chromaticity from the B-V colour index
+ */
+
+export const STAR_CATALOGUE = {
+  /** Path under public/, loaded at runtime like a texture. */
+  file: 'sky/${STAR_FILE}',
+  count: ${n},
+  /** Faintest V magnitude present. */
+  magnitudeLimit: ${STAR_MAG_LIMIT},
+  /** Epoch the positions were propagated to, as a Julian year. */
+  epoch: 2000.0,
+  /** Byte offset of the first array; the header occupies everything before it. */
+  headerBytes: ${HEADER},
+  magic: ${STAR_MAGIC},
+  version: 1,
+} as const
+`
+  await fs.mkdir(GENERATED, { recursive: true })
+  await fs.writeFile(path.join(GENERATED, 'stars.ts'), src)
+  console.log(
+    `  ${C.green('wrote  ')} src/data/generated/stars.ts ${C.dim(`(brightest V ${brightest.vmag.toFixed(2)})`)}`,
+  )
+}
+
+// ---------------------------------------------------------------------------
 // Code generation
 // ---------------------------------------------------------------------------
 
@@ -1838,6 +2172,22 @@ async function main(): Promise<void> {
       if (!done) failures.push(spec.out)
     }
 
+    step('NASA SVS Deep Star Maps 2020 (public domain)')
+    for (const spec of skyTextures()) {
+      const outPath = path.join(TEXTURES, spec.out)
+      if (await exists(outPath)) {
+        console.log(`  ${C.dim('have   ')} ${spec.out}`)
+        continue
+      }
+      const cachePath = path.join(CACHE, spec.source)
+      if (!(await download(SVS_BASE + spec.source, cachePath, `${spec.out} ${C.dim(spec.note)}`))) {
+        failures.push(spec.out)
+        continue
+      }
+      // Mirrored, because right ascension runs the other way on this product.
+      queueConvert(cachePath, outPath, spec.maxDim, '', true)
+    }
+
     if (!skipUsgs) {
       step('USGS Astrogeology global mosaics (public domain)')
       console.log(C.dim('  large source GeoTIFFs, downsampled to 4k during conversion'))
@@ -1924,6 +2274,14 @@ async function main(): Promise<void> {
     else {
       console.log(C.yellow('  could not build small-body data; existing module left in place'))
       failures.push('smallbodies.ts')
+    }
+
+    step('Hipparcos star catalogue (ESA 1997)')
+    const stars = await buildStarCatalogue()
+    if (stars) await writeStarCatalogue(stars)
+    else {
+      console.log(C.yellow('  could not build the star catalogue; existing files left in place'))
+      failures.push('stars.bin')
     }
   }
 

@@ -4,9 +4,16 @@
 # textures. The source normal maps and the USGS mosaics are TIFF/GeoTIFF, which
 # no browser can decode, and the mosaics are far larger than we need.
 #
-# Queue format (.cache/convert-queue.tsv):  <source>\t<dest>\t<max dimension>
+# Queue format (.cache/convert-queue.tsv):
+#   <source>\t<dest>\t<max dimension>\t<ops>
 #
-# Uses macOS `sips` when available, otherwise ImageMagick.
+# where <ops> is a possibly-empty comma-separated list of `roll:<amount>` and
+# `flop`. One field rather than one per operation on purpose: `read` collapses
+# runs of tabs, so an empty column in the middle shifts everything after it.
+#
+# Uses macOS `sips` when available, otherwise ImageMagick. Rolling, flopping and
+# OpenEXR all need ImageMagick specifically, so those entries fall back to it
+# even on a Mac.
 
 set -uo pipefail
 
@@ -36,8 +43,19 @@ echo "Converting queued textures with $CONVERTER"
 failed=0
 converted=0
 
-while IFS=$'\t' read -r src dest maxdim roll; do
+while IFS=$'\t' read -r src dest maxdim ops; do
   [[ -z "${src:-}" ]] && continue
+
+  roll=""
+  flop=""
+  ops="${ops:-}"
+  # Unquoted on purpose: the commas become spaces and the shell splits on them.
+  for op in ${ops//,/ }; do
+    case "$op" in
+      roll:*) roll="${op#roll:}" ;;
+      flop)   flop=1 ;;
+    esac
+  done
   if [[ ! -f "$src" ]]; then
     echo "  skip    $(basename "$dest") (source missing)"
     continue
@@ -55,23 +73,41 @@ while IFS=$'\t' read -r src dest maxdim roll; do
     *)     fmt=jpeg ;;
   esac
 
-  if [[ -n "${roll:-}" ]]; then
-    # A source whose left edge is 0 degrees rather than 180 west has to be
-    # turned half way round to match every other map here. Only ImageMagick can
-    # do it, and `[0]` picks the full-resolution page: these basemaps are
-    # pyramidal TIFFs, so without it one file per overview level comes out.
+  # Three things sips cannot do: roll a map whose left edge is 0 degrees rather
+  # than 180 west, mirror one whose longitude runs the other way, and decode
+  # OpenEXR. Any of them sends the job to ImageMagick.
+  needs_magick=""
+  [[ -n "${roll:-}" || -n "${flop:-}" ]] && needs_magick=1
+  case "$src" in *.exr|*.EXR) needs_magick=1 ;; esac
+
+  if [[ -n "$needs_magick" ]]; then
     if [[ "$CONVERTER" == "sips" ]]; then
-      if command -v magick >/dev/null 2>&1; then ROLLER=magick
-      elif command -v convert >/dev/null 2>&1; then ROLLER=convert
+      if command -v magick >/dev/null 2>&1; then IM=magick
+      elif command -v convert >/dev/null 2>&1; then IM=convert
       else
-        echo "SKIPPED (needs ImageMagick to roll)"
+        echo "SKIPPED (needs ImageMagick)"
         failed=$((failed + 1))
         continue
       fi
     else
-      ROLLER="$CONVERTER"
+      IM="$CONVERTER"
     fi
-    "$ROLLER" "${src}[0]" -roll "+${roll}+0" -resize "${maxdim}x${maxdim}>" -quality 90 "$dest" >/dev/null 2>&1
+
+    # `[0]` picks the full-resolution page: the USGS basemaps are pyramidal
+    # TIFFs, so without it one file per overview level comes out.
+    args=("${src}[0]")
+    case "$src" in
+      *.exr|*.EXR)
+        # OpenEXR is linear light. ImageMagick tags it sRGB regardless, so the
+        # source has to be declared linear before the encode or the transfer
+        # never happens and the whole image collapses toward black.
+        args+=(-set colorspace RGB -colorspace sRGB)
+        ;;
+    esac
+    [[ -n "${roll:-}" ]] && args+=(-roll "+${roll}+0")
+    [[ -n "${flop:-}" ]] && args+=(-flop)
+    args+=(-resize "${maxdim}x${maxdim}>" -quality 92 "$dest")
+    "$IM" "${args[@]}" >/dev/null 2>&1
   elif [[ "$CONVERTER" == "sips" ]]; then
     if [[ "$fmt" == "jpeg" ]]; then
       sips -s format jpeg -s formatOptions 90 -Z "$maxdim" "$src" --out "$dest" >/dev/null 2>&1

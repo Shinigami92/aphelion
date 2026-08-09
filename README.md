@@ -37,7 +37,7 @@ pnpm assets:light   # skip the large USGS moon mosaics, 4k instead of 8k
 needs `sips` (macOS, built in) or ImageMagick to convert the TIFF sources.
 
 ```bash
-pnpm validate       # 87 astronomy checks (no browser needed)
+pnpm validate       # 123 astronomy checks (no browser needed)
 pnpm typecheck
 pnpm build
 ```
@@ -141,6 +141,9 @@ same angle. A reload restores it too, rather than resetting to Earth.
 | `orbits`, `labels` | `none` / `planets` / `all` and `none` / `major` / `all` |
 | `belts`, `rings`, `atmo`, `milkyway`, `minor`, `orrery` | `0` to switch a layer off |
 
+`milkyway` keeps its name from before the sky had stars in it; it now switches
+the whole backdrop, so links shared then still resolve to what they meant.
+
 Free flight is carried too, which is what makes a link shareable rather than
 merely a bookmark: `cam=free` with a position and an orientation, so a reload
 puts you back where you were *facing the way you were facing*. Orbit mode can
@@ -210,11 +213,15 @@ eclipse — and it is *rendered*, not annotated: the dark spot appears over west
 Mexico because the shader computes what fraction of the Sun's disc the Moon
 covers at every pixel.
 
-`pnpm validate` runs 87 further checks — Kepler solver residuals, orbital periods,
+`pnpm validate` runs 123 further checks — Kepler solver residuals, orbital periods,
 inclinations, lunar perigee/apogee bounds, nodal crossings, leap seconds and
 calendar round-trips, plus a published landmark read back out of every elevation
 grid and shape model (Olympus Mons, Hellas, Antoniadi, Herschel, Stickney,
-Rheasilvia) so a rolled or flipped map cannot pass unnoticed.
+Rheasilvia) so a rolled or flipped map cannot pass unnoticed. The star catalogue
+is held to the same standard: ten named stars have to sit at their published
+J2000 coordinates, Rigel has to come out blue and Betelgeuse orange, and
+Groombridge 1830 has to have moved the 62 arcseconds it really did between the
+catalogue's epoch and J2000.
 
 Read [ATTRIBUTION.md](./ATTRIBUTION.md) for exactly which parts are measured,
 which are estimated, and which are synthesised. Two things worth knowing up
@@ -249,6 +256,16 @@ UI.
   textured spheres; the other ~600 live in one point cloud and are *promoted* to
   real geometry on approach. Procedural surfaces are synthesised lazily, one per
   frame, only for bodies that actually get big enough to show one.
+- **A real sky.** 41,394 Hipparcos stars as point sources — true position,
+  magnitude, and colour from the measured B−V index — over NASA's Gaia-derived
+  deep-sky image with the catalogued stars removed, so the two layers reassemble
+  the sky without drawing anything twice. Both sit in ICRF/J2000 and are rotated
+  into the ecliptic by the obliquity the ephemerides use, so Orion is where Orion
+  is. The stars carry their proper motions, so the constellations deform as the
+  clock runs across its 1600–2500 range; they do not twinkle, because there is no
+  atmosphere out there to make them. The whole backdrop is pinned to the far
+  plane in the vertex shader rather than given a radius, which is the only thing
+  that works across near/far planes spanning eleven orders of magnitude.
 
 ---
 
@@ -269,17 +286,19 @@ src/
   data/
     bodies.ts       physical properties, rings, atmospheres, facts
     belts.ts        statistical belt generation
+    stars.ts        the packed star catalogue's format
     generated/      committed output of scripts/fetch-assets.ts
   render/
     materials.ts    every shader
     scene.ts        scene assembly, LOD, floating origin, picking
+    sky.ts          the star field and the deep-sky backdrop
     procedural.ts   synthesised surfaces
     textures.ts     lazy loading with procedural fallback
   controls/camera.ts
   ui/               panels, orrery mini-map, styles
 scripts/
   fetch-assets.ts       the only networked code in the project
-  convert-textures.sh   TIFF → JPEG via sips or ImageMagick
+  convert-textures.sh   TIFF/EXR → JPEG via sips or ImageMagick
   validate-astro.ts     pnpm validate
 ```
 
@@ -295,10 +314,14 @@ scripts/
 - Small satellite orbits are propagated from mean elements with linear apsidal
   and nodal precession — good to arcminutes, not the arcseconds a full numerical
   integration would give.
-- The Milky Way backdrop is a panorama mapped onto the sky sphere; it is not
-  oriented to true galactic coordinates.
-- Illumination falloff is compressed rather than inverse-square (see
-  ATTRIBUTION.md).
+- The sky stops at V = 8. Stars between there and Tycho-2's limit near V 11.5 are
+  absent from both layers — individually invisible, but the faint background is
+  fractionally smoother than the real one.
+- Stellar parallax is not modelled. Across the whole solar system it is under an
+  arcsecond even for the nearest star, so the sky is the same from Pluto as from
+  Earth.
+- Illumination falloff is compressed rather than inverse-square, and the sky is
+  exposed well above the planets in front of it (see ATTRIBUTION.md).
 - No general relativity, no light-time correction, no nutation.
 
 ---

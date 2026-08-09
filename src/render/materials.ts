@@ -1240,23 +1240,60 @@ export function createCoronaMaterial(): ShaderMaterial {
 }
 
 // ---------------------------------------------------------------------------
-// Star field / Milky Way backdrop
+// The sky
+//
+// Two layers on one camera-following sphere: the deep sky as a texture, and the
+// Hipparcos stars as point sources on top. Both are pinned to the far plane by
+// the same one-line trick, described on GLSL_SKY_DEPTH.
 // ---------------------------------------------------------------------------
 
+/**
+ * Put a vertex on the far plane, whatever its actual distance.
+ *
+ * Setting clip-space z equal to w lands the vertex exactly on the far plane, so
+ * the depth test resolves the sky behind literally everything without the
+ * radius of the sky sphere having to mean anything. That matters here more than
+ * in an ordinary scene: Aphelion recomputes its near and far planes every frame
+ * from how much space is in front of the camera, and they range over eleven
+ * orders of magnitude. Any fixed radius is inside the near plane at one focus
+ * and beyond the far plane at another — the previous backdrop sat at 1e8 units,
+ * which is outside the far plane for most views.
+ *
+ * It also removes the near plane from the argument: clipping tests -w <= z <= w,
+ * and z = w satisfies both, so the only vertices that go are the ones genuinely
+ * behind the eye. Depth *writing* stays off, so the sky never occludes anything
+ * that is drawn afterwards.
+ *
+ * The 1e-6 backs off the exact boundary, where some drivers round the wrong way
+ * and drop the fragment.
+ */
+const GLSL_SKY_DEPTH = /* glsl */ `
+vec4 pinToFarPlane(vec4 clip) {
+  return vec4(clip.xy, clip.w * (1.0 - 1e-6), clip.w);
+}
+`
+
+/**
+ * The deep sky, as an equirectangular texture on the inside of a sphere.
+ *
+ * The sphere's own frame is ICRF/J2000 equatorial — the caller rotates it into
+ * the ecliptic — so u = 0.5 is right ascension zero and v = 0 is the north
+ * celestial pole.
+ */
 export function createSkyMaterial(map: Texture, opts: { brightness?: number } = {}): ShaderMaterial {
   return new ShaderMaterial({
     side: BackSide,
     depthWrite: false,
-    depthTest: false,
     uniforms: {
       uMap: { value: prepare(map) },
       uBrightness: { value: opts.brightness ?? 1 },
     },
     vertexShader: /* glsl */ `
       varying vec2 vUv;
+      ${GLSL_SKY_DEPTH}
       void main() {
         vUv = uv;
-        gl_Position = projectionMatrix * viewMatrix * modelMatrix * vec4(position, 1.0);
+        gl_Position = pinToFarPlane(projectionMatrix * modelViewMatrix * vec4(position, 1.0));
       }
     `,
     fragmentShader: /* glsl */ `
@@ -1268,6 +1305,140 @@ export function createSkyMaterial(map: Texture, opts: { brightness?: number } = 
       void main() {
         vec3 c = srgbToLinear(texture2D(uMap, vUv).rgb);
         gl_FragColor = vec4(c * uBrightness, 1.0);
+      }
+    `,
+  })
+}
+
+/**
+ * Real stars, drawn as point sources.
+ *
+ * Every star is the same optical system's response to a point of light, so the
+ * only thing that differs between them is how much light arrives. That single
+ * assumption fixes both the size and the brightness law:
+ *
+ *   - **Brightness follows Pogson**: flux is 10^(-0.4 m), which is the
+ *     amplitude at the centre of the sprite, times an exposure.
+ *   - **Size is wherever that profile crosses the visibility threshold.** Sirius
+ *     is a disc and an eighth-magnitude star is a dot not because the instrument
+ *     changed but because the same profile, scaled up 1600-fold, stays above the
+ *     threshold much further out.
+ *
+ * The profile is a **Moffat** function, `1 / (1 + (r/a)^2)^beta`, not a
+ * Gaussian. That is the standard empirical model for a stellar image precisely
+ * because a Gaussian understates the wings, and the difference is the whole
+ * visual hierarchy of the sky: a Gaussian spans only sqrt(m) in radius, giving
+ * Sirius barely three times the disc of a naked-eye star, where the Moffat wings
+ * put it at ten and the field stops looking like uniform beads. Eight magnitudes
+ * is a range of 1600:1 that no display can show as brightness alone, so size has
+ * to carry it — which is exactly what it does in a real photograph.
+ *
+ * Writing the profile in units of the sprite's own radius makes it
+ * self-consistent: every star reaches the same brightness at its rim, so `uGain`
+ * is not an arbitrary scale but the display's own visibility threshold, and
+ * `uMagLimit` is the magnitude at which a star reaches it. The only genuinely
+ * chosen number is `uSizeScale`, the width of the point spread function in
+ * pixels, and one pixel is the right answer for any sampled optical system.
+ *
+ * Stars do not twinkle. Scintillation is atmospheric, and there is no
+ * atmosphere between this camera and them.
+ */
+export function createStarMaterial(): ShaderMaterial {
+  return new ShaderMaterial({
+    transparent: true,
+    depthWrite: false,
+    blending: AdditiveBlending,
+    uniforms: {
+      /** Julian years since J2000, for proper motion. */
+      uYears: { value: 0 },
+      uPixelRatio: { value: 1 },
+      /**
+       * Magnitude at which a star's disc shrinks to nothing — the limiting
+       * magnitude of the render. Set a little fainter than the catalogue's own
+       * limit so its faintest stars are still drawn rather than vanishing
+       * exactly at the cutoff.
+       */
+      uMagLimit: { value: 9 },
+      /** Width of the point spread function, in pixels. */
+      uSizeScale: { value: 1.5 },
+      /** The display's visibility threshold, in linear light. */
+      uGain: { value: 0.006 },
+      uOpacity: { value: 1 },
+    },
+    vertexShader: /* glsl */ `
+      precision highp float;
+
+      // The position attribute is the unit vector toward the star at J2000, in
+      // ICRF equatorial coordinates; the object's own matrix rotates that frame
+      // into the ecliptic.
+      attribute vec3 aProperMotion;   // radians per Julian year, tangential
+      attribute float aMagnitude;     // Johnson V
+      attribute vec3 aColor;          // sRGB chromaticity, strongest channel full
+
+      uniform float uYears;
+      uniform float uPixelRatio;
+      uniform float uMagLimit;
+      uniform float uSizeScale;
+      uniform float uGain;
+
+      varying vec3 vColor;
+      varying float vSharpness;
+
+      ${GLSL_COLOR}
+      ${GLSL_SKY_DEPTH}
+
+      const float BETA = 2.5;
+
+      void main() {
+        // Proper motion, on the tangent plane at the star. Over the 900 years
+        // the clock covers this is tens of arcminutes for the fastest movers,
+        // and renormalising is all the curvature correction that needs.
+        vec3 dir = normalize(position + aProperMotion * uYears);
+
+        gl_Position = pinToFarPlane(projectionMatrix * modelViewMatrix * vec4(dir, 1.0));
+
+        // Magnitudes of headroom above the limit, and the flux that implies.
+        float headroom = max(uMagLimit - aMagnitude, 0.0);
+        float amplitude = uGain * pow(10.0, 0.4 * headroom);
+
+        // Radius, in units of the profile's core width, at which this star
+        // fades to the threshold. Solving the Moffat profile for that radius is
+        // what ties size to brightness with nothing left to choose.
+        float spread = sqrt(max(pow(10.0, 0.4 * headroom / BETA) - 1.0, 0.0));
+        float radius = uSizeScale * spread * uPixelRatio;
+        float size = clamp(2.0 * radius, uPixelRatio, 64.0 * uPixelRatio);
+        gl_PointSize = size;
+        vSharpness = spread * spread;
+
+        // A sprite floored to a visible size spreads its light over more pixels
+        // than it should; scale the amplitude back so the star still delivers
+        // what its magnitude says.
+        float floored = 2.0 * radius / size;
+        amplitude *= floored * floored;
+
+        // Divide out the stored colour's luminance so hue and brightness stay
+        // independent: a red and a blue star of the same V magnitude must put
+        // the same amount of light on the screen.
+        vec3 chroma = srgbToLinear(aColor);
+        float luma = max(dot(chroma, vec3(0.2126, 0.7152, 0.0722)), 1e-4);
+        vColor = chroma / luma * amplitude;
+      }
+    `,
+    fragmentShader: /* glsl */ `
+      precision highp float;
+      uniform float uOpacity;
+      varying vec3 vColor;
+      varying float vSharpness;
+
+      const float BETA = 2.5;
+
+      void main() {
+        // Distance from the centre in units of the sprite's own radius, so the
+        // profile reaches the same value at the rim for every star.
+        float d = 2.0 * length(gl_PointCoord - 0.5);
+        if (d > 1.0) discard;
+        float profile = pow(1.0 + vSharpness * d * d, -BETA);
+        gl_FragColor = vec4(vColor * profile * uOpacity, 1.0);
       }
     `,
   })

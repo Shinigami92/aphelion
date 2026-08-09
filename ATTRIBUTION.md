@@ -25,13 +25,75 @@ Files derived from this source: `sun.jpg`, `mercury.jpg`, `venus_surface.jpg`,
 `venus_atmosphere.jpg`, `earth_day.jpg`, `earth_night.jpg`, `earth_clouds.jpg`,
 `earth_normal.jpg`, `earth_specular.jpg`, `moon.jpg`, `mars.jpg`, `jupiter.jpg`,
 `saturn.jpg`, `saturn_ring.png`, `uranus.jpg`, `neptune.jpg`, `ceres.jpg`,
-`eris.jpg`, `haumea.jpg`, `makemake.jpg`, `milkyway.jpg`, `starfield.jpg`.
+`eris.jpg`, `haumea.jpg`, `makemake.jpg`.
+
+Their two sky panoramas (`stars_milky_way.jpg`, `stars.jpg`) were used until the
+sky was rebuilt from the sources below. They are drawn in **galactic**
+coordinates, which is the natural frame for a picture of the galaxy and the wrong
+one for a sky you have to register against planets.
 
 **Important caveat.** Solar System Scope publishes the Ceres, Eris, Haumea and
 Makemake maps as *fictional* — they are artistic impressions, because no
 resolved global map of those bodies exists. Aphelion uses them and labels the
 affected bodies "surface synthesised" in the info panel. Treat those four
 surfaces as illustration, not observation.
+
+### NASA SVS — Deep Star Maps 2020, the deep sky
+
+**Licence: public domain** (NASA media, produced by the Scientific Visualization
+Studio). Visualisation by Ernie Wright (USRA). <https://svs.gsfc.nasa.gov/4851>
+
+`sky_milkyway.jpg` is derived from `milkyway_2020_8k.exr` — the Deep Star Maps
+composite **with the Hipparcos and Tycho stars removed**, leaving the unresolved
+light of 1.7 billion Gaia DR2 sources. That is what the Milky Way physically is,
+and it is why Aphelion uses this layer rather than the full composite: the bright
+stars are drawn separately from the catalogue below, as real point sources, so
+nothing is drawn twice.
+
+The underlying catalogues are Gaia DR2 (ESA / Gaia / DPAC), Tycho-2 and UCAC3.
+Gaia data are released under the ESA Creative Commons licence; the SVS product
+built from them is NASA-published.
+
+Three properties of the source drive the conversion, all stated by SVS rather
+than inferred:
+
+- **Celestial (ICRF/J2000) plate carrée.** The sphere carrying it is rotated
+  into Aphelion's ecliptic frame by the same obliquity the ephemerides use.
+- **Centred on RA 0h with right ascension increasing to the left** — a mirror of
+  every planetary map here, so the image is flopped during conversion. Doing it
+  at build time rather than in a shader keeps one convention across `public/`.
+- **Linear-light OpenEXR**, so the conversion declares the source linear and lets
+  the sRGB transfer encode it. No tone curve or gain is applied; the exposure is
+  a single uniform in `src/render/sky.ts`.
+
+Between them, the two layers leave one gap: stars between V 8 and Tycho-2's limit
+near V 11.5 are removed from the texture and are fainter than the catalogue
+Aphelion draws. Individually they are invisible at any exposure that keeps Sirius
+on the screen, and the Gaia component that dominates the Milky Way's surface
+brightness is untouched.
+
+### ESA Hipparcos catalogue — the stars
+
+**Licence: freely available** (ESA, 1997). *The Hipparcos and Tycho Catalogues*,
+ESA SP-1200. Retrieved from the CDS/VizieR archive as catalogue I/239.
+<https://cdsarc.cds.unistra.fr/viz-bin/cat/I/239> — VizieR is described in
+Ochsenbein, Bauer & Marcout (2000), A&AS 143, 23.
+
+`public/sky/stars.bin` holds the 41,394 entries brighter than V = 8.0, with:
+
+- **Position** — right ascension and declination, propagated from the catalogue
+  epoch J1991.25 to J2000.0 with each star's own proper motion. Groombridge 1830,
+  the fastest mover inside the magnitude limit at 7.06″/yr, travels 62″ over that
+  interval; `pnpm validate` checks it landed.
+- **Proper motion** — carried into the renderer, so the constellations are drawn
+  for whatever date the clock shows rather than frozen at J2000. Precession is
+  deliberately *not* applied: Aphelion's frame is inertial, so precession moves
+  the coordinate grid, not the stars.
+- **Brightness** — Johnson V, rendered through Pogson's law.
+- **Colour** — the measured B−V index mapped to an effective temperature by
+  Ballesteros' (2012) formula, then to sRGB by integrating Planck's law against
+  the CIE 1931 colour matching functions (Wyman, Sloan & Shirley 2013 analytic
+  fits). The Sun's B−V of 0.656 comes out at 5757 K against a true 5772.
 
 ### USGS Astrogeology — global mosaics
 
@@ -346,11 +408,15 @@ All shaders in `src/render/materials.ts` are original to this project.
 | Satellite radii | 134 measured, 325 nominal estimates |
 | Minor planet diameters | Derived from magnitude + assumed albedo |
 | Belt particles | **Generated** from real distributions |
+| Star positions, colours, motions | Real Hipparcos astrometry and photometry, 41,394 stars to V 8 |
+| Milky Way | Real Gaia DR2 photometry, in its true celestial frame |
 | Surface relief | Real measured topography; **exaggerated** at explore scale |
 | Phobos and Deimos shapes | Real shape models, unexaggerated |
 | Illumination falloff | Deliberately compressed (see below) |
+| Sky exposure | Deliberately raised (see below) |
 
-Two knowing departures from physics, both confined and both labelled in the UI.
+Three knowing departures from physics, all confined and the first two labelled in
+the UI.
 
 True irradiance falls as 1/r², which renders Saturn at 1% of Earth's brightness
 and Neptune at 0.1% — black, on a display that cannot adapt the way an eye does.
@@ -362,3 +428,11 @@ Surface relief is measured elevation, but at explore scale its vertical scale is
 multiplied (Mars by 12) so that terrain under one percent of a planet's radius is
 visible at all. True scale renders it 1:1, and the factor in force is stated in
 the info panel rather than left for the viewer to guess.
+
+The sky is exposed far above the planets it sits behind. The Milky Way's surface
+brightness is around 22 magnitudes per square arcsecond, some twenty magnitudes
+under a sunlit planet, so at a shared exposure the backdrop would be black — as
+it is in every photograph ever taken of a spacecraft. The *relative* photometry
+within the sky is untouched: star brightnesses keep their magnitude ratios, and
+the deep-sky image keeps its linear values through to the shader. Only the one
+exposure constant in `src/render/sky.ts` is chosen by eye.
