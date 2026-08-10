@@ -370,8 +370,10 @@ input[type='range']::-webkit-slider-thumb {
 
 /* --------------------------------------------------------------- browser --- */
 
+/* Stretched by the body's flex column rather than sized at 100%, so the side
+   margins inset it instead of pushing it past the panel's edge. */
 .search {
-  width: 100%;
+  min-width: 0;
   background: rgba(255, 255, 255, 0.05);
   border: 1px solid var(--border);
   border-radius: 6px;
@@ -380,7 +382,7 @@ input[type='range']::-webkit-slider-thumb {
   font-size: 12px;
   font-family: var(--sans);
   outline: none;
-  margin-bottom: 8px;
+  margin: 0 10px 8px;
 }
 
 .search:focus {
@@ -390,6 +392,70 @@ input[type='range']::-webkit-slider-thumb {
 
 .browser__head {
   padding: 12px 14px 0;
+}
+
+/*
+ * Moon ordering, between the search box and the list.
+ *
+ * A quieter relative of `.segmented`: one inset track holding three borderless
+ * segments rather than three bordered buttons. The View panel's segmented rows
+ * are that panel's primary controls and are drawn to match, but here the search
+ * box is the primary control and three more boxes of the same weight underneath
+ * it read as a second, competing input. Sharing the search box's radius and
+ * inset fill makes the pair read as one block of chrome above the list.
+ */
+.browser__sort {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  /* The same 10px inset the search box carries, so the label starts on the
+     search box's left border and the track ends on its right one. The list keeps
+     its own tighter padding — the two controls are a pair above it, not part of
+     it. */
+  padding: 0 10px;
+  margin-bottom: 9px;
+}
+
+.browser__sort-label {
+  flex: 0 0 auto;
+  font-size: 9px;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  font-weight: 600;
+}
+
+.browser__sort .segmented {
+  flex: 1;
+  margin-top: 0;
+  gap: 0;
+  padding: 2px;
+  background: rgba(255, 255, 255, 0.045);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+}
+
+.browser__sort .segmented .btn {
+  background: none;
+  /* Transparent rather than absent, so the active segment's border does not
+     shift its neighbours by a pixel each time the selection moves. */
+  border-color: transparent;
+  border-radius: 5px;
+  color: var(--text-faint);
+  font-size: 10px;
+  padding: 3px 4px;
+}
+
+.browser__sort .segmented .btn:hover {
+  background: rgba(255, 255, 255, 0.075);
+  border-color: transparent;
+  color: var(--text);
+}
+
+.browser__sort .segmented .btn--active {
+  background: var(--accent-dim);
+  border-color: rgba(111, 179, 255, 0.45);
+  color: var(--accent);
 }
 
 .browser__list {
@@ -1239,6 +1305,12 @@ body.is-mobile .toggle {
 body.is-mobile .row {
   padding-top: 9px;
   padding-bottom: 9px;
+}
+
+/* An 18px segment is a fine mouse target and a poor thumb one. */
+body.is-mobile .browser__sort .btn {
+  padding-top: 7px;
+  padding-bottom: 7px;
 }
 
 body.is-mobile .seg {

@@ -281,6 +281,18 @@ export class TimePanel {
 // Body browser
 // ---------------------------------------------------------------------------
 
+/** How the moon list under a planet is ordered. */
+type MoonSort = 'size' | 'name' | 'distance'
+
+const MOON_SORTS: { mode: MoonSort; label: string; title: string }[] = [
+  { mode: 'distance', label: 'distance', title: 'Innermost first, by semi-major axis about its planet' },
+  { mode: 'size', label: 'size', title: 'Largest first, by mean radius' },
+  { mode: 'name', label: 'name', title: 'Alphabetical, with provisional designations in numeric order' },
+]
+
+/** Semi-major axis about the parent, km. Unknown orbits sort to the end. */
+const orbitRadius = (moon: SimBody): number => moon.elements?.a ?? Infinity
+
 export class BodyBrowser {
   private search = el('input', 'search') as HTMLInputElement
   private list = el('div', 'browser__list')
@@ -288,6 +300,9 @@ export class BodyBrowser {
   private query = ''
   private rows = new Map<string, HTMLElement>()
   private selectedKey: string | null = null
+  private sortRow = el('div', 'browser__sort')
+  private moonSort: MoonSort = 'distance'
+  private sortButtons: { mode: MoonSort; node: HTMLElement }[] = []
 
   head!: HTMLElement
   body!: HTMLElement
@@ -327,7 +342,7 @@ export class BodyBrowser {
     // The search box collapses with the list: a hidden panel should not still
     // have a focusable input inside it.
     const body = el('div', 'panel__body')
-    body.append(this.search, this.list)
+    body.append(this.search, this.buildSortRow(), this.list)
     this.host.append(head, body)
     // The title row, not its padded wrapper: `.panel__title` is already a flex
     // row with space-between, so the collapse control lands beside the count
@@ -337,6 +352,40 @@ export class BodyBrowser {
 
     this.expanded.add('earth')
     this.render()
+  }
+
+  /**
+   * The moon ordering control.
+   *
+   * Labelled "Moons" because that is all it touches: the planet and dwarf
+   * planet groups are in ephemeris order and search results are ranked by how
+   * well they match, so neither has an ordering to offer.
+   */
+  private buildSortRow(): HTMLElement {
+    const row = this.sortRow
+    row.append(el('span', 'browser__sort-label', 'Moons'))
+    const segmented = el('div', 'segmented')
+    for (const option of MOON_SORTS) {
+      const btn = el('button', 'btn', option.label)
+      btn.title = option.title
+      btn.addEventListener('click', () => {
+        if (this.moonSort === option.mode) return
+        this.moonSort = option.mode
+        this.refreshSortRow()
+        this.render()
+      })
+      segmented.append(btn)
+      this.sortButtons.push({ mode: option.mode, node: btn })
+    }
+    row.append(segmented)
+    this.refreshSortRow()
+    return row
+  }
+
+  private refreshSortRow(): void {
+    for (const { mode, node } of this.sortButtons) {
+      node.classList.toggle('btn--active', mode === this.moonSort)
+    }
   }
 
   focusSearch(): void {
@@ -380,6 +429,7 @@ export class BodyBrowser {
   private render(): void {
     this.list.textContent = ''
     this.rows.clear()
+    this.sortRow.style.display = this.query ? 'none' : 'flex'
 
     if (this.query) {
       const results = this.matches()
@@ -406,9 +456,8 @@ export class BodyBrowser {
     for (const planet of planets) {
       planetGroup.append(this.makeRow(planet, 0, this.moonCount(planet)))
       if (this.expanded.has(planet.key)) {
-        const moons = this.system.moonsOf(planet.key)
-        for (const moon of moons.slice(0, 400)) {
-          planetGroup.append(this.makeRow(moon, 1, `${fmt(moon.radiusKm, 0)} km`))
+        for (const moon of this.sortedMoons(planet.key).slice(0, 400)) {
+          planetGroup.append(this.makeRow(moon, 1, this.moonMeta(moon)))
         }
       }
     }
@@ -421,8 +470,8 @@ export class BodyBrowser {
     for (const dwarf of dwarfs) {
       dwarfGroup.append(this.makeRow(dwarf, 0, this.moonCount(dwarf)))
       if (this.expanded.has(dwarf.key)) {
-        for (const moon of this.system.moonsOf(dwarf.key)) {
-          dwarfGroup.append(this.makeRow(moon, 1, `${fmt(moon.radiusKm, 0)} km`))
+        for (const moon of this.sortedMoons(dwarf.key)) {
+          dwarfGroup.append(this.makeRow(moon, 1, this.moonMeta(moon)))
         }
       }
     }
@@ -460,6 +509,34 @@ export class BodyBrowser {
     this.list.append(minorGroup)
 
     if (this.selectedKey) this.rows.get(this.selectedKey)?.classList.add('row--selected')
+  }
+
+  /**
+   * The moons of one body in the chosen order.
+   *
+   * `moonsOf` hands back a fresh array already sorted largest first, so sorting
+   * in place is safe and the size case needs no work at all.
+   */
+  private sortedMoons(key: string): SimBody[] {
+    const moons = this.system.moonsOf(key)
+    if (this.moonSort === 'name') {
+      // Numeric collation so that S/2004 S 9 precedes S/2004 S 24 rather than
+      // following it — half of Saturn's family is still provisional.
+      return moons.sort((a, b) => a.name.localeCompare(b.name, 'en', { numeric: true }))
+    }
+    if (this.moonSort === 'distance') {
+      // Semi-major axis rather than where the moon happens to be right now: a
+      // live distance would reshuffle the list under the cursor every frame.
+      return moons.sort((a, b) => orbitRadius(a) - orbitRadius(b))
+    }
+    return moons
+  }
+
+  /** The figure on the right of a moon row is whatever the list is ordered by. */
+  private moonMeta(moon: SimBody): string {
+    if (this.moonSort !== 'distance') return `${fmt(moon.radiusKm, 0)} km`
+    const a = moon.elements?.a
+    return a === undefined ? '' : formatDistance(a)
   }
 
   private moonCount(body: SimBody): string {
