@@ -197,14 +197,48 @@ export function spinBasis(spin: SpinModel, daysSinceJ2000: number, centuries: nu
 }
 
 /**
+ * The pole that JPL's *equatorial* satellite elements are referred to: the
+ * parent's rotational angular momentum, which is **not** always its IAU north
+ * pole.
+ *
+ * For every prograde rotator the two coincide and this is a no-op. Uranus is the
+ * exception that matters, and it is not a rounding error: the IAU north pole is
+ * the one north of the invariant plane (RA 257.311, Dec -15.175, which is 7.7
+ * degrees *north* of the ecliptic), while Uranus spins retrograde about it. Its
+ * regular satellites revolve in the same sense as the planet spins, so their
+ * orbital angular momentum points at the *other* end of the axis, and JPL's
+ * inclinations of 0.0-0.1 degrees are quoted in that frame rather than about the
+ * IAU pole.
+ *
+ * Measured rather than reasoned: with the IAU pole, Aphelion put the six inner
+ * Uranian moons up to 1,092,551 km from their Horizons positions and every orbit
+ * normal exactly antiparallel to JPL's (r x v cosine -1.0000). With the antipode
+ * the worst residual is 7,655 km, which is ordinary mean-element error. Pluto is
+ * the control: it rotates prograde about its IAU pole, keeps it, and Charon lands
+ * 31 km from Horizons. `pnpm validate` pins both.
+ */
+export function basisForPlanetEquator(spin: SpinModel): Basis {
+  return spin.wDot < 0
+    ? basisFromPole(spin.poleRa + 180, -spin.poleDec)
+    : basisFromPole(spin.poleRa, spin.poleDec)
+}
+
+/**
  * Orientation for a tidally locked satellite.
  *
  * Rather than carrying per-moon meridian constants we derive the frame from the
  * geometry itself: the sub-parent point defines the prime meridian and the orbit
  * normal defines the pole. That is what tidal locking *means*, and it stays
  * correct for all ~450 satellites without any extra data.
+ *
+ * `parentPole` is the parent's IAU north pole in ecliptic coordinates, used only
+ * for its *sign* — see below.
  */
-export function tidallyLockedBasis(toParent: Vec3, orbitalVelocity: Vec3): Basis {
+export function tidallyLockedBasis(
+  toParent: Vec3,
+  orbitalVelocity: Vec3,
+  parentPole: Vec3 | null = null,
+): Basis {
   // x-axis: toward the parent. `toParent` is the satellite's position relative
   // to its planet, so it points parent-to-body and negating it aims the prime
   // meridian at the planet. That is the IAU convention for a locked satellite —
@@ -213,8 +247,18 @@ export function tidallyLockedBasis(toParent: Vec3, orbitalVelocity: Vec3): Basis
   // opposite convention renders all 459 moons half a turn out. `pnpm validate`
   // pins it by checking the sub-parent point lands at 0N 0E.
   const x = normalize({ x: -toParent.x, y: -toParent.y, z: -toParent.z })
-  // Pole: orbit normal = r x v.
-  const z = normalize(cross(toParent, orbitalVelocity))
+  // Pole: orbit normal = r x v — but only up to sign. The orbit normal is the
+  // *angular momentum*, and for a retrograde satellite that is the south pole,
+  // not the north. Rendering a map on such a body without the flip puts its
+  // north at the bottom and mirrors every longitude, which is invisible on a
+  // procedural surface and glaring on a real one: it put Triton's south polar
+  // cap on its north pole. The IAU fixes a satellite's north as the end lying on
+  // the same side as its primary's north pole, so that is the test.
+  // Flips Triton, Phoebe and the six inner Uranian moons; leaves every prograde
+  // satellite — including the Moon, whose orbit normal is 21 degrees off Earth's
+  // pole but on the same side — exactly as it was.
+  let z = normalize(cross(toParent, orbitalVelocity))
+  if (parentPole && dot(z, parentPole) < 0) z = { x: -z.x, y: -z.y, z: -z.z }
   const y = cross(z, x)
   return { x, y: normalize(y), z }
 }

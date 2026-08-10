@@ -26,9 +26,18 @@
 import { createGunzip, deflateSync, gunzipSync, inflateRawSync } from 'node:zlib'
 import { createReadStream } from 'node:fs'
 import { createInterface } from 'node:readline'
+import { execFile as execFileCb } from 'node:child_process'
+import { promisify } from 'node:util'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+
+/**
+ * ImageMagick is already a hard requirement of `pnpm assets` through
+ * scripts/convert-textures.sh; this uses it only as a rasteriser and decoder,
+ * because a scanned map sheet arrives as PDF and nothing here can decode one.
+ */
+const execFile = promisify(execFileCb)
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const CACHE = path.join(ROOT, '.cache')
@@ -1619,6 +1628,356 @@ async function buildFitsMosaic(spec: FitsMosaicSpec): Promise<boolean> {
 }
 
 // ---------------------------------------------------------------------------
+// 2e. Lithographed photomosaics  (public domain)
+//
+// The five classical Uranian moons have never had a digital global mosaic
+// published. USGS I-1920 (1988), "The Southern hemispheres of the Uranian
+// satellites", is the only controlled photomosaic of them that exists, and it
+// exists as three printed map sheets, scanned to PDF. Astropedia has only
+// nomenclature and control networks for these bodies; neither S3 bucket has a
+// raster; NAIF has no shape model. This is the whole of the published record.
+//
+// So the source here is a 1988 lithograph, and it has to be treated like one:
+// rasterised, its projection recovered, its printed graticule taken back off,
+// and its bare paper distinguished from its imagery.
+// ---------------------------------------------------------------------------
+
+interface LithoMosaicSpec {
+  out: string
+  /** Body key, for the log line only. */
+  body: string
+  url: string
+  /**
+   * Centre and latitude-0 radius of the controlled photomosaic on the page, in
+   * pixels at LITHO_DPI. Fitted once, against the three printed latitude circles
+   * at 0, -30 and -60 together: the outer circle alone cannot be told from the
+   * mosaic's own dark edge beside it, and *summing* the three responses is no
+   * better, because one strong ring then carries a solution where the other two
+   * sit off the ink -- that put Titania's circle 5% oversize and printed a
+   * displaced graticule across its terrain. Maximise the weakest of the three.
+   * `pnpm validate` re-checks the result against the IAU Gazetteer rather than
+   * trusting these numbers.
+   */
+  centreX: number
+  centreY: number
+  radius: number
+  credit: string
+  note: string
+}
+
+/** The sheets are scanned at a resolution well above this; 300 dpi is plenty. */
+const LITHO_DPI = 300
+/** Grey level at or above which paper is bare, once thin ink has been removed. */
+const LITHO_PAPER = 240
+
+const LITHO_MOSAICS: LithoMosaicSpec[] = [
+  {
+    out: 'miranda.png',
+    body: 'Miranda',
+    url: 'https://pubs.usgs.gov/imap/1920/plate-1.pdf',
+    centreX: 3168.5,
+    centreY: 3681.3,
+    radius: 2645.75,
+    credit: 'USGS I-1920 sheet 1 (Voyager 2) — U.S. Geological Survey',
+    note: 'Voyager 2 controlled photomosaic, 1:2,000,000',
+  },
+  {
+    out: 'ariel.png',
+    body: 'Ariel',
+    url: 'https://pubs.usgs.gov/imap/1920/plate-2.pdf',
+    centreX: 2945.5,
+    centreY: 3302.0,
+    radius: 2542.0,
+    credit: 'USGS I-1920 sheet 2 (Voyager 2) — U.S. Geological Survey',
+    note: 'Voyager 2 controlled photomosaic, 1:5,000,000',
+  },
+  {
+    out: 'umbriel.png',
+    body: 'Umbriel',
+    url: 'https://pubs.usgs.gov/imap/1920/plate-3.pdf',
+    centreX: 2199.8,
+    centreY: 1908.0,
+    radius: 1289.0,
+    credit: 'USGS I-1920 sheet 3 (Voyager 2) — U.S. Geological Survey',
+    note: 'Voyager 2 controlled photomosaic, 1:10,000,000',
+  },
+  {
+    out: 'titania.png',
+    body: 'Titania',
+    url: 'https://pubs.usgs.gov/imap/1920/plate-3.pdf',
+    centreX: 2185.3,
+    centreY: 5705.8,
+    radius: 1736.75,
+    credit: 'USGS I-1920 sheet 3 (Voyager 2) — U.S. Geological Survey',
+    note: 'Voyager 2 controlled photomosaic, 1:10,000,000',
+  },
+  {
+    out: 'oberon.png',
+    body: 'Oberon',
+    url: 'https://pubs.usgs.gov/imap/1920/plate-3.pdf',
+    centreX: 2176.3,
+    centreY: 9891.8,
+    radius: 1672.75,
+    credit: 'USGS I-1920 sheet 3 (Voyager 2) — U.S. Geological Survey',
+    note: 'Voyager 2 controlled photomosaic, 1:10,000,000',
+  },
+]
+
+/**
+ * Rasterise one page of a PDF into raw 8-bit grey.
+ *
+ * Crops are clamped to the page: ImageMagick answers a crop that runs off the
+ * edge with a *smaller* image, and reading that back at the requested stride
+ * shears the whole map into concentric arcs that look convincingly like terrain.
+ */
+async function rasterise(
+  src: string,
+  crop: { x: number; y: number; w: number; h: number },
+  extra: string[],
+  dest: string,
+): Promise<void> {
+  await execFile('magick', [
+    '-density',
+    String(LITHO_DPI),
+    `${src}[0]`,
+    '-colorspace',
+    'Gray',
+    '-crop',
+    `${crop.w}x${crop.h}+${crop.x}+${crop.y}`,
+    '+repage',
+    ...extra,
+    '-depth',
+    '8',
+    `gray:${dest}`,
+  ])
+}
+
+async function pageSize(src: string): Promise<[number, number]> {
+  const { stdout } = await execFile('magick', [
+    'identify',
+    '-density',
+    String(LITHO_DPI),
+    '-format',
+    '%w %h',
+    `${src}[0]`,
+  ])
+  const [w, h] = stdout.trim().split(/\s+/).map(Number)
+  return [w!, h!]
+}
+
+async function buildLithoMosaic(spec: LithoMosaicSpec): Promise<boolean> {
+  const cachePath = path.join(CACHE, path.basename(spec.url))
+  if (!(await download(spec.url, cachePath, `${spec.out} ${C.dim(spec.note)}`))) return false
+
+  const [pageW, pageH] = await pageSize(cachePath)
+  const pad = Math.round(spec.radius * 1.24)
+  const rx = Math.max(0, Math.round(spec.centreX) - pad)
+  const ry = Math.max(0, Math.round(spec.centreY) - pad)
+  const w = Math.min(pageW - rx, pad * 2)
+  const h = Math.min(pageH - ry, pad * 2)
+  const crop = { x: rx, y: ry, w, h }
+
+  const rawPath = path.join(CACHE, `litho-${spec.body}.gray`)
+  const medPath = path.join(CACHE, `litho-${spec.body}-median.gray`)
+  await rasterise(cachePath, crop, [], rawPath)
+  // A second copy with thin ink removed, used only to tell paper from imagery.
+  // The graticule is a closed curve, so on the raw scan it walls the unimaged
+  // paper *inside* the latitude-0 circle off from the paper outside it, and a
+  // flood fill never reaches it. The window has to beat the widest line on the
+  // sheet: at 5 px the outer circle survived and sealed off wedges of blank
+  // paper between the meridians, which came through as white blocks.
+  await rasterise(cachePath, crop, ['-statistic', 'Median', '13x13'], medPath)
+
+  const px = await fs.readFile(rawPath)
+  const med = await fs.readFile(medPath)
+  if (px.length !== w * h || med.length !== w * h) {
+    console.log(`  ${C.red('bad    ')} ${spec.out}: expected ${w * h} px, got ${px.length}/${med.length}`)
+    return false
+  }
+  const cx = spec.centreX - rx
+  const cy = spec.centreY - ry
+
+  // Bare paper: near-white and reachable from the edge of the crop. Bright
+  // terrain inside the mosaic is just as white but is not connected to it.
+  const paper = new Uint8Array(w * h)
+  const stack: number[] = []
+  const push = (x: number, y: number): void => {
+    if (x < 0 || y < 0 || x >= w || y >= h) return
+    const i = y * w + x
+    if (paper[i] || med[i]! < LITHO_PAPER) return
+    paper[i] = 1
+    stack.push(i)
+  }
+  for (let x = 0; x < w; x++) {
+    push(x, 0)
+    push(x, h - 1)
+  }
+  for (let y = 0; y < h; y++) {
+    push(0, y)
+    push(w - 1, y)
+  }
+  while (stack.length) {
+    const i = stack.pop()!
+    const x = i % w
+    const y = (i - x) / w
+    push(x + 1, y)
+    push(x - 1, y)
+    push(x, y + 1)
+    push(x, y - 1)
+  }
+
+  // Take the graticule back off, in source space, by pulling each line's pixels
+  // from just beyond it at right angles. Masking the lines during resampling
+  // instead leaves a tapered wedge along every meridian, because the masked band
+  // subtends more and more longitude as it approaches the pole.
+  const src = Uint8Array.from(px)
+  const get = (x: number, y: number): number => {
+    const xi = Math.round(x)
+    const yi = Math.round(y)
+    if (xi < 0 || yi < 0 || xi >= w || yi >= h) return -1
+    return px[yi * w + xi]!
+  }
+  const put = (x: number, y: number, v: number): void => {
+    const xi = Math.round(x)
+    const yi = Math.round(y)
+    if (xi < 0 || yi < 0 || xi >= w || yi >= h || v < 0) return
+    src[yi * w + xi] = v
+  }
+  // Measure how far the ink actually reaches rather than assuming a width: the
+  // sheet letters its graticule ("-30", "-60") right against the lines, and a
+  // fixed-width repair leaves the digits printed across the terrain. The gap
+  // tolerance is what carries the repair over the whitespace around a glyph.
+  const measure = (sample: (d: number) => number, cap: number): [number, number] => {
+    const far = (sample(cap) + sample(-cap)) / 2
+    const run = (dir: number): number => {
+      let edge = 0
+      let gap = 0
+      for (let d = 1; d <= cap; d++) {
+        const v = sample(dir * d)
+        if (v >= 0 && v < far - 16) {
+          edge = d
+          gap = 0
+        } else if (++gap > 5) break
+      }
+      return edge
+    }
+    return [-run(-1) - 1.5, run(1) + 1.5]
+  }
+  const bridge = (
+    sample: (d: number) => number,
+    write: (d: number, v: number) => void,
+    cap: number,
+    stepSize: number,
+  ): void => {
+    const [lo, hi] = measure(sample, cap)
+    const a = sample(lo - 2)
+    const b = sample(hi + 2)
+    if (a < 0 || b < 0) return
+    for (let d = lo; d <= hi; d += stepSize) {
+      const f = (d - lo) / Math.max(hi - lo, 0.5)
+      write(d, Math.round(a * (1 - f) + b * f))
+    }
+  }
+  const latRadii = [0, -30, -60].map((lat) => spec.radius * Math.tan((((90 + lat) / 2) * Math.PI) / 180))
+  for (const r of latRadii) {
+    const steps = Math.ceil(2 * Math.PI * r * 2)
+    for (let i = 0; i < steps; i++) {
+      const t = (i / steps) * 2 * Math.PI
+      const ct = Math.cos(t)
+      const st = Math.sin(t)
+      bridge(
+        (d) => get(cx + (r + d) * st, cy - (r + d) * ct),
+        (d, v) => put(cx + (r + d) * st, cy - (r + d) * ct, v),
+        26,
+        0.5,
+      )
+    }
+  }
+  for (let k = 0; k < 12; k++) {
+    const t = ((k * 30) * Math.PI) / 180
+    for (let r = 4; r <= spec.radius * 1.02; r += 0.5) {
+      bridge(
+        (d) => get(cx + r * Math.sin(t + d / r), cy - r * Math.cos(t + d / r)),
+        (d, v) => put(cx + r * Math.sin(t + d / r), cy - r * Math.cos(t + d / r), v),
+        Math.min(26, r * 0.5),
+        0.4,
+      )
+    }
+  }
+
+  // Reproject. Polar stereographic about the south pole: a point at colatitude
+  // theta from that pole sits at radius R*tan(theta/2), with longitude running
+  // clockwise from 0 at the top of the sheet. That the law really is
+  // stereographic was read off the sheet rather than assumed -- the printed
+  // circles fall at 0.260 and 0.573 of the outer one, against tan-law
+  // predictions of 0.268 and 0.577, where an equidistant projection would put
+  // them at 0.333 and 0.667.
+  const outW = 2048
+  const outH = 1024
+  const grid = 6
+  const out = new Uint8Array(outW * outH)
+  const known = new Uint8Array(outW * outH)
+  let sum = 0
+  let count = 0
+  for (let oy = 0; oy < outH; oy++) {
+    const lat = 90 - ((oy + 0.5) / outH) * 180
+    // Stop at the equator. A few of the mosaics overrun it slightly, but past
+    // the latitude-0 circle the sheet carries its own furniture, and its
+    // "CONTROLLED PHOTOMOSAIC OF ..." caption sits due south of the disc, so
+    // reaching beyond the circle prints the sheet's own words along the edges
+    // of the map.
+    if (lat > 0) continue
+    const theta = ((90 + lat) * Math.PI) / 180
+    const rho = spec.radius * Math.tan(theta / 2)
+    const dRho = Math.abs(spec.radius * Math.tan((theta + Math.PI / outH) / 2) - rho) + 1
+    for (let ox = 0; ox < outW; ox++) {
+      const a = ((-180 + ((ox + 0.5) / outW) * 360) * Math.PI) / 180
+      const dLon = ((2 * Math.PI) / outW) * rho
+      let acc = 0
+      let n = 0
+      for (let i = 0; i < grid; i++) {
+        for (let j = 0; j < grid; j++) {
+          const r2 = rho + ((i + 0.5) / grid - 0.5) * dRho
+          const t2 = a + (((j + 0.5) / grid - 0.5) * dLon) / Math.max(rho, 1)
+          const xi = Math.round(cx + r2 * Math.sin(t2))
+          const yi = Math.round(cy - r2 * Math.cos(t2))
+          if (xi < 0 || yi < 0 || xi >= w || yi >= h) continue
+          const k = yi * w + xi
+          if (paper[k]) continue
+          acc += src[k]!
+          n++
+        }
+      }
+      if (!n) continue
+      const v = Math.round(acc / n)
+      const oi = oy * outW + ox
+      out[oi] = v
+      known[oi] = 1
+      sum += v
+      count++
+    }
+  }
+
+  // Unimaged ground is flattened rather than smeared, the same as Deimos's: a
+  // flat field reads as "nothing was seen here", where dilating the neighbours
+  // would invent surface. For these bodies that is half the world -- Voyager 2
+  // arrived at southern summer solstice and the northern hemispheres were in
+  // polar night.
+  const fill = count ? Math.round(sum / count) : 128
+  for (let i = 0; i < out.length; i++) if (!known[i]) out[i] = fill
+
+  await fs.mkdir(TEXTURES, { recursive: true })
+  const png = encodePng(outW, outH, Buffer.from(out), 1)
+  await fs.writeFile(path.join(TEXTURES, spec.out), png)
+  console.log(
+    `  ${C.green('wrote  ')} ${spec.out} ${C.dim(
+      `${outW}x${outH} grey, ${((count / out.length) * 100).toFixed(1)}% imaged, ${mb(png.length)}`,
+    )}`,
+  )
+  return true
+}
+
+// ---------------------------------------------------------------------------
 // 3. JPL satellite elements + physical parameters
 // ---------------------------------------------------------------------------
 
@@ -2569,6 +2928,16 @@ async function main(): Promise<void> {
         continue
       }
       if (!(await buildFitsMosaic(spec))) failures.push(spec.out)
+    }
+
+    step('USGS lithographed photomosaics (public domain)')
+    for (const spec of LITHO_MOSAICS) {
+      const outPath = path.join(TEXTURES, spec.out)
+      if (await exists(outPath)) {
+        console.log(`  ${C.dim('have   ')} ${spec.out}`)
+        continue
+      }
+      if (!(await buildLithoMosaic(spec))) failures.push(spec.out)
     }
   }
 
