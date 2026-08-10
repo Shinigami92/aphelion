@@ -25,6 +25,7 @@ import {
   BackSide,
   Color,
   DoubleSide,
+  FrontSide,
   LinearSRGBColorSpace,
   ShaderMaterial,
   Vector2,
@@ -561,6 +562,23 @@ export interface AtmosphereMaterialOptions {
   steps?: number
 }
 
+/**
+ * Single-scattering haze shell.
+ *
+ * Every length in this shader is measured in **scale heights**, which is the
+ * one decision the whole thing rests on. The integral used to accumulate
+ * optical depth in scene units, so `density` meant nothing on its own: the same
+ * body was optically thicker at explore scale than at true scale (its radius
+ * changes by 6x), and the number could not be compared against anything
+ * published. Dividing every path length by the scale height makes the integral
+ * dimensionless, and `density` becomes exactly the atmosphere's **vertical
+ * optical depth** — a quantity that is in the literature for all nine bodies
+ * that have one, and that is identical in both scale modes.
+ *
+ * `uPlanetRadius` and `uAtmoRadius` must arrive in the body's *rendered* scene
+ * units, matching the mesh. Passing the ratio instead of the radius is what
+ * kept this shader from drawing a single pixel for its first several months.
+ */
 export function createAtmosphereMaterial(opts: AtmosphereMaterialOptions): ShaderMaterial {
   const steps = opts.steps ?? 12
   const lightSteps = 4
@@ -568,23 +586,25 @@ export function createAtmosphereMaterial(opts: AtmosphereMaterialOptions): Shade
   return new ShaderMaterial({
     transparent: true,
     depthWrite: false,
-    // Render the inside of the shell so there is always a fragment, whether the
-    // camera is outside the atmosphere or flying through it.
-    side: BackSide,
+    // Flipped per frame by updateVisual: front faces while the camera is
+    // outside, so the haze is depth-tested against anything in front of it;
+    // back faces with the depth test off once the camera is inside the shell,
+    // where the front faces are behind the eye and the planet would otherwise
+    // reject every fragment.
+    side: FrontSide,
     blending: AdditiveBlending,
     uniforms: {
       uCentre: { value: new Vector3() },
       uPlanetRadius: { value: opts.planetRadius },
       uAtmoRadius: { value: opts.atmosphereRadius },
+      uPole: { value: new Vector3(0, 0, 1) },
+      uSquash: { value: 1 },
       uSunPos: { value: new Vector3() },
       uSunRadius: { value: 1 },
+      uSunIntensity: { value: 1 },
       uRayleigh: { value: new Vector3(...opts.rayleigh) },
       uMie: { value: opts.mie },
       uDensity: { value: opts.density },
-      uExposure: { value: 1 },
-      uOccluders: {
-        value: Array.from({ length: MAX_OCCLUDERS }, () => new Vector4(0, 0, 0, 0)),
-      },
     },
     vertexShader: /* glsl */ `
       varying vec3 vWorldPos;
@@ -604,115 +624,164 @@ export function createAtmosphereMaterial(opts: AtmosphereMaterialOptions): Shade
       uniform vec3 uCentre;
       uniform float uPlanetRadius;
       uniform float uAtmoRadius;
+      uniform vec3 uPole;
+      uniform float uSquash;
       uniform vec3 uSunPos;
       uniform float uSunRadius;
+      uniform float uSunIntensity;
       uniform vec3 uRayleigh;
       uniform float uMie;
       uniform float uDensity;
-      uniform float uExposure;
-      uniform vec4 uOccluders[${MAX_OCCLUDERS}];
 
       varying vec3 vWorldPos;
 
       ${GLSL_RAY_SPHERE}
-      ${GLSL_ECLIPSE}
 
       #include <logdepthbuf_pars_fragment>
 
       const int STEPS = ${steps};
       const int LIGHT_STEPS = ${lightSteps};
 
-      // Exponential atmosphere: the shell thickness is ~5 scale heights.
-      float densityAt(vec3 p) {
-        float h = length(p - uCentre) - uPlanetRadius;
-        float H = (uAtmoRadius - uPlanetRadius) / 5.0;
-        return exp(-max(h, 0.0) / max(H, 1e-6));
+      // A white Lambertian surface facing the Sun renders as 1.0 in this
+      // pipeline (createBodyMaterial: albedo * diffuse * uSunIntensity), so one
+      // output unit is an irradiance of pi. Both phase functions below are
+      // normalised to integrate to 1 over the sphere, which means the
+      // single-scattering radiance needs that same pi to land in the renderer's
+      // units. It is the only gain in the shader: the 22.0 and 14.0 that used
+      // to sit here were compensating for the scene-unit path lengths.
+      const float RADIANCE_TO_UNITS = 3.14159265;
+
+      /**
+       * Stretch along the pole so an oblate body becomes a sphere.
+       *
+       * Saturn is flattened by 1/10 and Jupiter by 1/15. Marching them as
+       * spheres puts the analytic surface proud of the drawn mesh at the poles,
+       * which shows up as a dark collar between the visible pole and the point
+       * where the haze starts — the shell's radius is equatorial everywhere.
+       * The map is affine, so rays stay straight and every intersection below is
+       * still a plain ray-sphere test. Path lengths stretch by up to 1/uSquash
+       * along the pole (11% at Saturn), which is far inside the tolerance of a
+       * haze described by one number per body. It also puts the isopycnic
+       * surfaces on spheroids rather than spheres, which is what a rotating
+       * atmosphere actually does.
+       */
+      vec3 toSphere(vec3 v) {
+        return v + uPole * dot(v, uPole) * (1.0 / uSquash - 1.0);
       }
 
-      // Optical depth from a point toward the Sun.
-      float lightOpticalDepth(vec3 p, vec3 L) {
-        vec2 hit = raySphere(p, L, uCentre, uAtmoRadius);
+      // Scale height of the visible haze. The shell is five of them.
+      float scaleHeight() {
+        return max((uAtmoRadius - uPlanetRadius) / 5.0, 1e-9);
+      }
+
+      // Density relative to ground level, at a point measured from the centre.
+      //
+      // The exponential is offset so it reaches exactly zero at the top of the
+      // shell instead of being truncated at exp(-5). Five scale heights up the
+      // air is still 0.67% of ground density, and a grazing ray crosses a long
+      // chord of it, so cutting it off draws a hard-edged disc around the body —
+      // very visible on Titan, whose shell is 23% of its radius. Costs 0.7% of
+      // the column and buys a haze that fades into space.
+      float densityAt(vec3 p) {
+        const float EDGE = 0.006737947;   // exp(-5)
+        float d = exp(-max(length(p) - uPlanetRadius, 0.0) / scaleHeight());
+        return max(d - EDGE, 0.0) / (1.0 - EDGE);
+      }
+
+      // Air mass from a point toward the Sun, in scale heights. Dimensionless:
+      // multiply by a vertical optical depth to get an optical depth.
+      float lightAirMass(vec3 p, vec3 L) {
+        vec2 hit = raySphere(p, L, vec3(0.0), uAtmoRadius);
         if (hit.y < hit.x) return 0.0;
-        float len = max(hit.y, 0.0);
-        float stepLen = len / float(LIGHT_STEPS);
+        float stepLen = max(hit.y, 0.0) / float(LIGHT_STEPS);
         float total = 0.0;
         vec3 pos = p + L * stepLen * 0.5;
         for (int i = 0; i < LIGHT_STEPS; i++) {
           total += densityAt(pos) * stepLen;
           pos += L * stepLen;
         }
-        return total;
+        return total / scaleHeight();
       }
 
       void main() {
         #include <logdepthbuf_fragment>
 
-        vec3 ro = cameraPosition;
-        vec3 rd = normalize(vWorldPos - cameraPosition);
+        // The march runs in the space where the body is a sphere at the origin.
+        vec3 rdWorld = normalize(vWorldPos - cameraPosition);
+        vec3 ro = toSphere(cameraPosition - uCentre);
+        vec3 rd = normalize(toSphere(rdWorld));
 
-        vec2 atmo = raySphere(ro, rd, uCentre, uAtmoRadius);
+        vec2 atmo = raySphere(ro, rd, vec3(0.0), uAtmoRadius);
         if (atmo.y < atmo.x) discard;
 
         float tNear = max(atmo.x, 0.0);
         float tFar = atmo.y;
 
         // Stop at the planet's surface if the ray hits it.
-        vec2 solid = raySphere(ro, rd, uCentre, uPlanetRadius);
-        bool hitsSurface = solid.y >= solid.x && solid.y > 0.0;
-        if (hitsSurface) tFar = min(tFar, max(solid.x, 0.0));
+        vec2 solid = raySphere(ro, rd, vec3(0.0), uPlanetRadius);
+        if (solid.y >= solid.x && solid.y > 0.0) tFar = min(tFar, max(solid.x, 0.0));
         if (tFar <= tNear) discard;
 
-        float segment = tFar - tNear;
-        float stepLen = segment / float(STEPS);
+        vec3 sunPos = toSphere(uSunPos - uCentre);
 
-        vec3 rayleighTotal = vec3(0.0);
-        float mieTotal = 0.0;
-        float viewOpticalDepth = 0.0;
+        float stepLen = (tFar - tNear) / float(STEPS);
+        float stepH = stepLen / scaleHeight();
 
+        // Per-channel vertical optical depth: the tint sets what is scattered
+        // out of the beam, plus a grey aerosol term.
+        vec3 tauVertical = uDensity * (uRayleigh + vec3(uMie));
+
+        // The haze colour, normalised. The aerosol in-scatter is tinted with it
+        // rather than left grey, and Titan is the reason. Its Mie term is 1.2
+        // against a Rayleigh tint of 0.95, and at the high phase angles where a
+        // haze is worth looking at the Cornette-Shanks lobe reaches 2.8 against
+        // Rayleigh's 0.12 — so a grey aerosol term buries the tint about 30 to 1
+        // and the only colour left is the *extinction*, which favours whatever
+        // the tint scatters least. That renders Titan pale blue-grey: exactly
+        // inverted. Real tholin haze scatters with a strong colour of its own.
+        vec3 hazeTint = uRayleigh / max(max(uRayleigh.r, max(uRayleigh.g, uRayleigh.b)), 1e-4);
+
+        vec3 inscatter = vec3(0.0);
+        float airMass = 0.0;
         vec3 pos = ro + rd * (tNear + stepLen * 0.5);
-        vec3 sunDir = normalize(uSunPos - uCentre);
 
         for (int i = 0; i < STEPS; i++) {
           float d = densityAt(pos);
-          float dOpt = d * stepLen;
-          viewOpticalDepth += dOpt;
+          airMass += d * stepH;
 
-          // Is this sample in the planet's own shadow?
-          vec3 L = normalize(uSunPos - pos);
-          vec2 shadowHit = raySphere(pos, L, uCentre, uPlanetRadius);
-          bool inShadow = shadowHit.y >= shadowHit.x && shadowHit.x > 0.0;
+          vec3 toSun = sunPos - pos;
+          float sunDist = length(toSun);
+          vec3 L = toSun / sunDist;
 
-          if (!inShadow) {
-            float lOpt = lightOpticalDepth(pos, L);
-            // Transmittance along light path then view path.
-            vec3 tau = uRayleigh * (lOpt + viewOpticalDepth) * uDensity
-                     + vec3(uMie) * (lOpt + viewOpticalDepth) * uDensity * 0.15;
-            vec3 transmittance = exp(-tau);
-            // The shell scales uniformly with the planet, so the self-shadow
-            // test above is exact in either scale mode; third-body eclipse
-            // shadowing of the haze is left to the surface shader.
-            rayleighTotal += d * transmittance;
-            mieTotal += d * transmittance.r;
+          // Soft planet shadow: the penumbra is the Sun's angular radius
+          // carried over the distance from the sample to its closest approach
+          // to the axis, so the haze fades into the shadow instead of ending on
+          // a hard rim. A hard test is what makes a terminator look stamped on.
+          float along = dot(-pos, L);
+          float perp = sqrt(max(dot(pos, pos) - along * along, 0.0));
+          float penumbra = max(uSunRadius / sunDist * max(along, 0.0), uPlanetRadius * 1e-3);
+          float lit = along > 0.0
+            ? smoothstep(uPlanetRadius - penumbra, uPlanetRadius + penumbra, perp)
+            : 1.0;
+
+          if (lit > 0.0) {
+            inscatter += d * stepH * lit * exp(-tauVertical * (airMass + lightAirMass(pos, L)));
           }
           pos += rd * stepLen;
         }
 
-        rayleighTotal *= stepLen * uDensity;
-        mieTotal *= stepLen * uDensity;
-
-        float mu = dot(rd, normalize(uSunPos - ro));
-        // Rayleigh phase.
+        // Phase angle comes from the true world geometry, not the skewed space.
+        float mu = dot(rdWorld, normalize(uSunPos - cameraPosition));
         float phaseR = 0.0596831 * (1.0 + mu * mu);
-        // Cornette-Shanks Mie phase, g = 0.76: strong forward scattering.
-        float g = 0.76;
-        float g2 = g * g;
+        // Cornette-Shanks, g = 0.76: the forward lobe that lights Pluto's haze
+        // from behind and hazes Titan's crescent.
+        const float g = 0.76;
+        const float g2 = g * g;
         float phaseM = 0.1193662 * ((1.0 - g2) * (1.0 + mu * mu))
-                     / ((2.0 + g2) * pow(1.0 + g2 - 2.0 * g * mu, 1.5));
+                     / ((2.0 + g2) * pow(max(1.0 + g2 - 2.0 * g * mu, 1e-4), 1.5));
 
-        vec3 colour = rayleighTotal * uRayleigh * phaseR * 22.0
-                    + mieTotal * uMie * phaseM * 14.0;
-
-        colour *= uExposure;
+        vec3 colour = inscatter * uDensity * (uRayleigh * phaseR + hazeTint * uMie * phaseM)
+                    * uSunIntensity * RADIANCE_TO_UNITS;
 
         gl_FragColor = vec4(max(colour, vec3(0.0)), 1.0);
       }

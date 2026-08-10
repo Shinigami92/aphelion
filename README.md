@@ -244,7 +244,10 @@ UI.
   when explore mode has enlarged the bodies.
 - **Single-scattering atmospheres.** Rayleigh + Mie integrated along the view ray
   in the fragment shader, which is what produces the blue limb, the reddened
-  terminator and correct forward-scattering haze.
+  terminator and correct forward-scattering haze. Path lengths are measured in
+  scale heights rather than scene units, so each body's `density` is its real
+  vertical optical depth — Earth's is 0.23, its Rayleigh depth at 440 nm — and it
+  means the same thing at true and explore scale.
 - **Floating origin.** Everything hangs off one group positioned at the negation
   of the focused body, so the focus sits at render-space zero and float32
   precision is spent where the camera is. Without it you cannot stand on a moon

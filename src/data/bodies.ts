@@ -11,15 +11,39 @@ import type { SpinModel } from '../astro/frames.ts'
 
 export type BodyType = 'star' | 'planet' | 'dwarf' | 'moon' | 'asteroid'
 
-/** Single-scattering atmosphere parameters, tuned per body. */
+/**
+ * Single-scattering atmosphere parameters.
+ *
+ * `density` is the one number here that means something outside this file: it is
+ * the atmosphere's **vertical optical depth**, in the channel the `rayleigh`
+ * tint peaks in. The shader measures every path length in scale heights, so the
+ * figure is dimensionless and identical at true and explore scale, and it can be
+ * checked against published values rather than dialled in by eye. Earth's 0.23
+ * is its Rayleigh optical depth at 440 nm, and the `rayleigh` triple below it is
+ * very nearly the lambda^-4 ratio between 650, 550 and 440 nm.
+ *
+ * The rest are appearance: `rayleigh` is a scattering *tint*, not a
+ * cross-section, which is how Titan's orange and Uranus' cyan get expressed at
+ * all — both are absorption features (tholins, methane) rather than Rayleigh
+ * colour, and folding them in here beats a second set of absorption uniforms.
+ *
+ * One caveat worth knowing before retuning any of these. The shell is additive
+ * over the body's own texture, and for every body except Earth and Mars that
+ * texture *is* a photograph of the atmosphere — Jupiter's bands, Venus' deck,
+ * Uranus' cyan — so it already contains the scattering below the cloud tops.
+ * The shell therefore stands for the haze *above* the mapped deck, and the
+ * figures below are column depths to roughly the 1 bar level rather than to the
+ * bottom of the atmosphere. Earth is the exception: its map is land and ocean,
+ * so it gets the whole column.
+ */
 export interface AtmosphereSpec {
-  /** Scale height of the visible haze, km — sets the shell thickness. */
+  /** Scale height of the visible haze, km — the shell is five of them. */
   thicknessKm: number
   /** Rayleigh scattering tint (relative RGB, not physical units). */
   rayleigh: [number, number, number]
-  /** Mie (aerosol) strength. */
+  /** Mie (aerosol) strength, relative to the Rayleigh tint. */
   mie: number
-  /** Overall optical density multiplier. */
+  /** Vertical optical depth of the haze — see above; not a free multiplier. */
   density: number
   /** Ground-level haze colour, used for the terminator glow. */
   groundTint: [number, number, number]
@@ -226,7 +250,11 @@ export const PLANETS: BodySpec[] = [
       thicknessKm: 250,
       rayleigh: [0.9, 0.75, 0.45],
       mie: 0.9,
-      density: 3.4,
+      // The upper haze above the cloud tops, tau ~= 0.05-0.5 measured. Not the
+      // clouds themselves: their tau is 20-40, and they are already drawn from
+      // venus_atmosphere.jpg. Using the cloud figure here would render Venus as
+      // a blown-out white ball and throw that texture away.
+      density: 0.5,
       groundTint: [1.0, 0.85, 0.55],
     },
     facts: {
@@ -263,7 +291,11 @@ export const PLANETS: BodySpec[] = [
       thicknessKm: 100,
       rayleigh: [0.19, 0.45, 1.0],
       mie: 0.22,
-      density: 1.0,
+      // Rayleigh optical depth at 440 nm. The standard sea-level column is
+      // 0.0973 at 550 nm; scaled by lambda^-4 that is 0.237 at 440 and 0.049 at
+      // 650, which is the tint above to two figures. Earth is the reference the
+      // other eight are argued relative to.
+      density: 0.23,
       groundTint: [1.0, 0.6, 0.35],
     },
     facts: {
@@ -294,7 +326,11 @@ export const PLANETS: BodySpec[] = [
       thicknessKm: 60,
       rayleigh: [0.55, 0.4, 0.32],
       mie: 0.55,
-      density: 0.16,
+      // Suspended dust, not gas: 6 mbar of CO2 has a Rayleigh depth of only
+      // ~0.006, while Viking and the MERs measured dust columns of 0.3-0.6 in
+      // ordinary seasons and under 0.1 at the clearest. This is a clear-season
+      // figure, which is why the tint above is dust-coloured rather than blue.
+      density: 0.15,
       groundTint: [0.75, 0.55, 0.45],
     },
     facts: {
@@ -325,7 +361,12 @@ export const PLANETS: BodySpec[] = [
       thicknessKm: 1200,
       rayleigh: [0.7, 0.6, 0.45],
       mie: 0.4,
-      density: 0.7,
+      // Rayleigh depth of an H2/He column to 1 bar, at 440 nm. Column density
+      // goes as P/(m*g): at 2.22 u against air's 28.97 and this body's own
+      // `gravity` of 24.79, that is 5.2x Earth's column, and H2/He scatters
+      // 0.18x as strongly per molecule (refractivity 1.25e-4 against 2.93e-4,
+      // squared). 5.2 * 0.18 * 0.237 = 0.22.
+      density: 0.22,
       groundTint: [0.95, 0.85, 0.7],
     },
     rings: [
@@ -418,7 +459,10 @@ export const PLANETS: BodySpec[] = [
       thicknessKm: 1100,
       rayleigh: [0.75, 0.68, 0.5],
       mie: 0.45,
-      density: 0.6,
+      // Same derivation as Jupiter's, and it comes out 2.4x larger for one
+      // reason: `gravity` is 10.44 against Jupiter's 24.79, so the same pressure
+      // holds that much more gas overhead. 12.7 * 0.18 * 0.237 = 0.54.
+      density: 0.54,
       groundTint: [0.98, 0.92, 0.75],
     },
     rings: [
@@ -575,7 +619,11 @@ export const PLANETS: BodySpec[] = [
       thicknessKm: 900,
       rayleigh: [0.35, 0.8, 0.95],
       mie: 0.25,
-      density: 0.85,
+      // The largest of the four, at 14.2x Earth's column per bar: `gravity` is
+      // only 8.69 and the H2/He is heavier with methane mixed in. 0.60 at 440
+      // nm. A deep clear Rayleigh layer over a distant cloud deck is exactly why
+      // this planet is featureless cyan, so here the shell is the whole story.
+      density: 0.6,
       groundTint: [0.6, 0.9, 0.95],
     },
     rings: [
@@ -664,7 +712,11 @@ export const PLANETS: BodySpec[] = [
       thicknessKm: 900,
       rayleigh: [0.22, 0.5, 1.0],
       mie: 0.28,
-      density: 0.95,
+      // 11.1x Earth's column per bar, so 0.47 — a little under Uranus, because
+      // `gravity` is 11.15 against 8.69. The two planets are near-twins in
+      // composition, and their blues differ by rather more than that; the rest is
+      // in the tints, where Neptune's is the deeper.
+      density: 0.47,
       groundTint: [0.4, 0.6, 1.0],
     },
     rings: [
@@ -745,7 +797,12 @@ export const DWARF_PLANETS: BodySpec[] = [
       thicknessKm: 50,
       rayleigh: [0.5, 0.55, 0.7],
       mie: 0.6,
-      density: 0.08,
+      // Optically thin — New Horizons put the haze at tau ~ 0.01-0.1 in the blue
+      // — and yet it produced the most famous image of the encounter, because it
+      // was shot at a phase angle of 166 degrees. That is the forward-scattering
+      // lobe doing the work, not the optical depth, which is why this is the one
+      // body here where `mie` outweighs a `density` this small.
+      density: 0.06,
       groundTint: [0.7, 0.75, 0.85],
     },
     facts: {
@@ -950,7 +1007,12 @@ export const MOON_ATMOSPHERES: Record<string, AtmosphereSpec> = {
     thicknessKm: 120,
     rayleigh: [0.95, 0.6, 0.22],
     mie: 1.2,
-    density: 2.2,
+    // By far the thickest here, and the only figure over 1: the tholin haze runs
+    // to tau ~ 2-5 at visible wavelengths, which is why Titan has no visible
+    // surface from outside and why Huygens had to be landed blind. The shell is
+    // additive, so the surface map still shows through where the real thing would
+    // not — the compromise that keeps the newly added imagery worth having.
+    density: 2.5,
     groundTint: [1.0, 0.72, 0.35],
   },
 }

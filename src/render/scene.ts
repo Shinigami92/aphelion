@@ -21,9 +21,11 @@
 
 import {
   AdditiveBlending,
+  BackSide,
   BufferAttribute,
   BufferGeometry,
   Color,
+  FrontSide,
   Group,
   InstancedBufferAttribute,
   InstancedBufferGeometry,
@@ -104,6 +106,35 @@ const LOD_SEGMENTS: ReadonlyArray<readonly [number, number]> = [
   [96, 52],
   [192, 96],
 ]
+
+/**
+ * How far proud of the analytic atmosphere the shell mesh is drawn.
+ *
+ * A polygonal sphere is inscribed in the sphere it stands for, so at 48x26 its
+ * silhouette falls ~0.2% short. The shader intersects the true sphere, so any
+ * shortfall clips the faintest, outermost haze into a hard-edged disc. 1% of a
+ * shell that is itself 8-23% of a radius costs nothing.
+ */
+const SHELL_MESH_MARGIN = 1.01
+
+/**
+ * Illumination falloff at a body's distance from the Sun.
+ *
+ * True irradiance goes as 1/r^2, which puts Saturn at 1% of Earth's brightness
+ * and Neptune at 0.1% — rendered literally, the outer system is black. Real
+ * eyes adapt; a fixed monitor does not. So the exponent is compressed, which
+ * keeps the *ordering* and a real sense of dimming while leaving every planet
+ * visible. This is the one deliberately non-physical constant in the renderer.
+ *
+ * Surfaces and atmospheres both read it from here. They have to agree: a haze
+ * lit at full strength around a planet dimmed to 22% reads as a body glowing
+ * from within, and tuning nine optical depths against that error would bake the
+ * distance dimming into numbers that are supposed to be optical depths.
+ */
+function sunIntensity(body: SimBody): number {
+  const rKm = Math.max(Math.hypot(body.helioKm.x, body.helioKm.y, body.helioKm.z), 1)
+  return Math.min(3, Math.pow(AU_KM / rKm, 0.45))
+}
 
 const QUALITY: Record<Quality, { bloom: boolean; atmoSteps: number; maxPixelRatio: number; msaa: number; sphereBias: number }> = {
   low: { bloom: false, atmoSteps: 6, maxPixelRatio: 1, msaa: 0, sphereBias: 0.6 },
@@ -719,7 +750,11 @@ export class SceneView {
         steps: QUALITY[this.quality].atmoSteps,
       })
       const shell = new Mesh(this.lodGeometries[1]!, atmoMaterial)
-      shell.scale.setScalar(shellRatio)
+      // The ratio is the only part of the shell that is constant. Its scene
+      // radius has to be recomputed every frame, because the body's rendered
+      // radius moves with the explore/true blend — so it is stashed here and
+      // applied in updateVisual rather than baked into the scale now.
+      shell.userData.shellRatio = shellRatio
       shell.renderOrder = 3
       group.add(shell)
       visual.atmosphere = shell
@@ -1084,10 +1119,16 @@ export class SceneView {
       visual.clouds.quaternion.copy(visual.mesh.quaternion)
       visual.clouds.scale.set(radius * cloudLift, radius * cloudLift, radius * cloudLift * squash)
     }
+    // The shell is a uniformly scaled sphere, so it needs no orientation of its
+    // own: the shader gets the pole as a uniform and squashes the march instead.
+    const shellRatio = (visual.atmosphere?.userData.shellRatio as number | undefined) ?? 1
+    const shellRadius = radius * shellRatio
     if (visual.atmosphere) {
-      const ratio = (visual.atmosphere.userData.shellRatio as number | undefined) ?? null
-      void ratio
-      visual.atmosphere.quaternion.copy(visual.mesh.quaternion)
+      // The mesh only has to generate fragments — the shader intersects the
+      // shell analytically. A polygonal sphere is inscribed in the sphere it
+      // approximates, so it is scaled a hair proud of `shellRadius`; without
+      // that margin the outermost haze is clipped by its own silhouette.
+      visual.atmosphere.scale.setScalar(shellRadius * SHELL_MESH_MARGIN)
     }
 
     // Body centre in render space.
@@ -1105,13 +1146,35 @@ export class SceneView {
     }
     if (visual.atmosphereMaterial) {
       const u = visual.atmosphereMaterial.uniforms
-      const shellRatio = visual.atmosphere ? visual.atmosphere.scale.x / Math.max(radius, 1e-9) : 1
-      void shellRatio
       u.uCentre!.value.copy(centre)
+      // Both radii in rendered scene units, matching the mesh. Handing the
+      // shader the *ratio* here while the mesh sat at 1.08 units inside a
+      // 38-unit planet is what kept this shell from drawing a single pixel.
       u.uPlanetRadius!.value = radius
-      u.uAtmoRadius!.value = visual.atmosphere ? visual.atmosphere.scale.x : radius
+      u.uAtmoRadius!.value = shellRadius
+      const pole = body.orientation.z
+      u.uPole!.value.set(pole.x, pole.y, pole.z)
+      u.uSquash!.value = squash
       u.uSunPos!.value.copy(this.sunRender)
       u.uSunRadius!.value = sunSceneRadius
+      // The same compressed falloff the surface gets, so a planet's haze is
+      // never lit more brightly than the planet it belongs to.
+      u.uSunIntensity!.value = sunIntensity(body)
+
+      // Occlusion depends on which side of the shell the camera is on. Outside,
+      // front faces sit in front of the planet and depth-test correctly against
+      // anything nearer. Inside, the front faces are behind the eye, and the
+      // back faces would be rejected by the planet's own depth — so the test
+      // comes off and the shader's clamp at the surface does the work.
+      const material = visual.atmosphereMaterial
+      const camera = this.currentCamera
+      const inside = camera ? camera.position.distanceTo(centre) < shellRadius * SHELL_MESH_MARGIN : false
+      const side = inside ? BackSide : FrontSide
+      if (material.side !== side) {
+        material.side = side
+        material.depthTest = !inside
+        material.needsUpdate = true
+      }
       visual.atmosphere!.visible = this.toggles.atmospheres
     }
 
@@ -1404,17 +1467,7 @@ export class SceneView {
     u.uSunRadius!.value = sunSceneRadius
     u.uBodyCentre!.value.copy(centre)
     u.uKmPerUnit!.value = body.radiusKm / Math.max(body.sceneRadius, 1e-9)
-
-    // Illumination falloff.
-    //
-    // True irradiance goes as 1/r^2, which puts Saturn at 1% of Earth's
-    // brightness and Neptune at 0.1% — rendered literally, the outer system is
-    // black. Real eyes adapt; a fixed monitor does not. So we compress the
-    // exponent, which keeps the *ordering* and a real sense of dimming while
-    // leaving every planet visible. This is the one deliberately non-physical
-    // constant in the renderer.
-    const rKm = Math.max(Math.hypot(body.helioKm.x, body.helioKm.y, body.helioKm.z), 1)
-    u.uSunIntensity!.value = Math.min(3, Math.pow(AU_KM / rKm, 0.45))
+    u.uSunIntensity!.value = sunIntensity(body)
 
     // The Sun in body-centred kilometres.
     u.uSunPosKm!.value.set(-body.helioKm.x, -body.helioKm.y, -body.helioKm.z)
