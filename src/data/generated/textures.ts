@@ -7,6 +7,7 @@
  */
 
 export const AVAILABLE_TEXTURES: ReadonlySet<string> = new Set([
+  "ariel.png",
   "callisto.jpg",
   "ceres.jpg",
   "charon.jpg",
@@ -30,8 +31,10 @@ export const AVAILABLE_TEXTURES: ReadonlySet<string> = new Set([
   "mars.jpg",
   "mercury.jpg",
   "mimas.jpg",
+  "miranda.png",
   "moon.jpg",
   "neptune.jpg",
+  "oberon.png",
   "phobos.jpg",
   "phoebe.jpg",
   "pluto.jpg",
@@ -42,7 +45,9 @@ export const AVAILABLE_TEXTURES: ReadonlySet<string> = new Set([
   "sun.jpg",
   "tethys.jpg",
   "titan.jpg",
+  "titania.png",
   "triton.jpg",
+  "umbriel.png",
   "uranus.jpg",
   "venus_atmosphere.jpg",
   "venus_surface.jpg",

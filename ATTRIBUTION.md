@@ -187,6 +187,73 @@ fixed tint (`textureTint` in `data/bodies.ts`) matching Pluto's measured global
 colour. **The detail is real New Horizons data; the hue is applied.** No other body
 is tinted.
 
+### USGS I-1920 — the Uranian moons, from a printed map sheet
+
+**Licence: public domain** (US Government work, derived from NASA mission data).
+
+| Body | Source | Instruments |
+| --- | --- | --- |
+| Miranda | I-1920 sheet 1, controlled photomosaic | Voyager 2 ISS, 1:2,000,000 |
+| Ariel | I-1920 sheet 2, controlled photomosaic | Voyager 2 ISS, 1:5,000,000 |
+| Umbriel, Titania, Oberon | I-1920 sheet 3, controlled photomosaics | Voyager 2 ISS, 1:10,000,000 |
+
+U.S. Geological Survey, 1988, *The Southern hemispheres of the Uranian
+satellites*: USGS IMAP 1920, 10 remote sensing images on 3 sheets.
+<https://doi.org/10.3133/i1920>. Prepared for the Voyager Imaging Science Team
+in cooperation with JPL and NASA; control from Davies, Colvin, Katayama and
+Thomas (1987), *The control networks of the satellites of Uranus*, Icarus 71,
+137–147.
+
+**These five moons have no digital global mosaic, and this is why.** Voyager 2
+is the only spacecraft ever to visit Uranus, and the maps made from it were
+published as lithographs. Astropedia holds only nomenclature and control
+networks for these bodies, the USGS mosaic and basemap buckets have no Uranus
+entry at all, and NAIF has no shape model — the archives were listed, not
+guessed. So `scripts/fetch-assets.ts` takes the scanned sheets, rasterises them
+at 300 dpi, and reads the maps back off the paper.
+
+Each sheet carries a controlled photomosaic *and* an airbrush pictorial map of
+the same hemisphere, side by side. **Aphelion uses only the photomosaics** —
+real Voyager pixels — and ignores the airbrush renderings, which are
+interpretations.
+
+Four things about the source drive the conversion, and each was read off the
+sheet or measured from it rather than assumed:
+
+- **Polar stereographic, centred on the south pole.** The sheets say so, and the
+  scan agrees: the printed latitude circles fall at 0.260 and 0.573 of the outer
+  circle's radius against the tangent law's 0.268 and 0.577, where an equidistant
+  projection would put them at 0.333 and 0.667. The geometry of each mosaic is
+  fitted by matching all three printed circles at once, because the outer circle
+  alone cannot be told from the mosaic's own dark edge.
+- **East longitude, zero facing Uranus, increasing clockwise on the page.**
+  Checked against the IAU Gazetteer rather than reasoned about: Oberon's
+  dark-floored craters Hamlet and Macbeth land on the two conspicuous dark
+  patches, Umbriel's Wunda lands on its one bright ring, and Miranda's Arden,
+  Elsinore and Inverness coronae land on their structures. Mirrored, all of them
+  fall on unremarkable ground. `pnpm validate` keeps three of these pinned.
+- **The graticule is printed over the imagery**, along with its lettering. Both
+  are taken back off by interpolating across each line at right angles, after
+  measuring how far its ink actually reaches — a fixed-width repair leaves the
+  digits of "−30" and "−60" printed across the terrain. Faint traces of the
+  latitude circles remain.
+- **Bare paper is not surface.** Unimaged ground inside the mosaic outline is
+  found by flood-filling the sheet's white from outside, through a copy of the
+  scan with thin ink removed so the closed latitude circle cannot wall the blank
+  areas off.
+
+**Half of each of these worlds has never been seen.** Voyager 2 arrived at
+southern summer solstice in January 1986, so the northern hemispheres were in
+polar night. 73–87% of the southern hemisphere is imaged and the north is
+entirely blank; as with Deimos, those pixels are flattened to the image mean, so
+unobserved ground reads as blank rather than as invented terrain. The mosaics are
+panchromatic and no tint is applied.
+
+One honest caveat beyond that: a photomosaic carries its own illumination. The
+Sun was near the south pole at the encounter, and that lighting is baked into the
+imagery, so these five bodies wear their 1986 terminator rather than a
+photometrically flattened albedo.
+
 ### PDS Geosciences Node — global topography
 
 **Licence: public domain** (US Government work, NASA mission data).
@@ -441,6 +508,24 @@ meridian faces its parent and its pole is the orbit normal. That *is* what tidal
 locking means, and it stays correct for all 459 without needing per-moon
 constants.
 
+The orbit normal fixes that pole only up to sign, though, and the IAU resolves
+the sign by putting a satellite's north on the same side as its primary's. For a
+retrograde satellite the two disagree, so the orbit normal alone renders its map
+upside down and mirrored — which is what had happened to Triton. The rendered
+pole is now flipped onto the primary's north side wherever they differ, which
+affects Triton, Phoebe and the six inner Uranian moons and leaves every prograde
+satellite untouched. `pnpm validate` checks all 459.
+
+One related correction, since it decides where those maps land: JPL's satellite
+elements quoted in a planet's *equatorial* frame are referred to the planet's
+rotational pole, which is its IAU north pole only for a prograde rotator. Uranus
+is the exception in this catalogue — it spins retrograde about an IAU north pole
+that lies 7.7° north of the ecliptic, and its regular moons follow the spin, not
+the pole. Read against the IAU pole they orbited backwards, up to 1,092,551 km
+from their true positions with every orbit normal exactly reversed. Their
+positions are now checked against JPL Horizons state vectors, with the Pluto
+system as the control that must not move.
+
 ### Time scales
 
 Espenak & Meeus ΔT polynomial fits, as used in NASA's *Five Millennium Canon of
@@ -483,6 +568,7 @@ All shaders in `src/render/materials.ts` are original to this project.
 | Satellite rotation | Derived from tidal locking (physically correct) |
 | Eclipse geometry | Computed from the above; umbra verified to ~130 km |
 | Planet / major moon surfaces | Real spacecraft imagery |
+| Uranian moon surfaces | Real Voyager 2 imagery, **southern hemisphere only** |
 | Dwarf planet surfaces | **Artistic** (no resolved maps exist) |
 | ~450 small body surfaces | **Synthesised** from known bulk properties |
 | Satellite radii | 134 measured, 325 nominal estimates |

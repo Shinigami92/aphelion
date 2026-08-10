@@ -19,7 +19,7 @@ import type { ScaleModel } from './scale.ts'
 import {
   applyBasis,
   basisForFrame,
-  basisFromPole,
+  basisForPlanetEquator,
   IDENTITY_BASIS,
   spinBasis,
   tidallyLockedBasis,
@@ -251,9 +251,13 @@ export class SolarSystem {
       // moons (the classical Uranians and the whole Pluto system) out of their
       // planet's plane, leaving Uranus's rings and its moons visibly
       // non-coplanar.
+      //
+      // Which *end* of that axis is not a free choice either, and it is not the
+      // IAU pole: see `basisForPlanetEquator`. Reading it as the IAU pole had the
+      // six inner Uranian moons orbiting backwards, up to 1.09 million km out.
       const basis =
         sat.frame === 'equatorial' && parent.spec
-          ? basisFromPole(parent.spec.spin.poleRa, parent.spec.spin.poleDec)
+          ? basisForPlanetEquator(parent.spec.spin)
           : basisForFrame(sat.frame, sat.poleRa, sat.poleDec)
       const body = makeBody({
         key: `moon:${sat.name}`,
@@ -394,8 +398,14 @@ export class SolarSystem {
     }
     if (body.type === 'moon') {
       // Tidal locking derived from the geometry; correct for essentially every
-      // satellite large enough for anyone to notice, and free of extra data.
-      body.orientation = tidallyLockedBasis(body.localKm, body.velKm)
+      // satellite large enough for anyone to notice, and free of extra data. The
+      // parent's pole only disambiguates north from south, and it is available
+      // here because `ordered` is depth-first, so the parent is already solved.
+      body.orientation = tidallyLockedBasis(
+        body.localKm,
+        body.velKm,
+        body.parent?.spec ? body.parent.orientation.z : null,
+      )
       return
     }
     // Minor planets: no measured pole for most, so spin about the ecliptic pole

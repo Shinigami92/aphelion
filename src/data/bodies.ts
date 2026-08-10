@@ -913,6 +913,16 @@ export const MOON_TEXTURES: Record<string, string> = {
   Rhea: 'rhea.jpg',
   Iapetus: 'iapetus.jpg',
   Phoebe: 'phoebe.jpg',
+  // Uranus. Half of each of these is blank, and that is the honest state of the
+  // record: Voyager 2 arrived at southern summer solstice in 1986, so the
+  // northern hemispheres were in polar night and no spacecraft has been back.
+  // Recovered from the only controlled photomosaics ever published of them,
+  // printed on USGS map sheet I-1920 in 1988.
+  Miranda: 'miranda.png',
+  Ariel: 'ariel.png',
+  Umbriel: 'umbriel.png',
+  Titania: 'titania.png',
+  Oberon: 'oberon.png',
   // Neptune
   Triton: 'triton.jpg',
   // Pluto
