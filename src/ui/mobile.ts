@@ -18,8 +18,6 @@ export interface MobileTab {
   id: string
   label: string
   panel: HTMLElement
-  /** Called when the sheet becomes visible, e.g. to resize a canvas. */
-  onShow?: () => void
 }
 
 export interface MobileShell {
@@ -55,7 +53,6 @@ export function installMobileShell(
       // A closed sheet is off the layout entirely, so its contents cannot be
       // reached by tabbing behind the scene.
       tab.panel.inert = !on
-      if (on) tab.onShow?.()
     }
   }
 

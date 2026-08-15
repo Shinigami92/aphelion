@@ -149,7 +149,6 @@ body {
   bottom: 14px;
   width: 240px;
   padding: 10px 10px 8px;
-  display: none;
 }
 
 .panel--toggles {
@@ -1216,8 +1215,8 @@ body.is-mobile .panel--minimap {
   max-height: 52dvh;
   min-height: 0;
   overflow-y: auto;
-  /* Sheets start below the fold and slide up. `display` stays untouched so the
-     orrery's own show/hide keeps working. */
+  /* Sheets start below the fold and slide up — moved and faded rather than
+     switched off, so a sheet that is merely closed can still animate back. */
   transform: translateY(calc(100% + 72px));
   opacity: 0;
   pointer-events: none;

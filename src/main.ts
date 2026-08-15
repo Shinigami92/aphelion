@@ -161,7 +161,6 @@ const minimap = new Minimap(minimapHost, system, (body) => {
   select(body)
   goTo(body)
 })
-minimap.show()
 
 /**
  * Bound the info panel so it stops short of the orrery map in the same corner.
@@ -201,11 +200,11 @@ function syncPanelBounds(): void {
   const shown = (el: HTMLElement): boolean =>
     el.offsetParent !== null && getComputedStyle(el).display !== 'none'
 
-  // Right column: the info panel stops above the orrery map.
+  // Right column: the info panel stops above the orrery map. The map is always
+  // in the corner now — collapsing it moves its top edge down, which this reads
+  // straight off the geometry, so the info panel reclaims the space either way.
   const info = need('info')
-  const available = minimap.visible
-    ? minimapHost.getBoundingClientRect().top - 12
-    : viewportHeight - 14
+  const available = minimapHost.getBoundingClientRect().top - 12
   info.style.maxHeight = `${Math.max(220, Math.round(available - 14))}px`
 
   // Left column: the body browser stops above the view panel. Both are fixed to
@@ -253,16 +252,6 @@ const togglePanel = new TogglePanel(
     // links shared before the stars existed still resolve.
     { label: 'stars', get: () => scene.toggles.milkyway, set: (v) => (scene.toggles.milkyway = v) },
     { label: 'minor bodies', get: () => scene.toggles.minorBodies, set: (v) => (scene.toggles.minorBodies = v) },
-    {
-      label: 'orrery map',
-      get: () => minimap.visible,
-      set: (v) => {
-        if (v) minimap.show()
-        else minimap.hide()
-        // Lets the info panel reclaim the corner the map was occupying.
-        syncPanelBounds()
-      },
-    },
   ],
   {
     get: () => scene.toggles.orbits,
@@ -286,11 +275,16 @@ const togglePanel = new TogglePanel(
 // without losing track of what is selected or what the clock reads. Collapsing
 // the view panel changes its height, which the ResizeObserver above already
 // watches, so the browser panel's lower bound follows on its own.
+
+// The orrery's handle is held separately: folding the map away is what the view
+// panel's checkbox used to do, and the frame loop asks this whether the map is
+// worth redrawing.
+const minimapPanel = makeCollapsible(minimapHost, minimap.head, minimap.body, 'the orrery map')
 const collapsibles = [
   makeCollapsible(need('time-panel'), timePanel.head, timePanel.body, 'the time controls'),
   makeCollapsible(need('browser'), browser.head, browser.body, 'the body browser'),
   makeCollapsible(need('info'), infoPanel.head, infoPanel.body, 'the body details'),
-  makeCollapsible(minimapHost, minimap.head, minimap.body, 'the orrery map'),
+  minimapPanel,
   makeCollapsible(need('toggles'), togglePanel.head, togglePanel.body, 'the view options'),
 ]
 
@@ -305,16 +299,7 @@ installMobileShell(
     { id: 'bodies', label: 'Bodies', panel: need('browser') },
     { id: 'info', label: 'Info', panel: need('info') },
     { id: 'view', label: 'View', panel: need('toggles') },
-    {
-      id: 'orrery',
-      label: 'Orrery',
-      panel: minimapHost,
-      // The map only draws while it believes itself visible, and on a phone the
-      // tab is the way you ask for it — so opening the sheet overrides the view
-      // toggle rather than showing an empty box. Its canvas re-sizes itself on
-      // the next frame.
-      onShow: () => minimap.show(),
-    },
+    { id: 'orrery', label: 'Orrery', panel: minimapHost },
   ],
   (mobile) => {
     mobileLayout = mobile
@@ -338,9 +323,6 @@ if (shared.toggles) {
   scene.toggles.atmospheres = shared.toggles.atmospheres
   scene.toggles.milkyway = shared.toggles.milkyway
   scene.toggles.minorBodies = shared.toggles.minorBodies
-  if (shared.toggles.orrery) minimap.show()
-  else minimap.hide()
-  syncPanelBounds()
 }
 togglePanel.refresh()
 
@@ -977,7 +959,6 @@ function currentSharedView(): SharedView {
       atmospheres: scene.toggles.atmospheres,
       milkyway: scene.toggles.milkyway,
       minorBodies: scene.toggles.minorBodies,
-      orrery: minimap.visible,
     },
   }
 }
@@ -1110,7 +1091,9 @@ function frame(now: number): void {
   updateCameraDistance()
   infoPanel.update(system, current, cameraDistanceKm, cameraRadii)
 
-  if (minimap.visible && now - lastMinimapAt >= MINIMAP_INTERVAL_MS) {
+  // A folded panel keeps its canvas laid out behind the header, so the collapsed
+  // flag — not the element's size — is what says the drawing would be unseen.
+  if (!minimapPanel.collapsed && now - lastMinimapAt >= MINIMAP_INTERVAL_MS) {
     lastMinimapAt = now
     minimap.update(current, selected)
   }

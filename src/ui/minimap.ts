@@ -42,7 +42,7 @@ export class Minimap {
   body!: HTMLElement
 
   constructor(
-    private host: HTMLElement,
+    host: HTMLElement,
     private system: SolarSystem,
     private onSelect: (body: SimBody) => void,
   ) {
@@ -324,18 +324,6 @@ export class Minimap {
     }
     this.orbitCache.set(body.key, { points: out, jd: this.system.jdTT })
     return out
-  }
-
-  show(): void {
-    this.host.style.display = 'block'
-  }
-
-  hide(): void {
-    this.host.style.display = 'none'
-  }
-
-  get visible(): boolean {
-    return this.host.style.display !== 'none'
   }
 }
 

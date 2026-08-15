@@ -41,7 +41,6 @@ export interface ViewToggles {
   atmospheres: boolean
   milkyway: boolean
   minorBodies: boolean
-  orrery: boolean
 }
 
 export interface SharedView {
@@ -87,17 +86,21 @@ export const DEFAULT_TOGGLES: ViewToggles = {
   atmospheres: true,
   milkyway: true,
   minorBodies: true,
-  orrery: true,
 }
 
-/** Query parameter name for each boolean toggle. */
+/**
+ * Query parameter name for each boolean toggle.
+ *
+ * `orrery` used to be one of these, back when the map had a checkbox of its own;
+ * it folds away with every other panel now, and a link carrying the old
+ * parameter is ignored the same way any other unknown one is.
+ */
 const TOGGLE_PARAMS: ReadonlyArray<readonly [keyof ViewToggles, string]> = [
   ['belts', 'belts'],
   ['rings', 'rings'],
   ['atmospheres', 'atmo'],
   ['milkyway', 'milkyway'],
   ['minorBodies', 'minor'],
-  ['orrery', 'orrery'],
 ]
 
 /**

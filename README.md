@@ -139,7 +139,7 @@ same angle. A reload restores it too, rather than resetting to Earth.
 | `cam` | `free` when the camera is flying rather than orbiting |
 | `fp`, `fq` | free-flight position (in radii of the focus) and orientation quaternion |
 | `orbits`, `labels` | `none` / `planets` / `all` and `none` / `major` / `all` |
-| `belts`, `rings`, `atmo`, `milkyway`, `minor`, `orrery` | `0` to switch a layer off |
+| `belts`, `rings`, `atmo`, `milkyway`, `minor` | `0` to switch a layer off |
 
 `milkyway` keeps its name from before the sky had stars in it; it now switches
 the whole backdrop, so links shared then still resolve to what they meant.
