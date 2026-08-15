@@ -9,7 +9,12 @@
 
 import type { SpinModel } from '../astro/frames.ts'
 
-export type BodyType = 'star' | 'planet' | 'dwarf' | 'moon' | 'asteroid'
+/**
+ * `lagrange` is the one member that is not an object: it marks the massless
+ * equilibrium points of a Sun-planet pair, which are simulated and focusable
+ * but have no mass, no surface and no orbit of their own. See core/system.ts.
+ */
+export type BodyType = 'star' | 'planet' | 'dwarf' | 'moon' | 'asteroid' | 'lagrange'
 
 /**
  * Single-scattering atmosphere parameters.

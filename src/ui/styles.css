@@ -765,6 +765,15 @@ input[type='range']::-webkit-slider-thumb {
   color: #b8c4d8;
 }
 
+/* A place, not a thing: monospaced and letter-spaced so "L4" reads as a
+   designation beside the proper names of the bodies around it. */
+.label--lagrange {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.08em;
+  color: #cfd9e6;
+}
+
 .label--selected {
   color: var(--accent);
   font-size: 12px;

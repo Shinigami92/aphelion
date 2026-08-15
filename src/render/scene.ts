@@ -60,6 +60,7 @@ import { MOON_ATMOSPHERES, RELIEF_EXAGGERATION, type RingSpec } from '../data/bo
 import { reliefFor, type ReliefMap } from '../data/generated/relief.ts'
 import {
   classifySurface,
+  markerSprite,
   pointSprite,
   proceduralRing,
   ringProfile,
@@ -383,6 +384,12 @@ function createAnnulus(
   return geo
 }
 
+/** GLSL's smoothstep, on the CPU side. */
+function smoothstep(edge0: number, edge1: number, x: number): number {
+  const t = Math.max(0, Math.min(1, (x - edge0) / (edge1 - edge0)))
+  return t * t * (3 - 2 * t)
+}
+
 /** Load an orthonormal basis into a rotation matrix. */
 function basisToMatrix(basis: Basis, out: Matrix4): Matrix4 {
   return out.set(
@@ -451,7 +458,36 @@ export interface SceneToggles {
   atmospheres: boolean
   milkyway: boolean
   minorBodies: boolean
+  lagrange: boolean
 }
+
+/**
+ * Screen size of a Lagrange marker, in CSS pixels.
+ *
+ * Constant with distance, unlike every other point in the scene. The markers
+ * annotate places rather than standing in for objects, so shrinking them with
+ * range would be saying something false — there is nothing there to get smaller.
+ */
+const LAGRANGE_MARKER_PX = 13
+
+/**
+ * Segments of the diagram drawn around the active planet, as pairs of endpoints.
+ *
+ * `sun` and `planet` name the two primaries; the rest are point ids. Together
+ * they draw the line the three collinear points sit on and the two equilateral
+ * triangles that define L4 and L5 — which is the entire content of the
+ * configuration, and much easier to see than to read.
+ */
+const LAGRANGE_FRAME: ReadonlyArray<readonly [string, string]> = [
+  ['L3', 'sun'],
+  ['sun', 'L1'],
+  ['L1', 'planet'],
+  ['planet', 'L2'],
+  ['sun', 'L4'],
+  ['L4', 'planet'],
+  ['sun', 'L5'],
+  ['L5', 'planet'],
+]
 
 export class SceneView {
   readonly renderer: WebGLRenderer
@@ -484,6 +520,12 @@ export class SceneView {
   private swarmPoints: Points | null = null
   private swarmMaterial: ShaderMaterial | null = null
 
+  private lagrangePoints: Points | null = null
+  private lagrangeMaterial: ShaderMaterial | null = null
+  private lagrangeBodies: SimBody[] = []
+  private lagrangeFrame: LineSegments | null = null
+  private lagrangeFrameMaterial: ShaderMaterial | null = null
+
   private orbitGroup = new Group()
   private orbitLines = new Map<string, { line: Line; material: ShaderMaterial }>()
   private dust: LineSegments | null = null
@@ -505,6 +547,7 @@ export class SceneView {
     atmospheres: true,
     milkyway: true,
     minorBodies: true,
+    lagrange: true,
   }
 
   selected: SimBody | null = null
@@ -590,6 +633,7 @@ export class SceneView {
     )
     this.buildMinorPoints()
     this.buildSwarms()
+    this.buildLagrange(system)
     this.buildRingParticles()
     this.buildDust()
     this.buildPromotionPool()
@@ -883,6 +927,70 @@ export class SceneView {
     this.swarmMaterial = material
   }
 
+  /**
+   * The Lagrange-point markers and the diagram that explains them.
+   *
+   * Two objects. The markers are one small point cloud over every planet's five
+   * points at once — forty in total, which is nothing, and keeping them in one
+   * buffer means the whole layer switches on and off with a single `visible`.
+   * The diagram is a single sixteen-vertex line strip whose positions are
+   * rewritten each frame for whichever planet is currently in play: drawing all
+   * eight configurations at once is unreadable, and eight persistent geometries
+   * for something only ever shown one at a time is waste.
+   */
+  private buildLagrange(system: SolarSystem): void {
+    this.lagrangeBodies = system.lagrange
+    const n = this.lagrangeBodies.length
+    if (n === 0) return
+
+    const positions = new Float32Array(n * 3)
+    const colors = new Float32Array(n * 3)
+    const c = new Color()
+    for (let i = 0; i < n; i++) {
+      c.set(this.lagrangeBodies[i]!.color)
+      colors[i * 3] = c.r
+      colors[i * 3 + 1] = c.g
+      colors[i * 3 + 2] = c.b
+    }
+
+    const geo = new BufferGeometry()
+    geo.setAttribute('position', new BufferAttribute(positions, 3))
+    geo.setAttribute('aColor', new BufferAttribute(colors, 3))
+    // Per-point opacity, so the active planet's five can be brought forward
+    // without splitting the buffer.
+    geo.setAttribute('aFade', new BufferAttribute(new Float32Array(n), 1))
+
+    const material = createLagrangeMarkerMaterial(markerSprite())
+    const points = new Points(geo, material)
+    points.frustumCulled = false
+    // Above the belt swarms: a marker hidden inside the Trojan camp it names is
+    // no marker at all.
+    points.renderOrder = 8
+    this.world.add(points)
+    this.lagrangePoints = points
+    this.lagrangeMaterial = material
+
+    const frameGeo = new BufferGeometry()
+    frameGeo.setAttribute(
+      'position',
+      new BufferAttribute(new Float32Array(LAGRANGE_FRAME.length * 6), 3),
+    )
+    // The orbit shader tapers by vertex index; these lines do not taper, but the
+    // attribute has to exist for the program to link.
+    frameGeo.setAttribute(
+      'aIndex',
+      new BufferAttribute(new Float32Array(LAGRANGE_FRAME.length * 2), 1),
+    )
+    const frameMaterial = createOrbitMaterial(0x8fb4d8, 0)
+    const frame = new LineSegments(frameGeo, frameMaterial)
+    frame.frustumCulled = false
+    frame.renderOrder = 1
+    frame.visible = false
+    this.world.add(frame)
+    this.lagrangeFrame = frame
+    this.lagrangeFrameMaterial = frameMaterial
+  }
+
   private buildPromotionPool(): void {
     for (let i = 0; i < PROMOTION_SLOTS; i++) {
       const group = new Group()
@@ -1059,6 +1167,7 @@ export class SceneView {
     this.updatePromotions(scale, sunSceneRadius)
     this.updateMinorPoints()
     this.updateSwarms(system, scale)
+    this.updateLagrange()
     this.updateOrbits(system, scale, dt)
     this.updateSky(system.jdTT)
     this.updateLabels(system)
@@ -1647,6 +1756,103 @@ export class SceneView {
     material.uniforms.uOpacity!.value = 0.5
   }
 
+  /**
+   * The planet whose Lagrange configuration is currently the subject.
+   *
+   * Forty markers with forty labels is clutter; five with a diagram is a
+   * diagram. So the labels and the frame follow whatever you are actually
+   * looking at — a planet, one of its moons, or one of its own Lagrange points —
+   * and the selection wins over the focus, so clicking L4 in the browser lights
+   * up its planet's configuration before the camera has even set off.
+   */
+  private activeLagrangeHost(): SimBody | null {
+    for (const body of [this.selected, this.currentFocus]) {
+      if (!body) continue
+      if (body.type === 'lagrange') return body.lagrange!.secondary
+      if (body.type === 'planet') return body
+      if (body.type === 'moon' && body.parent?.type === 'planet') return body.parent
+    }
+    return null
+  }
+
+  private updateLagrange(): void {
+    const points = this.lagrangePoints
+    const frame = this.lagrangeFrame
+    if (!points || !frame) return
+
+    points.visible = this.toggles.lagrange
+    frame.visible = false
+    if (!points.visible) return
+
+    const host = this.activeLagrangeHost()
+    const positions = points.geometry.getAttribute('position') as BufferAttribute
+    const fades = points.geometry.getAttribute('aFade') as BufferAttribute
+    const positionArray = positions.array as Float32Array
+    const fadeArray = fades.array as Float32Array
+
+    for (let i = 0; i < this.lagrangeBodies.length; i++) {
+      const body = this.lagrangeBodies[i]!
+      positionArray[i * 3] = body.scene.x
+      positionArray[i * 3 + 1] = body.scene.y
+      positionArray[i * 3 + 2] = body.scene.z
+      // The points of other planets stay drawn but recede: they are still worth
+      // seeing at whole-system range — Jupiter's L4 and L5 sit in the middle of
+      // the two Trojan camps — without competing with the set being explained.
+      const active = body.lagrange!.secondary === host
+      fadeArray[i] = body === this.selected ? 1 : active ? 0.85 : 0.2
+    }
+    positions.needsUpdate = true
+    fades.needsUpdate = true
+
+    if (this.lagrangeMaterial) {
+      this.lagrangeMaterial.uniforms.uPixelRatio!.value = this.renderer.getPixelRatio()
+    }
+
+    if (!host) return
+
+    // The diagram spans two orbit radii, so from close in it is not a diagram —
+    // it is four lines passing through the camera and off every edge of the
+    // frame, and it turns a view of Earth into a view of streaks. It fades in
+    // as you pull back far enough for the configuration to have a shape, which
+    // is also the point at which the planet stops filling the view. Measured
+    // against the planet, not the focus, so arriving at one of its own points
+    // (a few dozen planet radii out) already shows the geometry that explains
+    // where you are.
+    const camera = this.currentCamera
+    if (!camera || host.sceneRadius <= 0) return
+    this.tmpVec3.set(host.scene.x, host.scene.y, host.scene.z).sub(this.origin)
+    const radiiFromPlanet = camera.position.distanceTo(this.tmpVec3) / host.sceneRadius
+    const strength = smoothstep(25, 60, radiiFromPlanet)
+    if (this.lagrangeFrameMaterial) {
+      this.lagrangeFrameMaterial.uniforms.uOpacity!.value = 0.16 * strength
+    }
+    if (strength <= 0) return
+
+    const geometry = new Map<string, SimBody>([['planet', host]])
+    let sun: SimBody | null = null
+    for (const body of this.lagrangeBodies) {
+      if (body.lagrange!.secondary !== host) continue
+      geometry.set(body.lagrange!.id, body)
+      sun = body.lagrange!.primary
+    }
+    if (!sun) return
+
+    const frameAttribute = frame.geometry.getAttribute('position') as BufferAttribute
+    const frameArray = frameAttribute.array as Float32Array
+    let vertex = 0
+    for (const [from, to] of LAGRANGE_FRAME) {
+      for (const end of [from, to]) {
+        const node = end === 'sun' ? sun : geometry.get(end)
+        frameArray[vertex * 3] = node ? node.scene.x : 0
+        frameArray[vertex * 3 + 1] = node ? node.scene.y : 0
+        frameArray[vertex * 3 + 2] = node ? node.scene.z : 0
+        vertex++
+      }
+    }
+    frameAttribute.needsUpdate = true
+    frame.visible = true
+  }
+
   private updateOrbits(system: SolarSystem, scale: ScaleModel, dt: number): void {
     this.orbitGroup.visible = this.toggles.orbits !== 'none'
     if (!this.orbitGroup.visible) return
@@ -1784,6 +1990,16 @@ export class SceneView {
       }
     }
 
+    // Lagrange points, labelled only for the configuration in play — the same
+    // rule the moons follow, and for the same reason. "L1" beside Neptune while
+    // you are at Earth says nothing.
+    if (this.toggles.lagrange) {
+      const host = this.activeLagrangeHost()
+      for (const point of this.lagrangeBodies) {
+        if (point.lagrange!.secondary === host || point === this.selected) candidates.push(point)
+      }
+    }
+
     let used = 0
     const half = this.viewport.clone().multiplyScalar(0.5)
     for (const body of candidates) {
@@ -1798,7 +2014,12 @@ export class SceneView {
       if (x < -80 || y < -20 || x > this.viewport.x + 80 || y > this.viewport.y + 20) continue
 
       // Hide the label when the body fills the screen: you know where it is.
-      const apparent = (body.sceneRadius / Math.max(distance, 1e-9)) * this.viewport.y
+      // A Lagrange point never does — its radius is a framing convention, not a
+      // size — so it is measured as the marker it is: a fixed handful of pixels.
+      const apparent =
+        body.type === 'lagrange'
+          ? LAGRANGE_MARKER_PX * 0.5
+          : (body.sceneRadius / Math.max(distance, 1e-9)) * this.viewport.y
       if (apparent > this.viewport.y * 0.75) continue
 
       const el = this.labelElement(used++)
@@ -1839,28 +2060,43 @@ export class SceneView {
     let best: SimBody | null = null
     let bestScore = Infinity
 
-    for (const body of system.bodies) {
-      this.tmpVec.set(body.scene.x, body.scene.y, body.scene.z).sub(this.origin)
-      this.tmpVec2.copy(this.tmpVec).project(camera)
-      if (this.tmpVec2.z < -1 || this.tmpVec2.z > 1) continue
-      const x = (this.tmpVec2.x * 0.5 + 0.5) * this.viewport.x
-      const y = (-this.tmpVec2.y * 0.5 + 0.5) * this.viewport.y
-      const dx = x - clientX
-      const dy = y - clientY
-      const pixelDistance = Math.hypot(dx, dy)
+    // Lagrange points are pickable only while their layer is drawn: an
+    // invisible marker that swallows clicks meant for the planet behind it
+    // would be indistinguishable from a broken hit test.
+    const candidates = this.toggles.lagrange
+      ? [system.bodies, this.lagrangeBodies]
+      : [system.bodies]
 
-      const distance = camera.position.distanceTo(this.tmpVec)
-      const apparent = (body.sceneRadius / Math.max(distance, 1e-9)) * this.viewport.y
-      // Clicking anywhere on a large body should select it.
-      const reach = Math.max(tolerance, apparent)
-      if (pixelDistance > reach) continue
+    for (const group of candidates) {
+      for (const body of group) {
+        this.tmpVec.set(body.scene.x, body.scene.y, body.scene.z).sub(this.origin)
+        this.tmpVec2.copy(this.tmpVec).project(camera)
+        if (this.tmpVec2.z < -1 || this.tmpVec2.z > 1) continue
+        const x = (this.tmpVec2.x * 0.5 + 0.5) * this.viewport.x
+        const y = (-this.tmpVec2.y * 0.5 + 0.5) * this.viewport.y
+        const dx = x - clientX
+        const dy = y - clientY
+        const pixelDistance = Math.hypot(dx, dy)
 
-      // Prefer whatever is closest to the cursor, breaking ties toward the
-      // nearer body so a moon in front of its planet wins.
-      const score = pixelDistance - Math.min(apparent, 40) * 0.5 + Math.log10(distance + 10) * 0.5
-      if (score < bestScore) {
-        bestScore = score
-        best = body
+        const distance = camera.position.distanceTo(this.tmpVec)
+        // A marker is exactly as big as it is drawn. Using its nominal radius
+        // here would let a Lagrange point standing close to the camera claim
+        // half the screen while showing a 13-pixel reticle.
+        const apparent =
+          body.type === 'lagrange'
+            ? 0
+            : (body.sceneRadius / Math.max(distance, 1e-9)) * this.viewport.y
+        // Clicking anywhere on a large body should select it.
+        const reach = Math.max(tolerance, apparent)
+        if (pixelDistance > reach) continue
+
+        // Prefer whatever is closest to the cursor, breaking ties toward the
+        // nearer body so a moon in front of its planet wins.
+        const score = pixelDistance - Math.min(apparent, 40) * 0.5 + Math.log10(distance + 10) * 0.5
+        if (score < bestScore) {
+          bestScore = score
+          best = body
+        }
       }
     }
     return best
@@ -1898,6 +2134,72 @@ export class SceneView {
     this.renderer.dispose()
     for (const geo of this.lodGeometries) geo.dispose()
   }
+}
+
+// ---------------------------------------------------------------------------
+// Lagrange marker material
+// ---------------------------------------------------------------------------
+
+/**
+ * Reticles at a constant screen size.
+ *
+ * The one point sprite in this scene that does *not* shrink with distance.
+ * Every other point stands for an object, so its apparent size carries
+ * information; a Lagrange point stands for a place, and a place that dwindles
+ * as you approach it would be saying something false. Held at a fixed pixel
+ * size it behaves as the annotation it is — always legible, never mistaken for
+ * a body, and never growing into a disc when you arrive.
+ *
+ * Not additive, unlike the belt and minor-body sprites: additive blending would
+ * let the reticle wash out against the Sun or a lit planet, which is exactly
+ * where the interesting points are. Normal alpha keeps it readable over
+ * anything, and `depthWrite: false` still stops it punching a hole in the
+ * bodies behind it.
+ */
+function createLagrangeMarkerMaterial(sprite: Texture): ShaderMaterial {
+  return new ShaderMaterial({
+    transparent: true,
+    depthWrite: false,
+    uniforms: {
+      uSprite: { value: sprite },
+      uPixelRatio: { value: 1 },
+      uSize: { value: LAGRANGE_MARKER_PX },
+      uOpacity: { value: 0.95 },
+    },
+    vertexShader: /* glsl */ `
+      attribute vec3 aColor;
+      attribute float aFade;
+      uniform float uPixelRatio;
+      uniform float uSize;
+      varying vec3 vColor;
+      varying float vFade;
+      // <common> supplies isPerspectiveMatrix(), which the log-depth chunk calls.
+      #include <common>
+      #include <logdepthbuf_pars_vertex>
+      void main() {
+        vColor = aColor;
+        vFade = aFade;
+        gl_Position = projectionMatrix * viewMatrix * modelMatrix * vec4(position, 1.0);
+        gl_PointSize = uSize * uPixelRatio;
+        #include <logdepthbuf_vertex>
+      }
+    `,
+    fragmentShader: /* glsl */ `
+      precision highp float;
+      uniform sampler2D uSprite;
+      uniform float uOpacity;
+      varying vec3 vColor;
+      varying float vFade;
+      #include <logdepthbuf_pars_fragment>
+      void main() {
+        #include <logdepthbuf_fragment>
+        if (vFade <= 0.001) discard;
+        float a = texture2D(uSprite, gl_PointCoord).a;
+        if (a < 0.01) discard;
+        gl_FragColor = vec4(vColor, a * vFade * uOpacity);
+      }
+    `,
+  })
 }
 
 // ---------------------------------------------------------------------------

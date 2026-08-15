@@ -3,9 +3,9 @@
 A live, physically accurate model of the solar system that runs entirely offline.
 
 The Sun, eight planets, five dwarf planets, **all 459 named satellites**, 221
-catalogued minor planets and ~74,000 belt particles, positioned from real
-ephemerides at any moment you choose — with a UTC clock you can pause, reverse,
-scrub and set by hand.
+catalogued minor planets, ~74,000 belt particles and the 40 Sun-planet Lagrange
+points, positioned from real ephemerides at any moment you choose — with a UTC
+clock you can pause, reverse, scrub and set by hand.
 
 No network requests at runtime. No third-party APIs. Open it on a plane.
 
@@ -87,6 +87,7 @@ Everything has both a pointer gesture and a key.
 | `T` | true ↔ explore scale |
 | `O` `M` | cycle orbit lines / labels |
 | `B` `K` `I` | belts / rings / atmospheres |
+| `X` | Lagrange points |
 | `P` | render quality |
 | `H` or `?` | keyboard map |
 
@@ -129,7 +130,7 @@ same angle. A reload restores it too, rather than resetting to Earth.
 | Parameter | Meaning |
 | --- | --- |
 | `t` | UTC instant, `YYYY-MM-DDTHH:MM:SSZ` |
-| `focus` | body key the camera orbits, e.g. `earth`, `moon:Io`, `sb:Vesta` |
+| `focus` | body key the camera orbits, e.g. `earth`, `moon:Io`, `sb:Vesta`, `lagrange:earth:L2` |
 | `sel` | selected body, only when it differs from the focus |
 | `mode` | `explore` (default) or `true` |
 | `rate` | signed simulated seconds per real second; `-86400` is a day per second, backwards |
@@ -139,7 +140,7 @@ same angle. A reload restores it too, rather than resetting to Earth.
 | `cam` | `free` when the camera is flying rather than orbiting |
 | `fp`, `fq` | free-flight position (in radii of the focus) and orientation quaternion |
 | `orbits`, `labels` | `none` / `planets` / `all` and `none` / `major` / `all` |
-| `belts`, `rings`, `atmo`, `milkyway`, `minor` | `0` to switch a layer off |
+| `belts`, `rings`, `atmo`, `milkyway`, `minor`, `lagrange` | `0` to switch a layer off |
 
 `milkyway` keeps its name from before the sky had stars in it; it now switches
 the whole backdrop, so links shared then still resolve to what they meant.
@@ -195,6 +196,8 @@ Positions come from real theory, not from decoration:
 - **221 minor planets** — Minor Planet Center osculating elements.
 - **Orientation** — IAU pole and prime-meridian models; satellites oriented from
   tidal locking, which is what tidal locking physically means.
+- **40 Lagrange points** — the five equilibria of each Sun-planet pair, solved
+  rather than approximated. See below.
 
 ### An end-to-end check
 
@@ -213,7 +216,36 @@ eclipse — and it is *rendered*, not annotated: the dark spot appears over west
 Mexico because the shader computes what fraction of the Sun's disc the Moon
 covers at every pixel.
 
-`pnpm validate` runs 123 further checks — Kepler solver residuals, orbital periods,
+### Lagrange points
+
+Each of the eight planets carries the five points where a body of negligible
+mass keeps station relative to it and the Sun. Press `X` to switch the layer on
+and off; the markers are selectable and flyable like anything else, and
+`lagrange:earth:L2` is a valid `focus=` in a shared link.
+
+They are **solved, not approximated.** L4 and L5 are exact — the apexes of the
+two equilateral triangles built on the Sun and the planet, which is why they sit
+60° ahead of and behind it, and why Jupiter's fall in the middle of the Greek and
+Trojan camps the belt swarm already draws. L1, L2 and L3 have no closed form, so
+they come out of a bisection on the gradient of the effective potential, which is
+the equation that actually defines them. The familiar `a·(µ/3)^(1/3)` Hill-radius
+shortcut is only the leading term: it is 0.3% high at Earth and 2.3% high at
+Jupiter, and this is the difference between "about a million and a half
+kilometres" and the 1.4916 million km that puts SOHO where SOHO is.
+
+The rotating frame is rebuilt from the pair's real geometry every frame — the
+instantaneous separation, and the orbit normal from **r** × **v** — so the whole
+configuration breathes with the planet's eccentricity and stays in its orbit
+plane rather than a nominal ecliptic. Sun–Earth L2 is therefore 1.52 million km
+away in July and 1.48 in January, as it is.
+
+Selecting a point tells you which family it belongs to and what that costs: the
+collinear three are saddle points, so JWST and SOHO burn fuel to stay; the
+triangular two are stable, so material accumulates and never leaves. Pull far
+enough back from a planet and the diagram fades in — the line the collinear
+points sit on, and the two triangles.
+
+`pnpm validate` runs 159 further checks — Kepler solver residuals, orbital periods,
 inclinations, lunar perigee/apogee bounds, nodal crossings, leap seconds and
 calendar round-trips, plus a published landmark read back out of every elevation
 grid and shape model (Olympus Mons, Hellas, Antoniadi, Herschel, Stickney,
@@ -281,10 +313,11 @@ src/
     planets.ts      JPL Keplerian planetary theory
     moon.ts         Meeus/ELP-2000 lunar theory
     frames.ts       ecliptic / equatorial / Laplace frames, IAU orientation
+    lagrange.ts     the five equilibria of the restricted three-body problem
     timescales.ts   UTC ↔ JD ↔ TT, leap seconds, ΔT, calendar
   core/
     time.ts         the clock: rates, pause, reverse, scrub
-    system.ts       the body tree; solves ~690 positions per frame
+    system.ts       the body tree; solves ~690 positions and 40 points per frame
     scale.ts        the two scale models
   data/
     bodies.ts       physical properties, rings, atmospheres, facts

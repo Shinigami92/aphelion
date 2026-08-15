@@ -41,6 +41,7 @@ export interface ViewToggles {
   atmospheres: boolean
   milkyway: boolean
   minorBodies: boolean
+  lagrange: boolean
 }
 
 export interface SharedView {
@@ -86,6 +87,7 @@ export const DEFAULT_TOGGLES: ViewToggles = {
   atmospheres: true,
   milkyway: true,
   minorBodies: true,
+  lagrange: true,
 }
 
 /**
@@ -101,6 +103,7 @@ const TOGGLE_PARAMS: ReadonlyArray<readonly [keyof ViewToggles, string]> = [
   ['atmospheres', 'atmo'],
   ['milkyway', 'milkyway'],
   ['minorBodies', 'minor'],
+  ['lagrange', 'lagrange'],
 ]
 
 /**

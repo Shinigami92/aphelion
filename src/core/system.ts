@@ -32,6 +32,14 @@ import {
   type Elements,
   type Vec3,
 } from '../astro/kepler.ts'
+import {
+  hillFraction,
+  isCollinear,
+  lagrangeGeometry,
+  LAGRANGE_IDS,
+  type LagrangeId,
+  type RotatingPoint,
+} from '../astro/lagrange.ts'
 import { moonGeocentric, moonGeocentricVelocity } from '../astro/moon.ts'
 import { PLANET_KEYS, planetOrbitElements, planetPosition, type PlanetKey } from '../astro/planets.ts'
 import { centuriesSinceJ2000, daysSinceJ2000 } from '../astro/timescales.ts'
@@ -49,6 +57,29 @@ import {
 } from '../data/bodies.ts'
 import { SATELLITES, type SatelliteData } from '../data/generated/satellites.ts'
 import { SMALL_BODIES, type SmallBodyData } from '../data/generated/smallbodies.ts'
+
+/**
+ * What a Lagrange-point body is a point *of*.
+ *
+ * Carried on the SimBody the same way `sat` and `small` are: the point is not a
+ * thing in its own right, it is a property of a pair, and everything the UI
+ * wants to say about it comes from the pair rather than from the point.
+ */
+export interface LagrangeInfo {
+  id: LagrangeId
+  /** The massive body at the centre — the Sun, for every point modelled here. */
+  primary: SimBody
+  /** The body whose orbit the point rides. */
+  secondary: SimBody
+  /** m2 / (m1 + m2). */
+  massRatio: number
+  /** Position in the rotating frame, in units of the separation. */
+  rotating: RotatingPoint
+  /** Hill radius of the secondary at its semi-major axis, km. */
+  hillKm: number
+  /** True for L1/L2/L3 — the unstable ones. */
+  collinear: boolean
+}
 
 export interface SimBody {
   /** Unique, stable id. */
@@ -69,6 +100,8 @@ export interface SimBody {
   spec: BodySpec | null
   sat: SatelliteData | null
   small: SmallBodyData | null
+  /** Set only on the massless marker bodies built by `addLagrangePoints`. */
+  lagrange: LagrangeInfo | null
 
   /** Orbital elements in `basis`, or null for the Sun. */
   elements: Elements | null
@@ -167,10 +200,57 @@ function romanFor(code: number): string {
   return index > 0 && index < ROMAN.length ? ROMAN[index]! : String(index)
 }
 
+/**
+ * What is actually parked at, or trapped in, each point.
+ *
+ * Keyed `<planet>:<id>`. Only the entries with something real to say are
+ * listed; the rest fall back to the generic description the info panel builds
+ * from the geometry.
+ */
+const LAGRANGE_NOTES: Record<string, string> = {
+  'earth:L1': 'SOHO and DSCOVR hold halo orbits here, on the sunward side, where the Sun is never eclipsed and the solar wind arrives 15 to 60 minutes before it reaches Earth.',
+  'earth:L2': 'The James Webb Space Telescope, Gaia and Euclid orbit here. Earth, Moon and Sun stay in the same half of the sky, so one shield covers all three and the far side is permanently cold and dark.',
+  'earth:L3': 'Permanently hidden behind the Sun from Earth, which made it a favourite home for a fictional "Counter-Earth". Nothing is there: perturbations from Venus alone would clear the point in about 150 years.',
+  'earth:L4': 'Holds 2010 TK7, the first Earth Trojan found, and 2020 XL5. Both librate in wide, tilted arcs rather than sitting at the point.',
+  'earth:L5': 'No Earth Trojan has ever been confirmed here — Hayabusa2 photographed the point on its way out in 2017 and found nothing. Both known Earth Trojans are at L4. (The Kordylewski dust clouds are a different pair of points, of the Earth–Moon system, which Aphelion does not model.)',
+  'mars:L4': 'Home to a small, stable Trojan family — 1999 UJ7 is the only one at L4, against several at L5.',
+  'mars:L5': 'Holds 5261 Eureka and its relatives, a genuine collisional family that has probably been here since Mars formed.',
+  'jupiter:L4': 'The Greek camp: tens of thousands of catalogued Trojans, led by 588 Achilles. Aphelion draws about 4,200 of them as part of the belt swarm.',
+  'jupiter:L5': 'The Trojan camp, led by 617 Patroclus. Slightly less populous than the Greeks, for reasons still argued over.',
+  'neptune:L4': 'The largest known Trojan population after Jupiter’s, and probably larger still — they are simply very faint at 30 AU.',
+  'neptune:L5': 'Holds several known Trojans, including 2008 LC18, found in a deliberate search through a gap in the Galactic plane.',
+}
+
+/**
+ * Nominal size of a Lagrange-point marker, as a fraction of the Hill radius.
+ *
+ * A Lagrange point has no size, but the camera frames what it focuses in radii
+ * of it, so it needs a viewing scale — and that scale has to grow with the
+ * system, or Neptune's points would be framed like Mercury's. A twentieth of
+ * the Hill radius puts the default 4.2-radii arrival at about a fifth of the
+ * way to the planet, close enough to read the marker with the planet still a
+ * visible disc behind it. It also sets how close you may zoom: 1.02 of it.
+ */
+const MARKER_HILL_FRACTION = 20
+
 export class SolarSystem {
   readonly bodies: SimBody[] = []
   readonly byKey = new Map<string, SimBody>()
   readonly sun: SimBody
+
+  /**
+   * Lagrange points, deliberately **not** in `bodies`.
+   *
+   * They are massless markers, not objects: they have no surface to collide
+   * with, no orbit of their own to draw, no mesh, and no place in the point
+   * cloud of minor bodies. Every loop over `bodies` — the promotion pool, the
+   * free-flight clearance scan, the label candidates, the browser's catalogue
+   * count — would have to special-case them if they were in there. Keeping them
+   * in their own list means the default is to ignore them and the handful of
+   * places that want them opt in. They are still in `byKey`, so a shared link or
+   * `aphelion.goTo('lagrange:earth:L2')` resolves.
+   */
+  readonly lagrange: SimBody[] = []
   /** Update order: parents before children. */
   private ordered: SimBody[] = []
 
@@ -206,6 +286,7 @@ export class SolarSystem {
 
     this.addSatellites()
     this.addMinorPlanets(smallByName)
+    this.addLagrangePoints()
 
     // Depth-first ordering guarantees a parent is solved before its children.
     const walk = (b: SimBody): void => {
@@ -316,6 +397,72 @@ export class SolarSystem {
     }
   }
 
+  /**
+   * The five Lagrange points of each Sun-planet pair.
+   *
+   * Registered by hand rather than through `register`, because they must not
+   * join `bodies` (see the field's comment) and must not join their planet's
+   * `children` either: `children` is what the depth-first update order walks,
+   * and a marker solved as if it were a satellite would be pushed through the
+   * satellite scale remap and land somewhere it has no business being. Their
+   * `parent` is still the planet, because that is the body every readout wants
+   * to measure them against.
+   *
+   * Only the eight planets get them. The mass ratio of any dwarf planet is so
+   * small that its points are indistinguishable from its own orbit, and nothing
+   * is known to occupy them.
+   */
+  private addLagrangePoints(): void {
+    for (const planet of this.sun.children) {
+      if (planet.type !== 'planet' || !planet.spec || !planet.elements) continue
+      const gm = GM[planet.spec.key as keyof typeof GM]
+      if (!gm) continue
+
+      // The planet's own GM, not the planet-plus-moons figure. It is the
+      // geocentre that Aphelion draws and that the marker is placed against, so
+      // this keeps the mass and the geometry describing the same body. For
+      // Earth — the only case where it is even arguable — folding the Moon in
+      // would move L1 and L2 outward by 0.4%, or 6,000 km in 1.5 million.
+      const massRatio = gm / (GM.sun + gm)
+      const geometry = lagrangeGeometry(massRatio)
+      const hillKm = planet.elements.a * hillFraction(massRatio)
+
+      for (const id of LAGRANGE_IDS) {
+        const collinear = isCollinear(id)
+        const body = makeBody({
+          key: `lagrange:${planet.key}:${id}`,
+          name: id,
+          type: 'lagrange',
+          subtitle: `Sun–${planet.name} Lagrange point`,
+          parent: planet,
+          radiusKm: hillKm / MARKER_HILL_FRACTION,
+          flattening: 0,
+          spec: null,
+          // Warm for the three that need station-keeping, cool for the two that
+          // collect Trojans — the one thing about them worth reading at a glance.
+          color: collinear ? 0xffab6b : 0x74dfc0,
+          textureFile: null,
+          note: LAGRANGE_NOTES[`${planet.key}:${id}`] ?? null,
+          minor: true,
+        })
+        body.lagrange = {
+          id,
+          primary: this.sun,
+          secondary: planet,
+          massRatio,
+          rotating: geometry[id],
+          hillKm,
+          collinear,
+        }
+        // A 1:1 co-orbital: it goes round the Sun exactly as often as its planet.
+        body.periodDays = planet.periodDays
+        body.depth = planet.depth + 1
+        this.lagrange.push(body)
+        this.byKey.set(body.key, body)
+      }
+    }
+  }
+
   private register(body: SimBody, parent: SimBody | null): void {
     this.bodies.push(body)
     this.byKey.set(body.key, body)
@@ -340,6 +487,90 @@ export class SolarSystem {
       this.solveOrientation(body, days, centuries)
     }
     for (const body of this.ordered) this.applyScale(body, scale)
+    // After the planets, and after the scale pass: a Lagrange point is built
+    // from its planet's solved position and velocity, and remapped itself.
+    this.updateLagrange(scale)
+  }
+
+  /**
+   * Place every Lagrange point for the instant just solved.
+   *
+   * The rotating frame is rebuilt from the pair's real geometry each time
+   * rather than assumed: the separation `R` is the *instantaneous* one, so the
+   * whole configuration breathes in and out with the planet's eccentricity, and
+   * the orbit normal comes from r x v, so the points track the plane rather
+   * than sitting in a nominal ecliptic. That makes these the points of the
+   * circular problem evaluated at the current separation — which is what
+   * everyone means by "Sun-Earth L2", and what its 1.5 million km refers to.
+   *
+   * Note the frame is right-handed by construction: `w` is the orbit normal
+   * crossed into the radial direction, which for any orbit is the direction of
+   * travel. That is what makes L4 *lead* the planet by 60 degrees and L5 trail
+   * it, rather than the other way round — and getting it backwards would put
+   * Jupiter's L4 marker in the middle of the Trojan camp instead of the Greek
+   * one, with nothing else on screen looking any different.
+   */
+  private updateLagrange(scale: ScaleModel): void {
+    for (const point of this.lagrange) {
+      const info = point.lagrange!
+      const primary = info.primary
+      const secondary = info.secondary
+
+      const rx = secondary.helioKm.x - primary.helioKm.x
+      const ry = secondary.helioKm.y - primary.helioKm.y
+      const rz = secondary.helioKm.z - primary.helioKm.z
+      const R = Math.hypot(rx, ry, rz)
+      if (R < 1) continue
+
+      const ux = rx / R
+      const uy = ry / R
+      const uz = rz / R
+
+      const vx = secondary.velKm.x - primary.velKm.x
+      const vy = secondary.velKm.y - primary.velKm.y
+      const vz = secondary.velKm.z - primary.velKm.z
+      const hx = ry * vz - rz * vy
+      const hy = rz * vx - rx * vz
+      const hz = rx * vy - ry * vx
+      const h = Math.hypot(hx, hy, hz)
+      if (h < 1e-9) continue
+      const nx = hx / h
+      const ny = hy / h
+      const nz = hz / h
+
+      // In-plane, perpendicular to the radius, along the direction of travel.
+      const wx = ny * uz - nz * uy
+      const wy = nz * ux - nx * uz
+      const wz = nx * uy - ny * ux
+
+      // The nondimensional frame has its origin at the barycentre, which for a
+      // Sun-planet pair sits just inside the Sun — but not at its centre, and
+      // the offset is exactly what puts L3 slightly beyond one orbit radius.
+      const bx = primary.helioKm.x + info.massRatio * rx
+      const by = primary.helioKm.y + info.massRatio * ry
+      const bz = primary.helioKm.z + info.massRatio * rz
+
+      const g = info.rotating
+      point.helioKm.x = bx + R * (g.x * ux + g.y * wx)
+      point.helioKm.y = by + R * (g.x * uy + g.y * wy)
+      point.helioKm.z = bz + R * (g.x * uz + g.y * wz)
+
+      point.localKm.x = point.helioKm.x - secondary.helioKm.x
+      point.localKm.y = point.helioKm.y - secondary.helioKm.y
+      point.localKm.z = point.helioKm.z - secondary.helioKm.z
+
+      // Remapped as the heliocentric body it is, not as a satellite of its
+      // planet: L4 and L5 are a full orbit radius from the planet, and L3 is
+      // two. Going through the satellite law would compress them into the
+      // planet's lap. This also keeps L4 and L5 exactly on the planet's own
+      // drawn orbit, since the remap is radial and they share its radius.
+      const r = length(point.helioKm)
+      const f = r > 0 ? scale.heliocentricDistance(r) / r : 0
+      point.scene.x = point.helioKm.x * f
+      point.scene.y = point.helioKm.y * f
+      point.scene.z = point.helioKm.z * f
+      point.sceneRadius = scale.bodyRadius(point.radiusKm)
+    }
   }
 
   private solvePosition(body: SimBody, jdTT: number): void {
@@ -520,6 +751,11 @@ export class SolarSystem {
     if (!parent) return []
     return parent.children.filter((c) => c.type === 'moon').sort((a, b) => b.radiusKm - a.radiusKm)
   }
+
+  /** The five Lagrange points of a planet, L1 through L5. Empty for anything else. */
+  lagrangeOf(key: string): SimBody[] {
+    return this.lagrange.filter((p) => p.lagrange!.secondary.key === key)
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -598,6 +834,7 @@ function makeBody(init: BodyInit): SimBody {
     spec: init.spec,
     sat: null,
     small: null,
+    lagrange: null,
     elements: null,
     basis: IDENTITY_BASIS,
     periodDays: 0,

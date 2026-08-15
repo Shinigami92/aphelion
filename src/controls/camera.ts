@@ -203,18 +203,25 @@ export class CameraController {
    * Focus a body. The default framing puts the body at a comfortable few radii
    * so you can see it and some of its surroundings.
    *
-   * Pass `sunward` (a unit vector from the body toward the Sun, in the world
-   * frame) to be placed over the daylit hemisphere. Without it you arrive on
-   * whichever side the previous azimuth happened to point at, which for the
-   * outer planets is usually the unlit one — you fly to Saturn and find a black
-   * disc.
+   * Pass `arriveFrom` — a unit vector in the world frame — to say which side to
+   * come in on. Without it you arrive on whichever side the previous azimuth
+   * happened to point at, which for the outer planets is usually the unlit one:
+   * you fly to Saturn and find a black disc.
+   *
+   * For a body that vector is the direction of the Sun, so you are placed over
+   * the daylit hemisphere. It was called `sunward` for that reason, and stopped
+   * being: a Lagrange point has no hemispheres, and what matters there is
+   * arriving on the far side from its planet, so the marker has the planet — and
+   * at L1, L2 and L3 the Sun behind it — in the same frame. Same mechanism, so
+   * the caller chooses the direction and this only ever places the camera along
+   * it.
    */
   setFocus(
     body: SimBody,
     opts: {
       immediate?: boolean
       distanceRadii?: number
-      sunward?: { x: number; y: number; z: number }
+      arriveFrom?: { x: number; y: number; z: number }
     } = {},
   ): void {
     const previous = this._focus
@@ -225,10 +232,11 @@ export class CameraController {
     this.targetDistance = radius * radii
     this.panOffset.set(0, 0, 0)
 
-    if (opts.sunward) {
-      // Just off the Sun-body line, so most of the disc is lit but the
-      // terminator is still in frame.
-      const desired = Math.atan2(opts.sunward.y, opts.sunward.x) + 0.6
+    if (opts.arriveFrom) {
+      // Just off the line, so most of a planet's disc is lit but the terminator
+      // is still in frame — and so a Lagrange marker does not sit exactly on top
+      // of the planet it is being measured against.
+      const desired = Math.atan2(opts.arriveFrom.y, opts.arriveFrom.x) + 0.6
       this.targetAzimuth = nearestAngle(this.azimuth, desired)
       this.targetElevation = 0.3
     }
@@ -256,7 +264,7 @@ export class CameraController {
    * any drag, key or wheel cancels the flight and leaves the camera wherever it
    * had reached, rather than fighting the user for the remaining seconds.
    */
-  flyTo(body: SimBody, opts: { sunward?: { x: number; y: number; z: number } } = {}): void {
+  flyTo(body: SimBody, opts: { arriveFrom?: { x: number; y: number; z: number } } = {}): void {
     const previous = this._focus
 
     // Where the camera is now, relative to the destination — captured before

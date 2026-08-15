@@ -293,6 +293,10 @@ const MOON_SORTS: { mode: MoonSort; label: string; title: string }[] = [
 /** Semi-major axis about the parent, km. Unknown orbits sort to the end. */
 const orbitRadius = (moon: SimBody): number => moon.elements?.a ?? Infinity
 
+/** Live distance from the parent, km. */
+const localDistance = (body: SimBody): number =>
+  Math.hypot(body.localKm.x, body.localKm.y, body.localKm.z)
+
 export class BodyBrowser {
   private search = el('input', 'search') as HTMLInputElement
   private list = el('div', 'browser__list')
@@ -414,8 +418,16 @@ export class BodyBrowser {
 
   private matches(): SimBody[] {
     if (!this.query) return []
-    return this.system.bodies
-      .filter((b) => b.name.toLowerCase().includes(this.query))
+    // Lagrange points are not in `bodies` — they are markers, not objects — but
+    // they are findable, and their subtitle is searched as well as their name:
+    // "L4" alone cannot tell you whose, and "earth" or "lagrange" is how anyone
+    // would actually look for them.
+    return [...this.system.bodies, ...this.system.lagrange]
+      .filter(
+        (b) =>
+          b.name.toLowerCase().includes(this.query) ||
+          (b.type === 'lagrange' && b.subtitle.toLowerCase().includes(this.query)),
+      )
       .sort((a, b) => {
         // Prefer prefix matches, then bigger bodies.
         const ap = a.name.toLowerCase().startsWith(this.query) ? 0 : 1
@@ -454,8 +466,13 @@ export class BodyBrowser {
     const planetGroup = el('div', 'group')
     planetGroup.append(el('div', 'group__head', 'Planets'))
     for (const planet of planets) {
-      planetGroup.append(this.makeRow(planet, 0, this.moonCount(planet)))
+      planetGroup.append(this.makeRow(planet, 0, this.childCount(planet)))
       if (this.expanded.has(planet.key)) {
+        // Lagrange points first: there are always five, and burying them under
+        // Saturn's 291 moons would put them past the end of the list.
+        for (const point of this.system.lagrangeOf(planet.key)) {
+          planetGroup.append(this.makeRow(point, 1, formatDistance(localDistance(point))))
+        }
         for (const moon of this.sortedMoons(planet.key).slice(0, 400)) {
           planetGroup.append(this.makeRow(moon, 1, this.moonMeta(moon)))
         }
@@ -544,11 +561,37 @@ export class BodyBrowser {
     return n ? `${n} moon${n === 1 ? '' : 's'}` : ''
   }
 
+  /**
+   * What a planet row promises when you open it.
+   *
+   * Moons if it has any, otherwise its Lagrange points — Mercury and Venus have
+   * no moons at all, and before the points existed their rows had nothing to
+   * expand and so carried no chevron.
+   */
+  private childCount(body: SimBody): string {
+    const moons = this.moonCount(body)
+    if (moons) return moons
+    const points = this.system.lagrangeOf(body.key).length
+    return points ? `${points} Lagrange points` : ''
+  }
+
+  /**
+   * Whether a row gets a chevron.
+   *
+   * The type test is not redundant with the lookup below it: `makeRow` runs for
+   * every one of the ~700 rows, and `lagrangeOf` scans all forty points, so
+   * without it a keystroke in the search box does 28,000 comparisons to
+   * rediscover that minor planets do not have Lagrange points.
+   */
+  private expandable(body: SimBody): boolean {
+    if (body.children.some((c) => c.type === 'moon')) return true
+    return body.type === 'planet' && this.system.lagrangeOf(body.key).length > 0
+  }
+
   private makeRow(body: SimBody, depth: number, meta?: string): HTMLElement {
     const row = el('div', `row${depth === 1 ? ' row--child' : depth === 2 ? ' row--grandchild' : ''}`)
 
-    const moons = body.children.filter((c) => c.type === 'moon').length
-    if (moons > 0 && depth === 0) {
+    if (this.expandable(body) && depth === 0) {
       const toggle = el('span', 'row__toggle', this.expanded.has(body.key) ? '▾' : '▸')
       toggle.addEventListener('click', (ev) => {
         ev.stopPropagation()
@@ -624,7 +667,10 @@ export class InfoPanel {
 
     const flags: string[] = []
     if (body.radiusEstimated) flags.push('size estimated')
-    if (!body.textureFile) flags.push('surface synthesised')
+    // "surface synthesised" is a statement about imagery we do not have. A
+    // Lagrange point has no surface to have imagery of.
+    if (!body.textureFile && body.type !== 'lagrange') flags.push('surface synthesised')
+    if (body.type === 'lagrange') flags.push('massless point — nothing is drawn here')
     if (body.sat?.frame === 'laplace') flags.push('Laplace-plane elements')
     this.badgeEl.textContent = flags.join(' · ')
     this.badgeEl.style.display = flags.length ? 'inline-block' : 'none'
@@ -651,7 +697,55 @@ export class InfoPanel {
     }
   }
 
+  /**
+   * A Lagrange point's own facts.
+   *
+   * It shares no field with a body: it has no mass, no radius, no surface and
+   * no orbit of its own, so the "Physical" and "Orbit" sections are filled from
+   * the *pair* instead. The nominal radius the camera frames it by is
+   * deliberately not shown — it is a viewing convention, and printing it as a
+   * measurement is exactly the kind of convincing-but-wrong number this panel
+   * exists to avoid.
+   */
+  private buildLagrange(body: SimBody): void {
+    const info = body.lagrange!
+    const planet = info.secondary
+
+    this.rowsInto(this.physFacts, [
+      ['Point', `${info.id} of ${info.primary.name}–${planet.name}`],
+      ['Family', info.collinear ? 'collinear' : 'triangular (equilateral)'],
+      [
+        'Stability',
+        info.collinear
+          ? 'unstable — a spacecraft here must station-keep'
+          : 'stable — material collects and stays',
+        true,
+      ],
+      ['Mass ratio', `μ = ${info.massRatio.toExponential(3)}`],
+      [`Hill radius of ${planet.name}`, formatDistance(info.hillKm)],
+    ])
+
+    this.rowsInto(this.orbitFacts, [
+      // Not "orbits": it is carried round by the pair, one turn for one turn of
+      // the planet, which is the whole reason the configuration holds together.
+      ['Co-orbits with', planet.name],
+      ['Period', formatDuration(body.periodDays)],
+      [
+        'Geometry',
+        info.collinear
+          ? `on the ${info.primary.name}–${planet.name} line`
+          : `60° ${info.id === 'L4' ? 'ahead of' : 'behind'} ${planet.name}, equidistant from both`,
+        true,
+      ],
+      ['Solved for', 'the circular restricted three-body problem', true],
+    ])
+  }
+
   private buildPhysical(body: SimBody): void {
+    if (body.type === 'lagrange') {
+      this.buildLagrange(body)
+      return
+    }
     const rows: [string, string, boolean?][] = []
     const facts = body.spec?.facts
 
@@ -707,6 +801,8 @@ export class InfoPanel {
   }
 
   private buildOrbit(body: SimBody, system: SolarSystem): void {
+    // Both sections of a Lagrange point are filled together, from the pair.
+    if (body.type === 'lagrange') return
     const rows: [string, string, boolean?][] = []
     const elements = body.elements
 
@@ -799,7 +895,11 @@ export class InfoPanel {
       const dy = body.helioKm.y - earth.helioKm.y
       const dz = body.helioKm.z - earth.helioKm.z
       const d = Math.hypot(dx, dy, dz)
-      rows.push(['Distance from Earth', formatDistance(d)])
+      // The parent row above has already given this distance for anything that
+      // belongs to Earth — the Moon, and all five Lagrange points — so only the
+      // light time, which it does not carry, is added on top. Printing the same
+      // figure twice under two headings reads as a bug even when both are right.
+      if (body.parent !== earth) rows.push(['Distance from Earth', formatDistance(d)])
       rows.push(['Light travel from Earth', formatLightTime(d)])
     }
     if (body.parent) {
@@ -811,9 +911,14 @@ export class InfoPanel {
     // panel would be quietly wrong.
     if (body === focus) {
       rows.push(['Camera distance', formatDistance(cameraDistanceKm)])
-      const altitude = cameraDistanceKm - body.radiusKm
-      if (altitude > 0) rows.push(['Camera altitude', formatDistance(altitude)])
-      rows.push(['Camera range', `${cameraRadii.toFixed(2)} × radius`])
+      // A Lagrange point has no surface to be above and no radius to be
+      // measured in, so it gets the distance and nothing else. Its `radiusKm`
+      // is only the scale the camera frames it by.
+      if (body.type !== 'lagrange') {
+        const altitude = cameraDistanceKm - body.radiusKm
+        if (altitude > 0) rows.push(['Camera altitude', formatDistance(altitude)])
+        rows.push(['Camera range', `${cameraRadii.toFixed(2)} × radius`])
+      }
     }
 
     this.rowsInto(this.liveFacts, rows)
@@ -999,6 +1104,7 @@ const KEY_HELP: [string, [string, string][]][] = [
       ['M', 'cycle labels'],
       ['I', 'toggle the atmospheres'],
       ['K', 'toggle the rings'],
+      ['X', 'toggle the Lagrange points'],
       ['P', 'cycle render quality'],
       ['H or ?', 'this list'],
     ],
@@ -1042,7 +1148,7 @@ const TOUCH_HELP: [string, [string, string][]][] = [
   [
     'Display',
     [
-      ['View tab', 'orbits, labels, belts, rings, atmospheres'],
+      ['View tab', 'orbits, labels, belts, rings, atmospheres, Lagrange points'],
       ['explore / true', 'switch the scale model'],
       ['panel headers', 'a chevron folds the clock away'],
     ],

@@ -100,6 +100,23 @@ function sunwardOf(body: SimBody): { x: number; y: number; z: number } | undefin
 }
 
 /**
+ * Which side to come in on, per kind of destination.
+ *
+ * A body wants the daylit side. A Lagrange point wants the *far* side from its
+ * planet, so the marker is in the middle of the frame with the planet beyond
+ * it — and, for the three collinear points, the Sun beyond that, which is the
+ * alignment that gives them their meaning. Arriving on the near side would put
+ * the camera between the two and leave the planet behind your shoulder.
+ */
+function arrivalDirection(body: SimBody): { x: number; y: number; z: number } | undefined {
+  if (body.type !== 'lagrange') return sunwardOf(body)
+  const { x, y, z } = body.localKm
+  const d = Math.hypot(x, y, z)
+  if (d < 1) return undefined
+  return { x: x / d, y: y / d, z: z / d }
+}
+
+/**
  * What the camera orbits is owned by the CameraController; everything here reads
  * it back through this accessor.
  *
@@ -116,7 +133,7 @@ const initialFocus =
 let selected: SimBody =
   (shared.selectedKey ? system.byKey.get(shared.selectedKey) : null) ?? initialFocus
 
-camera.setFocus(initialFocus, { immediate: true, sunward: sunwardOf(initialFocus) })
+camera.setFocus(initialFocus, { immediate: true, arriveFrom: arrivalDirection(initialFocus) })
 // A shared link carries an explicit angle and range; without one, keep the
 // daylit-side default setFocus just chose.
 camera.restoreView({
@@ -252,6 +269,7 @@ const togglePanel = new TogglePanel(
     // links shared before the stars existed still resolve.
     { label: 'stars', get: () => scene.toggles.milkyway, set: (v) => (scene.toggles.milkyway = v) },
     { label: 'minor bodies', get: () => scene.toggles.minorBodies, set: (v) => (scene.toggles.minorBodies = v) },
+    { label: 'Lagrange points', get: () => scene.toggles.lagrange, set: (v) => (scene.toggles.lagrange = v) },
   ],
   {
     get: () => scene.toggles.orbits,
@@ -323,6 +341,7 @@ if (shared.toggles) {
   scene.toggles.atmospheres = shared.toggles.atmospheres
   scene.toggles.milkyway = shared.toggles.milkyway
   scene.toggles.minorBodies = shared.toggles.minorBodies
+  scene.toggles.lagrange = shared.toggles.lagrange
 }
 togglePanel.refresh()
 
@@ -340,7 +359,7 @@ function select(body: SimBody): void {
 }
 
 function goTo(body: SimBody): void {
-  camera.flyTo(body, { sunward: sunwardOf(body) })
+  camera.flyTo(body, { arriveFrom: arrivalDirection(body) })
   toast.show(`${body.name} — ${body.subtitle}`)
 }
 
@@ -369,9 +388,14 @@ const PLANET_ORDER = [
 ]
 
 function cyclePlanet(step: number): void {
-  // Walk up to the planet that owns whatever is focused.
+  // Walk up to the planet that owns whatever is focused — a moon's planet, or
+  // the planet a Lagrange point belongs to. Without the second case, tabbing
+  // away from L4 restarted at Mercury instead of continuing from its planet.
   const current = focused()
-  const anchor = current.type === 'moon' ? (current.parent?.key ?? 'earth') : current.key
+  const anchor =
+    current.type === 'moon' || current.type === 'lagrange'
+      ? (current.parent?.key ?? 'earth')
+      : current.key
   const index = PLANET_ORDER.indexOf(anchor)
   const next = PLANET_ORDER[(index + step + PLANET_ORDER.length) % PLANET_ORDER.length]!
   const body = system.byKey.get(next)
@@ -600,6 +624,12 @@ window.addEventListener('keydown', (ev) => {
       scene.toggles.atmospheres = !scene.toggles.atmospheres
       togglePanel.refresh()
       toast.show(`Atmospheres ${scene.toggles.atmospheres ? 'on' : 'off'}`)
+      break
+    case 'x':
+    case 'X':
+      scene.toggles.lagrange = !scene.toggles.lagrange
+      togglePanel.refresh()
+      toast.show(`Lagrange points ${scene.toggles.lagrange ? 'on' : 'off'}`)
       break
     case 'p':
     case 'P':
@@ -959,6 +989,7 @@ function currentSharedView(): SharedView {
       atmospheres: scene.toggles.atmospheres,
       milkyway: scene.toggles.milkyway,
       minorBodies: scene.toggles.minorBodies,
+      lagrange: scene.toggles.lagrange,
     },
   }
 }
@@ -1095,7 +1126,7 @@ function frame(now: number): void {
   // flag — not the element's size — is what says the drawing would be unseen.
   if (!minimapPanel.collapsed && now - lastMinimapAt >= MINIMAP_INTERVAL_MS) {
     lastMinimapAt = now
-    minimap.update(current, selected)
+    minimap.update(current, selected, scene.toggles.lagrange)
   }
 
   // Throttled inside; only touches history when the encoded view changes.

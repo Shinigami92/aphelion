@@ -146,7 +146,7 @@ export class Minimap {
   private pinchedAt = 0
 
   /** Called each frame; cheap enough at this size. */
-  update(focus: SimBody, selected: SimBody | null): void {
+  update(focus: SimBody, selected: SimBody | null, showLagrange = false): void {
     const dpr = Math.min(window.devicePixelRatio, 2)
     const width = this.canvas.clientWidth
     const height = this.canvas.clientHeight
@@ -207,6 +207,14 @@ export class Minimap {
     for (const body of bodies) {
       this.drawOrbit(ctx, body, cx, cy, scale, heliocentric, body === selected)
     }
+
+    // Lagrange points, under the bodies so a marker never hides a planet. This
+    // is the view the configuration was drawn in for two centuries — flat, from
+    // the north, with the 60 degrees plainly 60 degrees — so it is worth more
+    // here than the same five markers are in perspective.
+    if (showLagrange && heliocentric) {
+      this.drawLagrange(ctx, focus, selected, cx, cy, scale)
+    }
     for (const body of bodies) {
       const px = heliocentric ? body.helioKm.x : body.localKm.x
       const py = heliocentric ? body.helioKm.y : body.localKm.y
@@ -237,6 +245,55 @@ export class Minimap {
       ? `${(this.span / AU_KM).toFixed(this.span / AU_KM < 10 ? 2 : 1)} AU radius`
       : `${formatShort(this.span)} km radius`
     this.footer.textContent = `${spanLabel} · looking down the ecliptic`
+  }
+
+  /**
+   * The five points of whichever planet is in play, as small labelled rings.
+   *
+   * One planet's set at a time, chosen the same way the 3D view chooses it: at
+   * this size forty markers over eight orbits is a smear, and the whole value of
+   * the plan view is that you can see which point is where.
+   */
+  private drawLagrange(
+    ctx: CanvasRenderingContext2D,
+    focus: SimBody,
+    selected: SimBody | null,
+    cx: number,
+    cy: number,
+    scale: number,
+  ): void {
+    const host = lagrangeHost(focus) ?? lagrangeHost(selected)
+    if (!host) return
+
+    // The map opens at a 109 AU span, where Jupiter's whole configuration is
+    // five pixels across and its five labels land on top of each other. Nothing
+    // is gained by drawing it until it is big enough to tell the points apart,
+    // and the map zooms — so this is a legibility floor, not a hidden feature.
+    const orbitPx = Math.hypot(host.helioKm.x, host.helioKm.y) * scale
+    if (orbitPx < 26) return
+
+    ctx.font = '9px ui-monospace, monospace'
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'middle'
+    for (const point of this.system.lagrangeOf(host.key)) {
+      const sx = cx + point.helioKm.x * scale
+      const sy = cy - point.helioKm.y * scale
+      const isActive = point === selected || point === focus
+
+      const colour = `#${point.color.toString(16).padStart(6, '0')}`
+      ctx.strokeStyle = colour
+      ctx.lineWidth = isActive ? 1.6 : 1
+      ctx.globalAlpha = isActive ? 1 : 0.75
+      ctx.beginPath()
+      ctx.arc(sx, sy, 3, 0, Math.PI * 2)
+      ctx.stroke()
+
+      ctx.fillStyle = colour
+      ctx.fillText(point.name, sx, sy - 9)
+      ctx.globalAlpha = 1
+
+      this.plotted.push({ body: point, x: point.helioKm.x, y: point.helioKm.y, screenX: sx, screenY: sy, radius: 3 })
+    }
   }
 
   /** The body whose system should be shown. */
@@ -325,6 +382,15 @@ export class Minimap {
     this.orbitCache.set(body.key, { points: out, jd: this.system.jdTT })
     return out
   }
+}
+
+/** The planet whose Lagrange configuration a given body implies, if any. */
+function lagrangeHost(body: SimBody | null): SimBody | null {
+  if (!body) return null
+  if (body.type === 'lagrange') return body.lagrange!.secondary
+  if (body.type === 'planet') return body
+  if (body.type === 'moon' && body.parent?.type === 'planet') return body.parent
+  return null
 }
 
 function formatShort(km: number): string {
