@@ -1032,35 +1032,41 @@ function nearestSurfaceDistance(): number {
  *
  * Measured from the position delta rather than asked of the controller, because
  * only the delta accounts for every way the camera can move — a cinematic
- * flight, free flight, a drag, or the focus itself travelling. It has to be
- * taken in *absolute* scene space: relative to the floating origin the camera
- * barely moves during a flight, since the world slides underneath it.
+ * flight, free flight, or a drag.
+ *
+ * Taken in the *render* frame, the one the camera's position is already
+ * expressed in, because that is the frame the dust lattice is at rest in: the
+ * streaks have to describe motion through the field that is actually drawn.
+ * Measuring it in absolute scene space instead adds the focused body's own
+ * orbital motion — 30 km/s at Earth — to a velocity the dust does not share,
+ * which points every streak along the ecliptic on any flight slow enough for
+ * that term to matter, and a hop around a small moon is exactly that slow.
+ *
+ * A flight switches focus the moment it starts, and the render frame moves with
+ * it, so the camera's render position jumps by the gap between the two bodies on
+ * that one frame. The reset drops that frame rather than reading it as a
+ * velocity; nothing is lost, since a flight's intensity starts at zero anyway.
  */
-const lastCameraWorld = new Vector3()
-let haveLastCameraWorld = false
+const lastCameraRender = new Vector3()
+let lastVelocityFocus: SimBody | null = null
 const cameraVelocity = new Vector3()
-const cameraWorld = new Vector3()
 
 function updateTravelDust(dt: number): void {
-  const origin = focused().scene
-  cameraWorld.set(
-    camera.camera.position.x + origin.x,
-    camera.camera.position.y + origin.y,
-    camera.camera.position.z + origin.z,
-  )
+  const here = camera.camera.position
+  const focus = focused()
 
-  if (haveLastCameraWorld && dt > 0) {
-    cameraVelocity.subVectors(cameraWorld, lastCameraWorld).divideScalar(dt)
+  if (lastVelocityFocus === focus && dt > 0) {
+    cameraVelocity.subVectors(here, lastCameraRender).divideScalar(dt)
   } else {
     cameraVelocity.set(0, 0, 0)
   }
-  lastCameraWorld.copy(cameraWorld)
-  haveLastCameraWorld = true
+  lastCameraRender.copy(here)
+  lastVelocityFocus = focus
 
   // Only a cinematic flight or genuine free flight should raise dust; drifting
   // with a body you are orbiting should not, or the field never switches off.
   const intensity = camera.travelling > 0 ? camera.travelling : freeFlightIntensity()
-  scene.updateDust(camera.camera.position, cameraVelocity, dt, intensity)
+  scene.updateDust(here, cameraVelocity, dt, intensity)
 }
 
 /** How hard free flight is being driven, 0..1, for the dust. */

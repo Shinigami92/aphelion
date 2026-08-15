@@ -1647,15 +1647,28 @@ export function createSwarmMaterial(sprite: Texture): ShaderMaterial {
 /**
  * Travel dust — short streaks that only exist while the camera is moving fast.
  *
- * The particles are a fixed cloud in a cube of side `uCell`, wrapped modulo that
+ * The particles are a fixed cloud in a cube of one cell, wrapped modulo that
  * cube around the camera in the vertex shader. That makes the field effectively
  * infinite with no recycling pass on the CPU, and lets the cell resize with the
  * camera's speed so the same few hundred particles read correctly whether the
  * motion is kilometres or astronomical units per second.
  *
- * Each particle is a two-vertex segment whose tail is dragged back along the
- * velocity, so the streak length is the distance actually covered in a frame
- * rather than an arbitrary constant.
+ * Each particle is a two-vertex segment whose tail is dragged *back along the
+ * way it came*, which is +velocity in world terms: over the last frame the
+ * camera advanced by `uStreak`, so where the particle appeared to be then is
+ * where it is now plus that step. Dragging it the other way — the intuitive
+ * reading, and what this did — points every streak at the destination and makes
+ * the field read as flying the wrong way.
+ *
+ * **The cell must not be a smooth function of speed.** Particle positions are
+ * `position * cell`, so resizing the cell drags the whole lattice through the
+ * world: on the approach, where the flight decelerates and the cell shrinks
+ * frame by frame, the drift measured 1.3-6.8x the camera's own motion and
+ * pointed at the body being approached — the dust converged on the destination
+ * instead of streaming past. So the lattice is quantised to powers of two,
+ * which holds it perfectly still between steps, and two of them are kept a
+ * factor of two apart and cross-faded: the one that has to jump when the step
+ * comes is at zero weight exactly then, so the change is invisible.
  */
 export function createDustMaterial(): ShaderMaterial {
   return new ShaderMaterial({
@@ -1663,36 +1676,60 @@ export function createDustMaterial(): ShaderMaterial {
     depthWrite: false,
     blending: AdditiveBlending,
     uniforms: {
-      uCamPos: { value: new Vector3() },
+      // The camera position reduced modulo each cell, in double precision on the
+      // CPU — the only form of it the shader ever sees. Passing it whole would
+      // lose the wrap wherever the camera is many cells from the render origin,
+      // a float32 coordinate there being coarser than a cell.
+      uCamA: { value: new Vector3() },
+      uCamB: { value: new Vector3() },
       uStreak: { value: new Vector3() },
-      uCell: { value: 1 },
+      // One cell per cloud, an octave apart — which of the two is the coarser
+      // alternates, so the caller owns the pairing. uBlend is cloud B's share.
+      uCellA: { value: 1 },
+      uCellB: { value: 2 },
+      uBlend: { value: 0 },
       uIntensity: { value: 0 },
     },
     vertexShader: /* glsl */ `
       attribute float aEnd;
+      attribute float aLattice;
       varying float vFade;
 
-      uniform vec3 uCamPos;
+      uniform vec3 uCamA;
+      uniform vec3 uCamB;
       uniform vec3 uStreak;
-      uniform float uCell;
+      uniform float uCellA;
+      uniform float uCellB;
+      uniform float uBlend;
       uniform float uIntensity;
 
       #include <common>
       #include <logdepthbuf_pars_vertex>
 
       void main() {
+        float cell = mix(uCellA, uCellB, aLattice);
+        vec3 camMod = mix(uCamA, uCamB, aLattice);
+        float weight = mix(1.0 - uBlend, uBlend, aLattice);
+
         // Wrap the particle into the cell centred on the camera. Without the
         // half-cell shift the modulo folds at the camera itself, and the dust
         // visibly pops as it crosses the eye.
-        vec3 rel = mod(position * uCell - uCamPos + 0.5 * uCell, uCell) - 0.5 * uCell;
-        vec3 world = uCamPos + rel - uStreak * aEnd;
+        vec3 rel = mod(position * cell - camMod + 0.5 * cell, cell) - 0.5 * cell;
 
         // Fade with distance from the camera, so particles arrive and leave
         // rather than blinking into existence at the cell boundary.
-        float d = length(rel) / (0.5 * uCell);
-        vFade = uIntensity * smoothstep(1.0, 0.55, d) * (1.0 - aEnd * 0.75);
+        float d = length(rel) / (0.5 * cell);
+        vFade = uIntensity * weight * smoothstep(1.0, 0.55, d) * (1.0 - aEnd * 0.75);
 
-        gl_Position = projectionMatrix * viewMatrix * vec4(world, 1.0);
+        // Placed as an offset from the eye, never as an absolute position. The
+        // camera sits at the origin of view space, so rotating the offset is the
+        // whole transform — and the field is still anchored in the world, since
+        // the wrap above pins it to the lattice. Building a world position first
+        // would mean adding a number the size of the solar system to one the size
+        // of a cell, in float32, at the far end of a flight: the field would land
+        // on a grid coarser than a frame's travel and jitter as the eye moved.
+        gl_Position = projectionMatrix
+          * vec4(mat3(viewMatrix) * (rel + uStreak * aEnd), 1.0);
         #include <logdepthbuf_vertex>
       }
     `,
