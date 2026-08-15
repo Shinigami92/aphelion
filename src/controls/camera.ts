@@ -41,6 +41,13 @@ const MAX_FREE_SPEED = 30_000
 const MAX_STEP_FRACTION = 0.35
 
 /**
+ * How close to the arrival point already counts as being there, as a fraction
+ * of the framing distance. Under this a flight would be a twitch, so the orbit
+ * easing covers it instead.
+ */
+const ARRIVED_FRACTION = 0.25
+
+/**
  * Seconds for a cinematic approach, from the trip length in destination radii.
  *
  * Logarithmic, because the range is enormous — a few radii to a moon, tens of
@@ -284,14 +291,29 @@ export class CameraController {
     // Let setFocus pick the destination framing, then take the numbers back.
     this.setFocus(body, { ...opts, immediate: true })
 
-    const travel = from.length()
-    const radius = Math.max(body.sceneRadius, 1e-4)
-    // Nothing to fly if we are already framed on it.
-    if (travel < this.targetDistance * 1.2) return
+    // Where the flight would end, in the same frame `from` is measured in.
+    const to = this.orbitOffset(this.targetDistance, this.targetAzimuth, this.targetElevation)
+    const trip = from.distanceTo(to)
+
+    // Whether there is anything to fly is the gap between where the camera is
+    // and where it is going — not its range from the destination, which is what
+    // this used to compare. The two part company whenever the framing distance
+    // is large next to the trip, and a Lagrange point is exactly that case: its
+    // radius is a viewing scale off the Hill radius, not a size, so the default
+    // 4.2-radii framing sits further from Earth's L1 than L1 is from Earth.
+    // Every trip to an L1 or L2 therefore measured as "already framed" and cut
+    // straight there — a jump, from the wrong side, with no flight at all.
+    if (trip < this.targetDistance * ARRIVED_FRACTION) {
+      // Close enough that flying would be a twitch, but still no reason to
+      // snap: take the current angles from where the camera actually is in the
+      // destination's frame and let the orbit easing close the rest.
+      this.adoptOrbitFrom(from)
+      return
+    }
 
     this.flight = {
       elapsed: 0,
-      duration: flightDuration(travel / radius),
+      duration: flightDuration(trip / Math.max(body.sceneRadius, 1e-4)),
       fromPosition: from,
       fromQuaternion,
       toDistance: this.targetDistance,
@@ -299,7 +321,7 @@ export class CameraController {
       toElevation: this.targetElevation,
     }
     // Start the eased state at the far end so a cancelled flight does not snap.
-    this.distance = travel
+    this.distance = from.length()
     this.mode = 'orbit'
   }
 
@@ -313,13 +335,32 @@ export class CameraController {
 
   /** Re-derive azimuth, elevation and distance from the camera's position. */
   private adoptOrbitFromPosition(): void {
-    const p = this.camera.position.clone().sub(this.panOffset)
-    this.distance = Math.max(p.length(), 1e-4)
+    this.adoptOrbitFrom(this.camera.position.clone().sub(this.panOffset))
     this.targetDistance = this.distance
-    this.azimuth = Math.atan2(p.y, p.x)
     this.targetAzimuth = this.azimuth
-    this.elevation = Math.asin(Math.max(-1, Math.min(1, p.z / this.distance)))
     this.targetElevation = this.elevation
+  }
+
+  /**
+   * Set the current orbit state from a position relative to the focus centre,
+   * deliberately leaving the targets alone: the easing then runs from where the
+   * camera genuinely is toward the new framing, instead of from angles left
+   * over from whatever it was orbiting before.
+   */
+  private adoptOrbitFrom(p: Vector3): void {
+    this.distance = Math.max(p.length(), 1e-4)
+    this.azimuth = Math.atan2(p.y, p.x)
+    this.elevation = Math.asin(Math.max(-1, Math.min(1, p.z / this.distance)))
+  }
+
+  /** Spherical orbit state to a Cartesian offset from the focus, z up. */
+  private orbitOffset(distance: number, azimuth: number, elevation: number): Vector3 {
+    const cosE = Math.cos(elevation)
+    return new Vector3(
+      distance * cosE * Math.cos(azimuth),
+      distance * cosE * Math.sin(azimuth),
+      distance * Math.sin(elevation),
+    )
   }
 
   /** Frame a body and all of its satellites. */
@@ -481,22 +522,25 @@ export class CameraController {
     const turn = Math.min(1, ease * 3)
 
     // Destination position in the same frame the flight started in.
-    const cosE = Math.cos(f.toElevation)
-    const to = new Vector3(
-      f.toDistance * cosE * Math.cos(f.toAzimuth),
-      f.toDistance * cosE * Math.sin(f.toAzimuth),
-      f.toDistance * Math.sin(f.toElevation),
-    )
+    const to = this.orbitOffset(f.toDistance, f.toAzimuth, f.toElevation)
 
     // Interpolate the direction on the sphere and the radius in log space, so
     // the crossing reads as steady progress rather than a sudden arrival.
+    //
+    // The direction has to be a genuine rotation. Lerping the two unit vectors
+    // and renormalising traces the same arc for a modest turn, but it sags
+    // through the middle as the angle opens — and a trip to a Lagrange point is
+    // a turn of well over a hundred degrees, because you arrive on the far side
+    // from the planet you set out from. At a half-turn the midpoint collapses
+    // onto the origin and the camera passes through what it is arriving at.
     const fromLength = Math.max(f.fromPosition.length(), 1e-6)
     const toLength = Math.max(to.length(), 1e-6)
-    const direction = f.fromPosition
-      .clone()
-      .normalize()
-      .lerp(to.clone().normalize(), ease)
-      .normalize()
+    const direction = f.fromPosition.clone().divideScalar(fromLength)
+    const swing = new Quaternion().setFromUnitVectors(
+      direction.clone(),
+      to.clone().divideScalar(toLength),
+    )
+    direction.applyQuaternion(new Quaternion().slerp(swing, ease))
     const radius = Math.exp(
       Math.log(fromLength) + (Math.log(toLength) - Math.log(fromLength)) * ease,
     )
@@ -564,13 +608,7 @@ export class CameraController {
     this.roll += (this.targetRoll - this.roll) * k
     this.focusTransition += (1 - this.focusTransition) * k
 
-    // Spherical to Cartesian, z up.
-    const cosE = Math.cos(this.elevation)
-    const offset = new Vector3(
-      this.distance * cosE * Math.cos(this.azimuth),
-      this.distance * cosE * Math.sin(this.azimuth),
-      this.distance * Math.sin(this.elevation),
-    )
+    const offset = this.orbitOffset(this.distance, this.azimuth, this.elevation)
 
     // The focus sits at the render-space origin.
     this.camera.position.copy(offset).add(this.panOffset)
