@@ -349,7 +349,16 @@ export class CameraController {
    */
   private adoptOrbitFrom(p: Vector3): void {
     this.distance = Math.max(p.length(), 1e-4)
-    this.azimuth = Math.atan2(p.y, p.x)
+    // Azimuth is a running total, not a wrapped angle — dragging winds it past
+    // a turn and `setFocus` stores its target as whichever representative was
+    // nearest at the time, so `targetAzimuth` is regularly outside (-π, π].
+    // atan2 is not, and reading the arrival angle raw therefore left the two a
+    // whole turn apart while describing the same direction: the camera reached
+    // its destination and the orbit easing then spun it a full 360° about the
+    // body to unwind the difference. Choosing the representative nearest the
+    // target keeps the direction identical and makes "already there" read as
+    // nothing left to travel.
+    this.azimuth = nearestAngle(this.targetAzimuth, Math.atan2(p.y, p.x))
     this.elevation = Math.asin(Math.max(-1, Math.min(1, p.z / this.distance)))
   }
 
