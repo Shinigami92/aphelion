@@ -95,6 +95,17 @@ const MAJOR_MOON_RADIUS = 60
 const PROMOTION_SLOTS = 6
 
 /**
+ * Apparent radius, in pixels, below which a body has no shape on screen.
+ *
+ * Under it a body is a dot however it is drawn — you can see *that* something is
+ * there but nothing about it — so it is not worth real geometry and it is not
+ * something a click can be aimed at. Both the promotion of minor bodies to
+ * meshes and the hit test read it, and they should agree: anything the renderer
+ * treats as a point, picking treats as part of whatever it is orbiting.
+ */
+const SHAPE_APPARENT_PX = 2.5
+
+/**
  * Sphere tessellation per detail tier, swapped by apparent size.
  *
  * Relief displacement reads these too: its normals are differenced at the
@@ -459,6 +470,18 @@ export interface SceneToggles {
   milkyway: boolean
   minorBodies: boolean
   lagrange: boolean
+}
+
+/** A body reduced to what the hit test needs: where it is and how big. */
+interface PickPoint {
+  /** CSS pixels from the left of the canvas. */
+  x: number
+  /** CSS pixels from the top of the canvas. */
+  y: number
+  /** Scene units from the camera. */
+  distance: number
+  /** Apparent radius in pixels; 0 for the fixed-size Lagrange markers. */
+  apparent: number
 }
 
 /**
@@ -1639,7 +1662,7 @@ export class SceneView {
       this.tmpVec.set(body.scene.x, body.scene.y, body.scene.z).sub(this.origin)
       const distance = Math.max(camera.position.distanceTo(this.tmpVec), 1e-9)
       const apparent = (body.sceneRadius / distance) * this.viewport.y
-      if (apparent > 2.5 || body === this.selected || body === this.currentFocus) {
+      if (apparent > SHAPE_APPARENT_PX || body === this.selected || body === this.currentFocus) {
         wanted.push({ body, apparent: body === this.currentFocus ? 1e9 : apparent })
       }
     }
@@ -2052,54 +2075,162 @@ export class SceneView {
    *
    * Screen-space proximity rather than ray casting, so point-rendered minor
    * bodies are just as clickable as full spheres.
+   *
+   * Three rules keep the answer to the one the user meant, all of them the same
+   * principle — a click can only mean something you can see and aim at. Nothing
+   * undrawn is a candidate (`isAimable`); nothing behind a solid disc under the
+   * cursor is either; and anything drawn as a point inside its primary's aim
+   * radius resolves to that primary (`clusterPrimary`).
+   *
+   * The numbers behind them, measured from the Moon at 2026-08-15T18:30Z:
+   * Saturn is a 1.5-pixel disc buried in the sprites of its 291 moons, which
+   * spread forty pixels around it. A click one pixel off centre used to select
+   * Polydeuces, a 1.3 km rock, and only Neptune's exact centre pixel avoided
+   * Hippocamp, Nereid or an L1 reticle. Standing at Saturn instead, a click on
+   * Mimas returned a small body hidden behind the planet.
    */
   pick(clientX: number, clientY: number, system: SolarSystem, tolerance = 22): SimBody | null {
     const camera = this.currentCamera
     if (!camera) return null
 
-    let best: SimBody | null = null
-    let bestScore = Infinity
-
-    // Lagrange points are pickable only while their layer is drawn: an
-    // invisible marker that swallows clicks meant for the planet behind it
-    // would be indistinguishable from a broken hit test.
-    const candidates = this.toggles.lagrange
+    // Lagrange points are only worth walking while their layer is drawn.
+    const groups = this.toggles.lagrange
       ? [system.bodies, this.lagrangeBodies]
       : [system.bodies]
 
-    for (const group of candidates) {
+    const reachable: { body: SimBody; point: PickPoint }[] = []
+    // Nearest solid disc lying under the cursor. Whatever is drawn there hides
+    // everything behind it, and the depth buffer already agrees — a sprite
+    // eclipsed by a planet is not on screen to be clicked.
+    let occluderDistance = Infinity
+
+    for (const group of groups) {
       for (const body of group) {
-        this.tmpVec.set(body.scene.x, body.scene.y, body.scene.z).sub(this.origin)
-        this.tmpVec2.copy(this.tmpVec).project(camera)
-        if (this.tmpVec2.z < -1 || this.tmpVec2.z > 1) continue
-        const x = (this.tmpVec2.x * 0.5 + 0.5) * this.viewport.x
-        const y = (-this.tmpVec2.y * 0.5 + 0.5) * this.viewport.y
-        const dx = x - clientX
-        const dy = y - clientY
-        const pixelDistance = Math.hypot(dx, dy)
+        // The Sun keeps its visual outside the map, and it is the one disc big
+        // enough that things routinely pass behind it.
+        const visual =
+          body.type === 'star'
+            ? (this.sunVisual ?? undefined)
+            : (this.visuals.get(body.key) ?? this.promoted.get(body.key))
+        if (!this.isAimable(body, visual)) continue
+        const point = this.projectForPick(body, camera)
+        if (!point) continue
+        const pixelDistance = Math.hypot(point.x - clientX, point.y - clientY)
 
-        const distance = camera.position.distanceTo(this.tmpVec)
-        // A marker is exactly as big as it is drawn. Using its nominal radius
-        // here would let a Lagrange point standing close to the camera claim
-        // half the screen while showing a 13-pixel reticle.
-        const apparent =
-          body.type === 'lagrange'
-            ? 0
-            : (body.sceneRadius / Math.max(distance, 1e-9)) * this.viewport.y
-        // Clicking anywhere on a large body should select it.
-        const reach = Math.max(tolerance, apparent)
-        if (pixelDistance > reach) continue
-
-        // Prefer whatever is closest to the cursor, breaking ties toward the
-        // nearer body so a moon in front of its planet wins.
-        const score = pixelDistance - Math.min(apparent, 40) * 0.5 + Math.log10(distance + 10) * 0.5
-        if (score < bestScore) {
-          bestScore = score
-          best = body
+        // Only a drawn sphere blocks anything. A sprite is a pixel of glow.
+        if (visual?.group.visible === true && pixelDistance <= point.apparent) {
+          occluderDistance = Math.min(occluderDistance, point.distance)
         }
+        // Clicking anywhere on a large body should select it.
+        if (pixelDistance <= Math.max(tolerance, point.apparent)) reachable.push({ body, point })
+      }
+    }
+
+    let best: SimBody | null = null
+    let bestScore = Infinity
+    for (const { body, point } of reachable) {
+      // Compared against the occluder's centre rather than its near surface, so
+      // a moon skimming the limb stays clickable and only what is decisively
+      // round the back is dropped.
+      if (point.distance > occluderDistance) continue
+
+      // What the click means may be the primary rather than the speck that
+      // caught it — and then it is scored from the primary's own position, not
+      // the speck's.
+      const target = this.clusterPrimary(body, point, camera, clientX, clientY, tolerance)
+      // Prefer whatever is closest to the cursor, breaking ties toward the
+      // nearer body so a moon in front of its planet wins.
+      const score =
+        Math.hypot(target.point.x - clientX, target.point.y - clientY) -
+        Math.min(target.point.apparent, 40) * 0.5 +
+        Math.log10(target.point.distance + 10) * 0.5
+      if (score < bestScore) {
+        bestScore = score
+        best = target.body
       }
     }
     return best
+  }
+
+  /**
+   * Is anything actually drawn for this body right now?
+   *
+   * An invisible thing that swallows clicks meant for what is behind it is
+   * indistinguishable from a broken hit test. This was written for the Lagrange
+   * reticles and applies just as well to everything else: a moon whose mesh has
+   * been culled for being sub-pixel is drawn nowhere at all, and with the minor
+   * bodies toggled off neither is a rock.
+   *
+   * The Sun, the planets and the dwarfs are exempt. They are the landmarks of
+   * the map — they carry a label at any size, they are the destinations the
+   * whole UI is built around, and one of them is always what a click on a
+   * distant speck of a system was reaching for.
+   */
+  private isAimable(body: SimBody, visual: BodyVisual | undefined): boolean {
+    if (body.type === 'star' || body.type === 'planet' || body.type === 'dwarf') return true
+    if (body.type === 'lagrange') return this.toggles.lagrange
+    if (visual) return visual.group.visible
+    return this.toggles.minorBodies
+  }
+
+  /**
+   * Walk up to the body a click in this cluster actually means.
+   *
+   * A primary's aim disc is opaque to its own shapeless satellites: while the
+   * cursor is inside the reach of a planet, no speck orbiting that planet can
+   * outrank it. From far away that disc is the whole system, so every click
+   * near the dot lands on the planet, which is the point. Chain it and a click
+   * on an unresolved inner planet resolves through to the Sun for the same
+   * reason.
+   *
+   * Both conditions are doing work. Without the shape test a moon transiting
+   * from close range — a real disc, unmistakably aimed at — would be swallowed
+   * by the planet behind it. Without the reach test the moons of a planet you
+   * are standing next to would be, and by the time a moon is drawn clear of its
+   * planet you can point at it. What remains unreachable is a shapeless moon
+   * against its own primary's disc, which is right twice over: at one pixel
+   * across it cannot be aimed at, and it is either lost against the lit surface
+   * or hidden behind it.
+   */
+  private clusterPrimary(
+    body: SimBody,
+    point: PickPoint,
+    camera: PerspectiveCamera,
+    clientX: number,
+    clientY: number,
+    tolerance: number,
+  ): { body: SimBody; point: PickPoint } {
+    let current = body
+    let currentPoint = point
+    while (current.parent && currentPoint.apparent < SHAPE_APPARENT_PX) {
+      const parentPoint = this.projectForPick(current.parent, camera)
+      if (!parentPoint) break
+      const reach = Math.max(tolerance, parentPoint.apparent)
+      if (Math.hypot(parentPoint.x - clientX, parentPoint.y - clientY) > reach) break
+      current = current.parent
+      currentPoint = parentPoint
+    }
+    return { body: current, point: currentPoint }
+  }
+
+  /** Where a body lands on screen, or null if it is not in front of the camera. */
+  private projectForPick(body: SimBody, camera: PerspectiveCamera): PickPoint | null {
+    this.tmpVec.set(body.scene.x, body.scene.y, body.scene.z).sub(this.origin)
+    this.tmpVec2.copy(this.tmpVec).project(camera)
+    if (this.tmpVec2.z < -1 || this.tmpVec2.z > 1) return null
+    const distance = camera.position.distanceTo(this.tmpVec)
+    return {
+      x: (this.tmpVec2.x * 0.5 + 0.5) * this.viewport.x,
+      y: (-this.tmpVec2.y * 0.5 + 0.5) * this.viewport.y,
+      distance,
+      // A marker is exactly as big as it is drawn. Using its nominal radius
+      // here would let a Lagrange point standing close to the camera claim half
+      // the screen while showing a 13-pixel reticle.
+      apparent:
+        body.type === 'lagrange'
+          ? 0
+          : (body.sceneRadius / Math.max(distance, 1e-9)) * this.viewport.y,
+    }
   }
 
   setSelected(body: SimBody | null): void {
