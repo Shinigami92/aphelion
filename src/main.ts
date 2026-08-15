@@ -168,10 +168,28 @@ const infoPanel = new InfoPanel(need('info'))
 const toast = new Toast(need('toast'))
 const help = new HelpOverlay(need('help'), REPO_URL)
 
-const browser = new BodyBrowser(need('browser'), system, (body) => {
-  select(body)
-  goTo(body)
-})
+const browser = new BodyBrowser(
+  need('browser'),
+  system,
+  (body) => {
+    select(body)
+    goTo(body)
+  },
+  () => scene.toggles.lagrange,
+)
+
+/**
+ * The one way to turn the Lagrange points on and off.
+ *
+ * The switch owns both halves of the layer: the markers in the scene and the
+ * rows in the body browser. Setting `scene.toggles.lagrange` directly is what
+ * leaves the list offering forty places you cannot see, so the checkbox, the X
+ * key and a restored link all come through here.
+ */
+function setLagrange(on: boolean): void {
+  scene.toggles.lagrange = on
+  browser.refresh()
+}
 
 const minimapHost = need('minimap')
 const minimap = new Minimap(minimapHost, system, (body) => {
@@ -269,7 +287,7 @@ const togglePanel = new TogglePanel(
     // links shared before the stars existed still resolve.
     { label: 'stars', get: () => scene.toggles.milkyway, set: (v) => (scene.toggles.milkyway = v) },
     { label: 'minor bodies', get: () => scene.toggles.minorBodies, set: (v) => (scene.toggles.minorBodies = v) },
-    { label: 'Lagrange points', get: () => scene.toggles.lagrange, set: (v) => (scene.toggles.lagrange = v) },
+    { label: 'Lagrange points', get: () => scene.toggles.lagrange, set: (v) => setLagrange(v) },
   ],
   {
     get: () => scene.toggles.orbits,
@@ -341,7 +359,7 @@ if (shared.toggles) {
   scene.toggles.atmospheres = shared.toggles.atmospheres
   scene.toggles.milkyway = shared.toggles.milkyway
   scene.toggles.minorBodies = shared.toggles.minorBodies
-  scene.toggles.lagrange = shared.toggles.lagrange
+  setLagrange(shared.toggles.lagrange)
 }
 togglePanel.refresh()
 
@@ -627,7 +645,7 @@ window.addEventListener('keydown', (ev) => {
       break
     case 'x':
     case 'X':
-      scene.toggles.lagrange = !scene.toggles.lagrange
+      setLagrange(!scene.toggles.lagrange)
       togglePanel.refresh()
       toast.show(`Lagrange points ${scene.toggles.lagrange ? 'on' : 'off'}`)
       break

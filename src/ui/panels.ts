@@ -307,6 +307,8 @@ export class BodyBrowser {
   private sortRow = el('div', 'browser__sort')
   private moonSort: MoonSort = 'distance'
   private sortButtons: { mode: MoonSort; node: HTMLElement }[] = []
+  /** What `showLagrange()` read at the last render, so `refresh` can skip. */
+  private lagrangeShown = true
 
   head!: HTMLElement
   body!: HTMLElement
@@ -315,6 +317,14 @@ export class BodyBrowser {
     private host: HTMLElement,
     private system: SolarSystem,
     private onSelect: (body: SimBody) => void,
+    /**
+     * Whether the Lagrange points are being drawn.
+     *
+     * The list follows the view switch rather than holding an opinion of its
+     * own: a point that is not on screen should not be offered as somewhere to
+     * fly to, and clicking a row here does fly there.
+     */
+    private showLagrange: () => boolean = () => true,
   ) {
     const head = el('div', 'browser__head')
     const title = el('div', 'panel__title')
@@ -355,7 +365,34 @@ export class BodyBrowser {
     this.body = body
 
     this.expanded.add('earth')
+    this.lagrangeShown = showLagrange()
     this.render()
+  }
+
+  /**
+   * Re-list, because something outside the panel changed what belongs in it.
+   *
+   * Called from every route to the Lagrange switch — the checkbox, the X key,
+   * and a restored link — and the X key repeats while held, so it compares
+   * before rebuilding rather than throwing away the scroll position and the
+   * open planets several times a second.
+   */
+  refresh(): void {
+    const shown = this.showLagrange()
+    if (shown === this.lagrangeShown) return
+    this.lagrangeShown = shown
+    this.render()
+  }
+
+  /**
+   * The Lagrange points of one planet, or none while the layer is hidden.
+   *
+   * Every read of `system.lagrange` in this panel goes through here, so the
+   * rows, the search results and the "5 Lagrange points" a planet row promises
+   * cannot disagree about whether the points exist.
+   */
+  private lagrangeOf(key: string): SimBody[] {
+    return this.lagrangeShown ? this.system.lagrangeOf(key) : []
   }
 
   /**
@@ -419,10 +456,10 @@ export class BodyBrowser {
   private matches(): SimBody[] {
     if (!this.query) return []
     // Lagrange points are not in `bodies` — they are markers, not objects — but
-    // they are findable, and their subtitle is searched as well as their name:
-    // "L4" alone cannot tell you whose, and "earth" or "lagrange" is how anyone
-    // would actually look for them.
-    return [...this.system.bodies, ...this.system.lagrange]
+    // they are findable while the layer is on, and their subtitle is searched as
+    // well as their name: "L4" alone cannot tell you whose, and "earth" or
+    // "lagrange" is how anyone would actually look for them.
+    return [...this.system.bodies, ...(this.lagrangeShown ? this.system.lagrange : [])]
       .filter(
         (b) =>
           b.name.toLowerCase().includes(this.query) ||
@@ -470,7 +507,7 @@ export class BodyBrowser {
       if (this.expanded.has(planet.key)) {
         // Lagrange points first: there are always five, and burying them under
         // Saturn's 291 moons would put them past the end of the list.
-        for (const point of this.system.lagrangeOf(planet.key)) {
+        for (const point of this.lagrangeOf(planet.key)) {
           planetGroup.append(this.makeRow(point, 1, formatDistance(localDistance(point))))
         }
         for (const moon of this.sortedMoons(planet.key).slice(0, 400)) {
@@ -571,7 +608,7 @@ export class BodyBrowser {
   private childCount(body: SimBody): string {
     const moons = this.moonCount(body)
     if (moons) return moons
-    const points = this.system.lagrangeOf(body.key).length
+    const points = this.lagrangeOf(body.key).length
     return points ? `${points} Lagrange points` : ''
   }
 
@@ -585,7 +622,7 @@ export class BodyBrowser {
    */
   private expandable(body: SimBody): boolean {
     if (body.children.some((c) => c.type === 'moon')) return true
-    return body.type === 'planet' && this.system.lagrangeOf(body.key).length > 0
+    return body.type === 'planet' && this.lagrangeOf(body.key).length > 0
   }
 
   private makeRow(body: SimBody, depth: number, meta?: string): HTMLElement {
