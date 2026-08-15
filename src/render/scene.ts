@@ -34,6 +34,7 @@ import {
   Matrix4,
   Mesh,
   Points,
+  Quaternion,
   Scene,
   ShaderMaterial,
   Vector2,
@@ -55,6 +56,7 @@ import { AU_KM, SCENE_UNIT_KM, SUN_RADIUS_KM } from '../core/constants.ts'
 import type { ScaleModel } from '../core/scale.ts'
 import type { SimBody, SolarSystem } from '../core/system.ts'
 import type { Basis } from '../astro/frames.ts'
+import { daysSinceJ2000 } from '../astro/timescales.ts'
 import { buildSwarms } from '../data/belts.ts'
 import { MOON_ATMOSPHERES, RELIEF_EXAGGERATION, type RingSpec } from '../data/bodies.ts'
 import { reliefFor, type ReliefMap } from '../data/generated/relief.ts'
@@ -72,6 +74,7 @@ import {
   createAtmosphereMaterial,
   createBodyMaterial,
   createCloudMaterial,
+  ZONAL_SAMPLES,
   createCoronaMaterial,
   createDustMaterial,
   createOrbitMaterial,
@@ -93,6 +96,30 @@ const MAJOR_MOON_RADIUS = 60
 
 /** Maximum minor bodies promoted to real geometry at once. */
 const PROMOTION_SLOTS = 6
+
+/** Body-local rotation axis: every sphere here is built with the pole on +Z. */
+const POLE_AXIS = new Vector3(0, 0, 1)
+
+/**
+ * Sim days over which a sheared cloud deck cycles back to unsheared.
+ *
+ * The one number here that is chosen by eye rather than measured, and the two
+ * things it trades are locked together: a copy sways by T/4 of its travel and
+ * the worst ghost is T/2 of it, so visible motion always costs twice as much
+ * ghost. Only the *residual* passes through here, which is what makes a day
+ * affordable — about 17 deg/day under the southern jet, so 8 degrees of ghost
+ * at the crossover, which cloud edges are soft enough to absorb.
+ */
+const CLOUD_SHEAR_PERIOD_DAYS = 1
+
+/**
+ * Ceiling on how fast the cloud flow clock may run, in sim days per real
+ * second — the same guard the ring clocks use, for the same reason. At a year
+ * a second the deck would otherwise recycle hundreds of times a frame and
+ * dissolve into strobing noise; here it simply saturates, and nobody expects to
+ * read weather off a planet that is a blur anyway.
+ */
+const CLOUD_FLOW_MAX_RATE = 1
 
 /**
  * Apparent radius, in pixels, below which a body has no shape on screen.
@@ -173,6 +200,51 @@ const QUALITY: Record<Quality, { bloom: boolean; atmoSteps: number; maxPixelRati
  * looks perfectly plausible until you check a sub-solar point against the clock
  * and find noon over the wrong hemisphere.
  */
+/**
+ * Split a zonal wind profile into the part the deck can carry rigidly and the
+ * part that has to shear.
+ *
+ * A wind is a linear speed, so the angular rate it implies is `u / (R cos lat)`
+ * and grows without bound towards the poles, where the circle it is travelling
+ * round shrinks to nothing. That is not an artefact — a few m/s really is a
+ * brisk rotation at 85 degrees — but it does mean a profile must reach zero at
+ * the poles or the top and bottom rows of the map spin up into a smear. The
+ * floor on the cosine only keeps 0/0 out of the arithmetic at the poles
+ * themselves; the profile is what keeps the rate sane near them.
+ *
+ * The split is the point of this function. Shear has to be recycled or it tears
+ * the map into stripes, and anything recycled can only ever sway about where it
+ * started — so a shear-only deck has *no* net transport, which is a worse lie
+ * than the rigid sheet it replaced. Handing the area-weighted mean to the mesh
+ * quaternion instead gives that part back: unbounded, exact, artefact-free.
+ * What is left over is the latitude structure, which is small enough to recycle
+ * cheaply and is the only part that ever needed a shader.
+ *
+ * The honest cost, worth knowing before reading too much into a render: only
+ * the mean survives as net transport, so over many cycles the tropics drift
+ * *east* with everything else, where the real trades run west.
+ */
+function zonalFlow(
+  windMs: readonly number[],
+  radiusKm: number,
+): { meanDegPerDay: number; residualDegPerDay: number[] } {
+  const rates: number[] = []
+  let weighted = 0
+  let weight = 0
+  for (let i = 0; i < ZONAL_SAMPLES; i++) {
+    const latDeg = -90 + (180 * i) / (ZONAL_SAMPLES - 1)
+    const cos = Math.cos((latDeg * Math.PI) / 180)
+    const circumferenceM = 2 * Math.PI * radiusKm * 1000 * Math.max(cos, 1e-6)
+    const rate = ((windMs[i] ?? 0) * 86400 * 360) / circumferenceM
+    rates.push(rate)
+    // Weight by the area each sample stands for, which goes as cos(lat).
+    weighted += rate * Math.max(cos, 0)
+    weight += Math.max(cos, 0)
+  }
+  const meanDegPerDay = weight > 0 ? weighted / weight : 0
+  return { meanDegPerDay, residualDegPerDay: rates.map((r) => r - meanDegPerDay) }
+}
+
 function createSphere(widthSegments: number, heightSegments: number): BufferGeometry {
   const w = Math.max(6, widthSegments)
   const h = Math.max(4, heightSegments)
@@ -452,6 +524,8 @@ interface BodyVisual {
   material: ShaderMaterial
   clouds: Mesh | null
   cloudMaterial: ShaderMaterial | null
+  /** Deck rotation relative to the crust, deg/day east. See `BodySpec`. */
+  cloudDrift: number
   atmosphere: Mesh | null
   atmosphereMaterial: ShaderMaterial | null
   rings: RingVisual[]
@@ -577,6 +651,29 @@ export class SceneView {
   private origin = new Vector3()
   private sunRender = new Vector3()
 
+  /**
+   * Days since J2000 of the frame being drawn.
+   *
+   * Anything the *simulation* clock drives has to read this and not a wall
+   * clock, or it desynchronises the moment time is paused, scrubbed or run
+   * backwards — and the whole point of a cloud deck that moves is that it is
+   * showing you where the clouds were at the date on screen.
+   */
+  private days = 0
+
+  /**
+   * Age of the cloud shear, in sim days, and the clock it is advanced from.
+   *
+   * Kept separate from `days` because it is rate-limited: it tracks sim time
+   * but cannot be dragged forward faster than `CLOUD_FLOW_MAX_RATE`.
+   */
+  private cloudFlowDays = 0
+  private lastCloudJdTT: number | null = null
+  /** The two copies' ages in days, and the second's weight. Set once a frame. */
+  private cloudPhaseA = 0
+  private cloudPhaseB = 0
+  private cloudBlend = 0
+
   toggles: SceneToggles = {
     orbits: 'planets',
     labels: 'major',
@@ -601,6 +698,7 @@ export class SceneView {
   private proceduralBudget = 0
 
   private tmpMatrix = new Matrix4()
+  private tmpQuat = new Quaternion()
   private tmpVec = new Vector3()
   private tmpVec2 = new Vector3()
   private tmpVec3 = new Vector3()
@@ -707,6 +805,7 @@ export class SceneView {
       material,
       clouds: null,
       cloudMaterial: null,
+      cloudDrift: 0,
       atmosphere: null,
       atmosphereMaterial: null,
       rings: [],
@@ -755,6 +854,7 @@ export class SceneView {
       material,
       clouds: null,
       cloudMaterial: null,
+      cloudDrift: spec?.cloudDriftDegPerDay ?? 0,
       atmosphere: null,
       atmosphereMaterial: null,
       rings: [],
@@ -805,6 +905,16 @@ export class SceneView {
         const cloudMaterial = createCloudMaterial(solidTexture(0x000000), {
           opacity: body.key === 'venus' ? 1 : 0.9,
         })
+        if (spec.cloudWindMs) {
+          // The mean rides the same rigid rotation Venus uses, so a body may be
+          // given a wind profile *or* a drift but never both — the profile
+          // produces its own.
+          const flow = zonalFlow(spec.cloudWindMs, body.radiusKm)
+          visual.cloudDrift = flow.meanDegPerDay
+          const u = cloudMaterial.uniforms
+          u.uZonalDeg!.value = flow.residualDegPerDay
+          u.uHasFlow!.value = 1
+        }
         const clouds = new Mesh(this.lodGeometries[1]!, cloudMaterial)
         clouds.scale.setScalar(1.004)
         clouds.renderOrder = 2
@@ -1044,6 +1154,7 @@ export class SceneView {
         material,
         clouds: null,
         cloudMaterial: null,
+        cloudDrift: 0,
         atmosphere: null,
         atmosphereMaterial: null,
         rings: [],
@@ -1220,6 +1331,8 @@ export class SceneView {
   ): void {
     this.currentFocus = focus
     this.proceduralBudget = 1
+    this.days = daysSinceJ2000(system.jdTT)
+    this.advanceCloudClock(system.jdTT, dt)
 
     // Floating origin.
     this.origin.set(focus.scene.x, focus.scene.y, focus.scene.z)
@@ -1298,7 +1411,19 @@ export class SceneView {
     visual.mesh.scale.set(radius, radius, radius * squash)
 
     if (visual.clouds) {
+      // The deck is not bolted to the ground. Spin it about the body's own pole
+      // — local +Z, which `spinBasis` guarantees, and the same sense in which W
+      // advances — by the drift accumulated since J2000, so the offset is a
+      // function of the date rather than of how long the tab has been open.
+      //
+      // Reducing mod 360 keeps the angle small however far the clock has run:
+      // Venus reaches a third of a million degrees inside a decade, and while
+      // float64 carries that fine, the quaternion does not need to.
       visual.clouds.quaternion.copy(visual.mesh.quaternion)
+      if (visual.cloudDrift !== 0) {
+        const drift = (((visual.cloudDrift * this.days) % 360) * Math.PI) / 180
+        visual.clouds.quaternion.multiply(this.tmpQuat.setFromAxisAngle(POLE_AXIS, drift))
+      }
       visual.clouds.scale.set(radius * cloudLift, radius * cloudLift, radius * cloudLift * squash)
     }
     // The shell is a uniformly scaled sphere, so it needs no orientation of its
@@ -1324,6 +1449,9 @@ export class SceneView {
       u.uSunRadius!.value = sunSceneRadius
       u.uBodyCentre!.value.copy(centre)
       u.uKmPerUnit!.value = body.radiusKm / Math.max(body.sceneRadius, 1e-9)
+      u.uPhaseA!.value = this.cloudPhaseA
+      u.uPhaseB!.value = this.cloudPhaseB
+      u.uBlend!.value = this.cloudBlend
       this.setEclipseUniforms(visual.cloudMaterial, body)
     }
     if (visual.atmosphereMaterial) {
@@ -1460,6 +1588,34 @@ export class SceneView {
    * follows the clock's rate and sign for free and needs no knowledge of
    * either. A paused clock advances nothing, which is what stops the rocks.
    */
+  /**
+   * Advance the cloud shear and resolve the two copies' ages from it.
+   *
+   * All of the phase arithmetic is done here, in float64, and only the reduced
+   * result reaches the shader. Handing a shader `days` directly would be a slow
+   * poison: 8,456 days lands where float32 steps in units of about a
+   * thousandth, so the deck would advance in visible jerks instead of flowing.
+   */
+  private advanceCloudClock(jdTT: number, dt: number): void {
+    const previous = this.lastCloudJdTT
+    this.lastCloudJdTT = jdTT
+    if (previous !== null) {
+      const limit = CLOUD_FLOW_MAX_RATE * Math.max(dt, 1e-4)
+      this.cloudFlowDays += Math.max(-limit, Math.min(limit, jdTT - previous))
+    }
+
+    const T = CLOUD_SHEAR_PERIOD_DAYS
+    // Position within the cycle, always in [0, 1) however far back the clock is.
+    const p = (((this.cloudFlowDays / T) % 1) + 1) % 1
+    const pB = (p + 0.5) % 1
+    // Ages centred on zero, so each copy wraps from +T/2 to -T/2 — a jump that
+    // is invisible because it happens exactly where that copy's weight is zero.
+    this.cloudPhaseA = (p - 0.5) * T
+    this.cloudPhaseB = (pB - 0.5) * T
+    // 1 at p = 0 (B is fresh), 0 at p = 0.5 (A is fresh).
+    this.cloudBlend = Math.abs(1 - 2 * p)
+  }
+
   private advanceRingClocks(jdTT: number, dt: number): void {
     const previous = this.lastRingJdTT
     this.lastRingJdTT = jdTT

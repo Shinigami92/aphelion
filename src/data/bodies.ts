@@ -175,6 +175,36 @@ export interface BodySpec {
    * unset — inventing colour for them would be the opposite of the point.
    */
   textureTint?: number
+  /**
+   * Rotation of the cloud deck *relative to the crust below it*, degrees of
+   * longitude per day, positive eastward — the same sense as `spin.wDot`, so
+   * the shell's total rate is `spin.wDot + cloudDriftDegPerDay`.
+   *
+   * Leave unset unless there is a measured rate to quote. A deck pinned to the
+   * ground is wrong by a few degrees a day; one drifting at an invented rate is
+   * wrong by however much was invented, and looks deliberate.
+   *
+   * Use this only where the deck really does turn as one piece. Venus does —
+   * its superrotation is near solid-body out to 50 degrees. Earth does not, and
+   * uses `cloudWindMs` instead; the two are alternatives, never both.
+   */
+  cloudDriftDegPerDay?: number
+  /**
+   * Mean zonal wind, m/s, **positive eastward**, sampled at 19 latitudes evenly
+   * spaced from -90 to +90 (10 degree steps, index 0 is the south pole).
+   *
+   * This is the alternative to `cloudDriftDegPerDay` for a body whose deck
+   * shears rather than turning as one piece. The renderer converts each sample
+   * to an angular rate with `u / (R cos lat)` and then splits the result: the
+   * area-weighted mean becomes a rigid drift, exactly as if it had been written
+   * here as one, and only the latitude structure left over is advected through
+   * the map. Set one field or the other, never both — a profile produces its
+   * own mean.
+   *
+   * Must fall to zero at both poles: the wind is a linear speed and the angular
+   * rate it implies diverges as `cos lat` vanishes.
+   */
+  cloudWindMs?: readonly number[]
   atmosphere?: AtmosphereSpec
   rings?: RingSpec[]
   /** Emissive bodies (the Sun) skip lighting entirely. */
@@ -251,6 +281,14 @@ export const PLANETS: BodySpec[] = [
     spin: { poleRa: 272.76, poleDec: 67.16, w0: 160.2, wDot: -1.4813688 },
     color: 0xe8cfa0,
     textures: { map: 'venus_surface.jpg', clouds: 'venus_atmosphere.jpg' },
+    // Superrotation, the largest such effect in the solar system: the cloud
+    // tops circle the planet in about 4.2 days while the crust takes 243, both
+    // retrograde. -360/4.2 = -85.71 deg/day for the deck, of which the crust
+    // already supplies -1.48, so the shell makes up the remaining -84.23.
+    // Without this Venus is the one planet whose headline fact — that it turns
+    // slower than it orbits — is contradicted by what the screen shows, since
+    // the only thing visible on it is the deck.
+    cloudDriftDegPerDay: -84.23,
     atmosphere: {
       thicknessKm: 250,
       rayleigh: [0.9, 0.75, 0.45],
@@ -292,6 +330,25 @@ export const PLANETS: BodySpec[] = [
       normal: 'earth_normal.jpg',
       specular: 'earth_specular.jpg',
     },
+    // Mean zonal wind at roughly the level that steers the visible cloud deck
+    // (~500 hPa), which is the thing a rigid shell cannot express: the trades
+    // run *west* while the mid-latitude jets run east three times faster, and
+    // it is that shear, not the mean, that makes an atmosphere read as one.
+    // The southern jet is the stronger of the two because there are no
+    // continents in the way — check any render at 50 S against 50 N.
+    //
+    // Cross-check on the magnitude, and a good one because it is independent.
+    // Earth's relative atmospheric angular momentum is ~1.5e26 kg m^2/s, which
+    // against a thin-shell (2/3)MR^2 = 1.39e32 is 1.08e-6 rad/s, or 6.9 m/s of
+    // equivalent equatorial superrotation — 5.3 deg/day, which is what this
+    // field held as a rigid drift before the profile replaced it. The mean the
+    // renderer now pulls out of the profile is 6.7 deg/day, so the two routes
+    // to the same quantity agree to about 25%. Both would have to be wrong
+    // together for the deck to be turning at the wrong average rate.
+    //            -90 -80 -70 -60 -50 -40 -30 -20 -10   0
+    cloudWindMs: [0, 1, 6, 16, 20, 16, 8, -2, -5, -4,
+    //             10  20 30 40 50 60 70 80  90
+      -5, -3, 6, 14, 14, 11, 5, 1, 0],
     atmosphere: {
       thicknessKm: 100,
       rayleigh: [0.19, 0.45, 1.0],
