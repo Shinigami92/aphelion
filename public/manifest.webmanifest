@@ -1,0 +1,19 @@
+{
+  "name": "Aphelion — Live Solar System",
+  "short_name": "Aphelion",
+  "description": "An offline, physically accurate, real-time model of the solar system.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#05070c",
+  "theme_color": "#05070c",
+  "icons": [
+    {
+      "src": "./icon.svg",
+      "type": "image/svg+xml",
+      "sizes": "any",
+      "purpose": "any"
+    }
+  ]
+}

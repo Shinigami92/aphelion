@@ -50,6 +50,19 @@ grid. Both run in CI on every push and pull request.
 
 ---
 
+## Offline
+
+The app never calls out to a third party — every script, texture and ephemeris
+table is served from its own origin. A service worker (`public/sw.js`,
+registered in production only) closes the last gap: it caches the shell on first
+visit and each texture and data module as a flight actually loads it, so a
+**reload with no network** still opens on whatever you have already seen.
+Navigations are network-first, so a new deploy is picked up the next time you
+are online. Add it to a home screen and it launches standalone from the
+`manifest.webmanifest`.
+
+---
+
 ## Controls
 
 Everything has both a pointer gesture and a key.
@@ -338,6 +351,11 @@ src/
     textures.ts     lazy loading with procedural fallback
   controls/camera.ts
   ui/               panels, orrery mini-map, styles
+  sw-register.ts    registers the service worker in production
+test/               Vitest unit tests for the pure modules
+public/
+  sw.js             offline cache: network-first shell, stale-while-revalidate assets
+  manifest.webmanifest
 scripts/
   fetch-assets.ts       the only networked code in the project
   convert-textures.sh   TIFF/EXR → JPEG via sips or ImageMagick
