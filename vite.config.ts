@@ -29,5 +29,14 @@ export default defineConfig({
     // Textures are already compressed; don't inline anything binary.
     assetsInlineLimit: 0,
     chunkSizeWarningLimit: 2048,
+    rollupOptions: {
+      output: {
+        // Three.js is the bulk of the bundle and changes only on a dependency
+        // bump; the app code changes every commit. Splitting them lets a deploy
+        // reuse the cached (and service-worker-cached) Three chunk instead of
+        // re-downloading it.
+        manualChunks: (id) => (id.includes('node_modules/three') ? 'three' : undefined),
+      },
+    },
   },
 })
