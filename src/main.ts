@@ -39,6 +39,9 @@ import {
 import { Minimap } from './ui/minimap.ts'
 import { makeCollapsible } from './ui/collapse.ts'
 import { installMobileShell } from './ui/mobile.ts'
+import { registerServiceWorker } from './sw-register.ts'
+
+registerServiceWorker()
 
 // ---------------------------------------------------------------------------
 // DOM
