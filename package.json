@@ -9,6 +9,8 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "validate": "node scripts/validate-astro.ts",
     "assets": "node scripts/fetch-assets.ts && bash scripts/convert-textures.sh && node scripts/fetch-assets.ts --only=manifest",
     "assets:data": "node scripts/fetch-assets.ts --only=data",
@@ -40,6 +42,7 @@
     "@types/node": "^26.1.2",
     "@types/three": "^0.185.4",
     "typescript": "^7.0.2",
-    "vite": "^8.2.0"
+    "vite": "^8.2.0",
+    "vitest": "^5.0.0"
   }
 }

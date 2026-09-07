@@ -37,10 +37,16 @@ pnpm assets:light   # skip the large USGS moon mosaics, 4k instead of 8k
 needs `sips` (macOS, built in) or ImageMagick to convert the TIFF sources.
 
 ```bash
-pnpm validate       # 123 astronomy checks (no browser needed)
+pnpm test           # unit tests for the pure modules (Vitest)
+pnpm validate       # astronomy reference-value checks (no browser needed)
 pnpm typecheck
 pnpm build
 ```
+
+`pnpm test` is the fast inner loop over the pure logic — the Kepler solver, the
+time scales, the scale remapping, the URL codec. `pnpm validate` is the slower
+gate that reads published landmarks back out of every ephemeris and elevation
+grid. Both run in CI on every push and pull request.
 
 ---
 

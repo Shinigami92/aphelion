@@ -48,6 +48,9 @@ jobs:
       - name: Validate astronomy
         run: pnpm validate
 
+      - name: Unit tests
+        run: pnpm test
+
       - name: Typecheck and build
         run: pnpm build
 
