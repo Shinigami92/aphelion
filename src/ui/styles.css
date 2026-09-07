@@ -116,14 +116,14 @@ body {
 .panel--time {
   top: 14px;
   left: 14px;
-  width: 288px;
+  width: 300px;
   padding: 12px 14px 13px;
 }
 
 .panel--browser {
   top: 186px;
   left: 14px;
-  width: 288px;
+  width: 300px;
   /* Starting bound only. main.ts overwrites `bottom` from the measured height of
      the view panel below, which grows with its content. */
   bottom: 205px;
@@ -154,7 +154,7 @@ body {
 .panel--toggles {
   left: 14px;
   bottom: 14px;
-  width: 288px;
+  width: 300px;
   padding: 11px 14px 12px;
 }
 
@@ -215,7 +215,7 @@ body {
 .clock {
   font-family: var(--mono);
   font-variant-numeric: tabular-nums;
-  font-size: 21px;
+  font-size: 20px;
   line-height: 1.15;
   letter-spacing: -0.01em;
   cursor: text;
