@@ -379,8 +379,23 @@ function select(body: SimBody): void {
   browser.setSelected(body)
 }
 
+/**
+ * How the arrival toast names where you have landed. You orbit most things —
+ * but not the Sun, not the Moon, and a Lagrange point is a station you hold, not
+ * a body you circle. The subtitle is left to the departure toast that is still
+ * on screen when a flight is short, and freshly remembered when it is long.
+ */
+function arrivalLabel(body: SimBody): string {
+  if (body.type === 'star' || body.key === 'moon:Moon') return `At the ${body.name}`
+  if (body.type === 'lagrange') return `Holding at ${body.name}`
+  return `Orbiting ${body.name}`
+}
+
 function goTo(body: SimBody): void {
-  camera.flyTo(body, { arriveFrom: arrivalDirection(body) })
+  camera.flyTo(body, {
+    arriveFrom: arrivalDirection(body),
+    onArrive: () => toast.show(arrivalLabel(body)),
+  })
   toast.show(`${body.name} — ${body.subtitle}`)
 }
 
