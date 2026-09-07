@@ -176,6 +176,8 @@ export class CameraController {
     toDistance: number
     toAzimuth: number
     toElevation: number
+    /** Fires once the camera settles into orbit, not if the flight is cancelled. */
+    onArrive?: () => void
   } | null = null
 
   /** 0 while parked, rising to 1 at the fastest part of a flight. */
@@ -271,7 +273,10 @@ export class CameraController {
    * any drag, key or wheel cancels the flight and leaves the camera wherever it
    * had reached, rather than fighting the user for the remaining seconds.
    */
-  flyTo(body: SimBody, opts: { arriveFrom?: { x: number; y: number; z: number } } = {}): void {
+  flyTo(
+    body: SimBody,
+    opts: { arriveFrom?: { x: number; y: number; z: number }; onArrive?: () => void } = {},
+  ): void {
     const previous = this._focus
 
     // Where the camera is now, relative to the destination — captured before
@@ -308,6 +313,7 @@ export class CameraController {
       // snap: take the current angles from where the camera actually is in the
       // destination's frame and let the orbit easing close the rest.
       this.adoptOrbitFrom(from)
+      opts.onArrive?.()
       return
     }
 
@@ -319,6 +325,7 @@ export class CameraController {
       toDistance: this.targetDistance,
       toAzimuth: this.targetAzimuth,
       toElevation: this.targetElevation,
+      onArrive: opts.onArrive,
     }
     // Start the eased state at the far end so a cancelled flight does not snap.
     this.distance = from.length()
@@ -578,6 +585,7 @@ export class CameraController {
       this.targetDistance = f.toDistance
       this.targetAzimuth = f.toAzimuth
       this.targetElevation = f.toElevation
+      f.onArrive?.()
     }
   }
 
