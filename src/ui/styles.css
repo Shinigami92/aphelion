@@ -1204,7 +1204,7 @@ body.is-mobile .tabbar {
 }
 
 /* The clock keeps its corner but spans the width, so the transport buttons get
-   real touch targets instead of being squeezed into 288px. */
+   real touch targets instead of being squeezed into 300px. */
 body.is-mobile .panel--time {
   left: 8px;
   right: 8px;

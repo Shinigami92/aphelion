@@ -12,20 +12,24 @@
  * for a 110 MB media set. Cross-origin requests are left untouched — there
  * should be none.
  *
- * `CACHE_VERSION` is rewritten at build time (see vite.config.ts) so each deploy
- * drops the previous cache.
+ * `CACHE_VERSION` is rewritten at build time (see vite.config.ts) so each
+ * deploy drops the previous shell cache. The runtime cache is unversioned
+ * and never swept, so a deploy doesn't cost the reader their imagery.
  */
 
 const CACHE_VERSION = '__CACHE_VERSION__'
-const CACHE_NAME = `aphelion-${CACHE_VERSION}`
+const SHELL_CACHE = `aphelion-shell-${CACHE_VERSION}`
+const RUNTIME_CACHE = 'aphelion-runtime'
 
-const SHELL = ['./', './index.html', './manifest.webmanifest', './icon.svg']
+const APP_ASSETS = __APP_CHUNKS__
+
+const SHELL = ['./', './index.html', './manifest.webmanifest', './icon.png', ...APP_ASSETS]
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches
-      .open(CACHE_NAME)
-      .then((cache) => cache.addAll(SHELL))
+      .open(SHELL_CACHE)
+      .then((cache) => cache.addAll(SHELL.map((url) => new Request(url, { cache: 'reload' }))))
       .then(() => self.skipWaiting()),
   )
 })
@@ -35,33 +39,52 @@ self.addEventListener('activate', (event) => {
     caches
       .keys()
       .then((names) =>
-        Promise.all(names.filter((name) => name !== CACHE_NAME).map((name) => caches.delete(name))),
+        Promise.all(
+          names
+            .filter((name) => name.startsWith('aphelion-shell-') && name !== SHELL_CACHE)
+            .map((name) => caches.delete(name)),
+        ),
       )
       .then(() => self.clients.claim()),
   )
 })
 
+function isAphelionHtml(body) {
+  return body.includes('id="app"')
+}
+
+async function cacheIndexHtml(cache, response) {
+  try {
+    await cache.put('./index.html', response)
+  } catch {}
+}
+
 async function networkFirstShell(request) {
-  const cache = await caches.open(CACHE_NAME)
+  const cache = await caches.open(SHELL_CACHE)
   try {
     const response = await fetch(request)
-    cache.put('./index.html', response.clone())
+    if (response.ok && isAphelionHtml(await response.clone().text())) {
+      await cacheIndexHtml(cache, response.clone())
+    }
     return response
   } catch {
     return (await cache.match('./index.html')) ?? (await cache.match('./')) ?? Response.error()
   }
 }
 
-async function staleWhileRevalidate(request) {
-  const cache = await caches.open(CACHE_NAME)
-  const cached = await cache.match(request)
+async function staleWhileRevalidate(event) {
+  const { request } = event
+  const cached = await caches.match(request)
+  const runtime = await caches.open(RUNTIME_CACHE)
 
   const network = fetch(request)
     .then((response) => {
-      if (response.ok) cache.put(request, response.clone())
+      if (response.ok) runtime.put(request, response.clone())
       return response
     })
     .catch(() => undefined)
+
+  event.waitUntil(network)
 
   return cached ?? (await network) ?? Response.error()
 }
@@ -73,6 +96,6 @@ self.addEventListener('fetch', (event) => {
   if (new URL(request.url).origin !== self.location.origin) return
 
   event.respondWith(
-    request.mode === 'navigate' ? networkFirstShell(request) : staleWhileRevalidate(request),
+    request.mode === 'navigate' ? networkFirstShell(request) : staleWhileRevalidate(event),
   )
 })
