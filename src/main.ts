@@ -392,11 +392,11 @@ function arrivalLabel(body: SimBody): string {
 }
 
 function goTo(body: SimBody): void {
+  toast.show(`${body.name} — ${body.subtitle}`)
   camera.flyTo(body, {
     arriveFrom: arrivalDirection(body),
     onArrive: () => toast.show(arrivalLabel(body)),
   })
-  toast.show(`${body.name} — ${body.subtitle}`)
 }
 
 /** Frame the entire solar system from above. */
