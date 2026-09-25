@@ -23,7 +23,9 @@ import {
   rateToPreset,
 } from '../src/core/url-state.ts';
 
-const ECLIPSE_2024_JD = parseUtc('2024-04-08 18:17:16') as number;
+// NaN rather than a cast: should the fixture ever stop parsing, every
+// comparison against it fails instead of quietly testing `null`.
+const ECLIPSE_2024_JD = parseUtc('2024-04-08 18:17:16') ?? Number.NaN;
 
 const baseView = (over: Partial<SharedView> = {}): SharedView => ({
   jdUtc: ECLIPSE_2024_JD,
@@ -66,7 +68,11 @@ const expectFaithfulRoundTrip = (original: SharedView): void => {
     expect(parsed.freeOrientation?.[3]).toBeCloseTo(original.freeOrientation![3], 4);
   }
 
-  if (original.selectedKey && original.selectedKey !== original.focusKey) {
+  if (
+    original.selectedKey !== null &&
+    original.selectedKey !== '' &&
+    original.selectedKey !== original.focusKey
+  ) {
     expect(parsed.selectedKey).toBe(original.selectedKey);
   }
 };
@@ -115,7 +121,7 @@ describe('encode → parse is a faithful round trip', () => {
 describe('encodeView keeps the URL short and readable', () => {
   it('omits every field that is still at its default', () => {
     const q = encodeView(baseView());
-    expect(q).not.toMatch(/(^|&)(sel|mode|paused|cam|fp|fq|orbits|labels|belts|rings|atmo)=/);
+    expect(q).not.toMatch(/(^|&)(sel|mode|paused|cam|fp|fq|orbits|labels|belts|rings|atmo)=/u);
   });
 
   it('writes a field once it departs from the default', () => {

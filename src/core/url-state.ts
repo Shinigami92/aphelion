@@ -111,7 +111,12 @@ const TOGGLE_PARAMS: ReadonlyArray<readonly [keyof ViewToggles, string]> = [
  * full of `%3A` is unpleasant to read in a chat window. Colons are legal in a
  * query string; spaces (minor planets such as `sb:2002 MS4`) still get encoded.
  */
-const enc = (s: string): string => encodeURIComponent(s).replaceAll(/%3A/gi, ':');
+const enc = (s: string): string => encodeURIComponent(s).replaceAll(/%3A/giu, ':');
+
+/** Narrow a query value to one of a fixed set of options without a cast. */
+function isOneOf<T extends string>(options: ReadonlyArray<T>, value: string): value is T {
+  return options.some((option) => option === value);
+}
 
 const round = (x: number, places = 4): number => Number(x.toFixed(places));
 
@@ -120,12 +125,13 @@ const round = (x: number, places = 4): number => Number(x.toFixed(places));
 // ---------------------------------------------------------------------------
 
 export function encodeView(v: SharedView): string {
-  const parts: string[] = [];
-
-  // `YYYY-MM-DDTHH:MM:SSZ` — second precision, which is also how often a live
-  // clock changes the URL.
-  parts.push(`t=${enc(`${formatUtc(v.jdUtc).replace(' ', 'T')}Z`)}`, `focus=${enc(v.focusKey)}`);
-  if (v.selectedKey && v.selectedKey !== v.focusKey) {
+  const parts: string[] = [
+    // `YYYY-MM-DDTHH:MM:SSZ` — second precision, which is also how often a live
+    // clock changes the URL.
+    `t=${enc(`${formatUtc(v.jdUtc).replace(' ', 'T')}Z`)}`,
+    `focus=${enc(v.focusKey)}`,
+  ];
+  if (v.selectedKey !== null && v.selectedKey !== '' && v.selectedKey !== v.focusKey) {
     parts.push(`sel=${enc(v.selectedKey)}`);
   }
   if (v.scaleMode !== 'explore') {
@@ -135,8 +141,11 @@ export function encodeView(v: SharedView): string {
   if (v.paused) {
     parts.push('paused=1');
   }
-  parts.push(`az=${round(v.azimuth)}`, `el=${round(v.elevation)}`);
-  parts.push(`d=${round(v.distanceRadii, 3)}`);
+  parts.push(
+    `az=${round(v.azimuth)}`,
+    `el=${round(v.elevation)}`,
+    `d=${round(v.distanceRadii, 3)}`,
+  );
   if (v.cameraMode === 'free') {
     parts.push('cam=free');
     // Six places, not the usual four. In radii of the focused body, four places
@@ -180,25 +189,25 @@ export function parseView(search: string): Partial<SharedView> {
   const out: Partial<SharedView> = {};
 
   const t = q.get('t');
-  if (t) {
-    const jd = parseUtc(t.replace('T', ' ').replace(/Z$/i, ''));
+  if (t !== null && t !== '') {
+    const jd = parseUtc(t.replace('T', ' ').replace(/Z$/iu, ''));
     if (jd !== null) {
       out.jdUtc = jd;
     }
   }
 
   const focus = q.get('focus');
-  if (focus) {
+  if (focus !== null && focus !== '') {
     out.focusKey = focus;
   }
   const sel = q.get('sel');
-  if (sel) {
+  if (sel !== null && sel !== '') {
     out.selectedKey = sel;
   }
 
   const mode = q.get('mode');
-  if (mode && (SCALE_MODES as ReadonlyArray<string>).includes(mode)) {
-    out.scaleMode = mode as UrlScaleMode;
+  if (mode !== null && isOneOf(SCALE_MODES, mode)) {
+    out.scaleMode = mode;
   }
 
   const rate = q.get('rate');
@@ -239,8 +248,8 @@ export function parseView(search: string): Partial<SharedView> {
   }
 
   const cam = q.get('cam');
-  if (cam && (CAMERA_MODES as ReadonlyArray<string>).includes(cam)) {
-    out.cameraMode = cam as UrlCameraMode;
+  if (cam !== null && isOneOf(CAMERA_MODES, cam)) {
+    out.cameraMode = cam;
   }
 
   /** A fixed-length list of finite numbers, or undefined if it is anything else. */
@@ -266,12 +275,12 @@ export function parseView(search: string): Partial<SharedView> {
   }
 
   const orbits = q.get('orbits');
-  if (orbits && (ORBIT_MODES as ReadonlyArray<string>).includes(orbits)) {
-    out.orbits = orbits as UrlOrbitMode;
+  if (orbits !== null && isOneOf(ORBIT_MODES, orbits)) {
+    out.orbits = orbits;
   }
   const labels = q.get('labels');
-  if (labels && (LABEL_MODES as ReadonlyArray<string>).includes(labels)) {
-    out.labels = labels as UrlLabelMode;
+  if (labels !== null && isOneOf(LABEL_MODES, labels)) {
+    out.labels = labels;
   }
 
   const toggles: Partial<ViewToggles> = {};

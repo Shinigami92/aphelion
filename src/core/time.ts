@@ -235,7 +235,9 @@ export class TimeController {
 
   subscribe(fn: TimeListener): () => void {
     this.listeners.add(fn);
-    return () => this.listeners.delete(fn);
+    return () => {
+      this.listeners.delete(fn);
+    };
   }
 
   private emit(): void {

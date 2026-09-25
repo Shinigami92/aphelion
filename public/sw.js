@@ -17,24 +17,44 @@
  * and never swept, so a deploy doesn't cost the reader their imagery.
  */
 
+/// <reference lib="webworker" />
+
+/**
+ * `self` is typed for a window because the DOM lib is loaded alongside the
+ * webworker one; the runtime check narrows it to the scope this file actually
+ * runs in, so the event listeners below get their real event types.
+ *
+ * @returns {ServiceWorkerGlobalScope}
+ */
+function serviceWorkerScope() {
+  if (!(self instanceof ServiceWorkerGlobalScope)) {
+    throw new TypeError('sw.js must run as a service worker');
+  }
+  return self;
+}
+
+const sw = serviceWorkerScope();
+
 const CACHE_VERSION = '__CACHE_VERSION__';
 const SHELL_CACHE = `aphelion-shell-${CACHE_VERSION}`;
 const RUNTIME_CACHE = 'aphelion-runtime';
 
-const APP_ASSETS = __APP_CHUNKS__;
+// The whole array literal is swapped for the real chunk list at build time; a
+// bare placeholder identifier would leave this file untypeable as plain JS.
+const APP_ASSETS = ['__APP_CHUNKS__'];
 
 const SHELL = ['./', './index.html', './manifest.webmanifest', './icon.png', ...APP_ASSETS];
 
-self.addEventListener('install', (event) => {
+sw.addEventListener('install', (event) => {
   event.waitUntil(
     caches
       .open(SHELL_CACHE)
       .then((cache) => cache.addAll(SHELL.map((url) => new Request(url, { cache: 'reload' }))))
-      .then(() => self.skipWaiting()),
+      .then(() => sw.skipWaiting()),
   );
 });
 
-self.addEventListener('activate', (event) => {
+sw.addEventListener('activate', (event) => {
   event.waitUntil(
     caches
       .keys()
@@ -45,20 +65,26 @@ self.addEventListener('activate', (event) => {
             .map((name) => caches.delete(name)),
         ),
       )
-      .then(() => self.clients.claim()),
+      .then(() => sw.clients.claim()),
   );
 });
 
+/** @param {string} body */
 function isAphelionHtml(body) {
   return body.includes('id="app"');
 }
 
+/**
+ * @param {Cache} cache
+ * @param {Response} response
+ */
 async function cacheIndexHtml(cache, response) {
   try {
     await cache.put('./index.html', response);
   } catch {}
 }
 
+/** @param {Request} request */
 async function networkFirstShell(request) {
   const cache = await caches.open(SHELL_CACHE);
   try {
@@ -72,6 +98,7 @@ async function networkFirstShell(request) {
   }
 }
 
+/** @param {FetchEvent} event */
 async function staleWhileRevalidate(event) {
   const { request } = event;
   const cached = await caches.match(request);
@@ -91,13 +118,13 @@ async function staleWhileRevalidate(event) {
   return cached ?? (await network) ?? Response.error();
 }
 
-self.addEventListener('fetch', (event) => {
+sw.addEventListener('fetch', (event) => {
   const { request } = event;
   if (request.method !== 'GET') {
     return;
   }
 
-  if (new URL(request.url).origin !== self.location.origin) {
+  if (new URL(request.url).origin !== sw.location.origin) {
     return;
   }
 

@@ -534,6 +534,21 @@ section('Rings share the satellite scale remap');
 // ---------------------------------------------------------------------------
 section('Ring structure against the bodies that shape it');
 
+const bandOf = (planet: string, name: string): { innerKm: number; outerKm: number } | null => {
+  const spec = ALL_BODY_SPECS.find((s) => s.key === planet);
+  for (const ring of spec?.rings ?? []) {
+    const band = ring.bands?.find((b) => b.name === name);
+    if (band) {
+      return band;
+    }
+  }
+  return null;
+};
+
+/** Where an m:n mean-motion resonance with a moon falls, by Kepler's third. */
+const resonance = (axisKm: number, inner: number, outer: number): number =>
+  axisKm * Math.pow(inner / outer, 2 / 3);
+
 {
   // The ring table is checked against the *satellite* table, which comes from
   // JPL elements and knows nothing about rings. A gap radius and the moon that
@@ -544,27 +559,12 @@ section('Ring structure against the bodies that shape it');
   const scale = new ScaleModel();
   system.update(jdTT, scale);
 
-  const bandOf = (planet: string, name: string): { innerKm: number; outerKm: number } | null => {
-    const spec = ALL_BODY_SPECS.find((s) => s.key === planet);
-    for (const ring of spec?.rings ?? []) {
-      const band = ring.bands?.find((b) => b.name === name);
-      if (band) {
-        return band;
-      }
-    }
-    return null;
-  };
-
   /** Semi-major axis of a moon, km, from the loaded satellite elements. */
   const moonAxis = (planet: string, name: string): number | null => {
     const parent = system.byKey.get(planet);
     const moon = parent?.children.find((c) => c.name === name);
     return moon?.elements ? moon.elements.a : null;
   };
-
-  /** Where an m:n mean-motion resonance with a moon falls, by Kepler's third. */
-  const resonance = (axisKm: number, inner: number, outer: number): number =>
-    axisKm * Math.pow(inner / outer, 2 / 3);
 
   // -- gaps holding the moonlet that swept them -----------------------------
   for (const [gap, moon] of [
@@ -716,6 +716,8 @@ section('Renderable planetary orbits');
 // ---------------------------------------------------------------------------
 section('Lagrange points');
 
+const norm = (vec: { x: number; y: number; z: number }): number => Math.hypot(vec.x, vec.y, vec.z);
+
 {
   const system = new SolarSystem();
   const scale = new ScaleModel();
@@ -736,7 +738,6 @@ section('Lagrange points');
 
   const point = (planet: string, id: string): SimBody =>
     system.byKey.get(`lagrange:${planet}:${id}`)!;
-  const norm = (v: { x: number; y: number; z: number }): number => Math.hypot(v.x, v.y, v.z);
 
   for (const key of ['earth', 'jupiter', 'neptune'] as const) {
     const planet = system.byKey.get(key)!;
@@ -957,6 +958,9 @@ section('Tidally locked frames');
 /** Angular separation in longitude, accounting for the wrap. Always 0..180. */
 const lonApart = (a: number, b: number): number => Math.abs(((((a - b) % 360) + 540) % 360) - 180);
 
+const dot = (a: { x: number; y: number; z: number }, b: typeof a): number =>
+  a.x * b.x + a.y * b.y + a.z * b.z;
+
 // A tidally locked moon's prime meridian faces its planet — that is what the
 // IAU convention means, and every satellite map and shape model is drawn in it.
 // Get this backwards and each of the 459 moons is rendered half a turn out,
@@ -976,8 +980,6 @@ const lonApart = (a: number, b: number): number => Math.abs(((((a - b) % 360) + 
     const n = Math.hypot(p.x, p.y, p.z);
     const toParent = { x: -p.x / n, y: -p.y / n, z: -p.z / n };
     const b = body.orientation;
-    const dot = (u: { x: number; y: number; z: number }, v: typeof u): number =>
-      u.x * v.x + u.y * v.y + u.z * v.z;
     let lon = (Math.atan2(dot(toParent, b.y), dot(toParent, b.x)) * 180) / Math.PI;
     if (lon < 0) {
       lon += 360;
@@ -1072,13 +1074,13 @@ function probeRelief(key: string): ReliefProbe | null {
       let loAt: [number, number] = [0, 0];
       for (let y = 0; y < img.height; y++) {
         for (let x = 0; x < img.width; x++) {
-          const v = kmAt(x, y);
-          if (v > hi) {
-            hi = v;
+          const km = kmAt(x, y);
+          if (km > hi) {
+            hi = km;
             hiAt = [latOf(y), lonOf(x)];
           }
-          if (v < lo) {
-            lo = v;
+          if (km < lo) {
+            lo = km;
             loAt = [latOf(y), lonOf(x)];
           }
         }
@@ -1707,8 +1709,8 @@ section('Uranian photomosaics');
     let n = 0;
     for (let y = 0; y < img.height; y++) {
       for (let x = 0; x < img.width; x++) {
-        const v = img.data[(y * img.width + x) * img.channels];
-        if (v === fill) {
+        const sample = img.data[(y * img.width + x) * img.channels];
+        if (sample === fill) {
           continue;
         }
         if (y < img.height / 2) {
@@ -1716,7 +1718,7 @@ section('Uranian photomosaics');
         } else {
           southImaged++;
         }
-        sum += v;
+        sum += sample;
         n++;
       }
     }

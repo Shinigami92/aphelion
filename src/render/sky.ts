@@ -29,6 +29,7 @@
  * for no physical reason. Proper motion is the only thing that genuinely moves.
  */
 
+import type { Vec3 } from '../astro/kepler.ts';
 import type { StarData } from '../data/stars.ts';
 import type { TextureLibrary } from './textures.ts';
 import type { PerspectiveCamera, ShaderMaterial } from 'three';
@@ -46,6 +47,7 @@ import { STAR_CATALOGUE } from '../data/generated/stars.ts';
 import { unpackStars } from '../data/stars.ts';
 import { createSkyMaterial, createStarMaterial } from './materials.ts';
 import { solidTexture } from './procedural.ts';
+import { whenLoaded } from './textures.ts';
 
 /** Equirectangular deep-sky image, celestial coordinates. */
 const SKY_TEXTURE = 'sky_milkyway.jpg';
@@ -70,8 +72,12 @@ const SKY_BRIGHTNESS = 0.85;
  * x by the obliquity, so there is exactly one definition of the angle in the
  * codebase and this cannot disagree with the ephemerides.
  */
+/** One unit axis of the equatorial frame, expressed in the ecliptic one. */
+function axis(x: number, y: number, z: number): Vec3 {
+  return equatorialToEcliptic({ x, y, z });
+}
+
 function equatorialToEclipticMatrix(): Matrix4 {
-  const axis = (x: number, y: number, z: number) => equatorialToEcliptic({ x, y, z });
   const ex = axis(1, 0, 0);
   const ey = axis(0, 1, 0);
   const ez = axis(0, 0, 1);
@@ -142,22 +148,22 @@ export class SkyView {
     this.diffuse.renderOrder = -1000;
     this.group.add(this.diffuse);
 
-    void library.load(SKY_TEXTURE).then((tex) => {
-      if (!tex) {
-        return;
-      }
+    void whenLoaded(library.load(SKY_TEXTURE), (tex) => {
       tex.flipY = false;
       this.diffuseMaterial.uniforms.uMap.value = tex;
       this.diffuseMaterial.needsUpdate = true;
     });
 
-    void loadStars().then((data) => {
-      if (data) {
-        this.attachStars(data);
-      } else {
-        console.warn('[aphelion] no star catalogue; the sky keeps only its deep-sky layer');
-      }
-    });
+    void this.loadCatalogue();
+  }
+
+  private async loadCatalogue(): Promise<void> {
+    const data = await loadStars();
+    if (data === null) {
+      console.warn('[aphelion] no star catalogue; the sky keeps only its deep-sky layer');
+    } else {
+      this.attachStars(data);
+    }
   }
 
   private attachStars(data: StarData): void {
@@ -215,7 +221,7 @@ export class SkyView {
     this.diffuseMaterial.dispose();
     if (this.stars) {
       this.stars.geometry.dispose();
-      (this.stars.material as ShaderMaterial).dispose();
     }
+    this.starMaterial?.dispose();
   }
 }

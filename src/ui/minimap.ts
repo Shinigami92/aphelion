@@ -346,7 +346,7 @@ export class Minimap {
     // A moon system: cap the count so an outer irregular swarm stays readable.
     return host.children
       .filter((c) => c.type === 'moon')
-      .sort((a, b) => b.radiusKm - a.radiusKm)
+      .toSorted((a, b) => b.radiusKm - a.radiusKm)
       .slice(0, 24);
   }
 

@@ -70,65 +70,13 @@
     "unicorn/prefer-query-selector": "off",
     // Hot numeric loops read clearer with a named callback than an inline arrow.
     "unicorn/no-array-callback-reference": "off",
-
-    // ==========================================================================
-    // Temporarily off — TODO(follow-up PR): re-enable one rule (or tight group)
-    // per PR and fix the violations.
-    // ==========================================================================
-
-    // --- eslint core ---
-    // 69 violations — mostly module-level helpers placed after their callers
-    "no-use-before-define": "off",
-    // 68 violations — scene setup and the asset pipeline are long by nature
+    // Scene setup, the asset pipeline and the validation suite are long by
+    // nature; splitting them by line count scatters one linear story.
     "max-lines-per-function": "off",
-    // 14 violations
     "max-lines": "off",
-    // 27 violations
-    "require-unicode-regexp": "off",
-    // 19 violations — sequential downloads in scripts/ are deliberate, review each
-    "no-await-in-loop": "off",
-    // 10 violations
-    "no-shadow": "off",
-    // 5 violations
-    "max-depth": "off",
-    "max-classes-per-file": "off", // 1
-    "no-loop-func": "off", // 1
-    "require-await": "off", // 1
-
-    // --- import ---
-    "import/max-dependencies": "off", // 4
-
-    // --- oxc ---
-    "oxc/branches-sharing-code": "off", // 2
-
-    // --- promise ---
-    "promise/always-return": "off", // 11
-
-    // --- type-aware typescript ---
-    // 52 violations — behaviour-changing for `0` and `''`, review each
-    "typescript/strict-boolean-expressions": "off",
-    // 49 violations — typed-array and Map lookups in hot loops
-    "typescript/no-non-null-assertion": "off",
-    // 37 violations
-    "typescript/no-unsafe-type-assertion": "off",
-    // 11 violations
-    "typescript/strict-void-return": "off",
-    // untyped JSON / GeoTIFF parsing in scripts/
-    "typescript/no-unsafe-call": "off", // 29
-    "typescript/no-unsafe-member-access": "off", // 28
-    "typescript/no-unsafe-argument": "off", // 6
-    "typescript/no-unsafe-assignment": "off", // 5
-    "typescript/no-unsafe-return": "off", // 3
-    "typescript/require-await": "off", // 1
-
-    // --- unicorn ---
-    // 13 violations — `toSorted()` allocates; check each call site first
-    "unicorn/no-array-sort": "off",
-    "unicorn/consistent-function-scoping": "off", // 12
-    "unicorn/prefer-number-coercion": "off", // 9
-    "unicorn/prefer-single-call": "off", // 8
-    "unicorn/no-immediate-mutation": "off", // 1
-    "unicorn/prefer-top-level-await": "off" // 1
+    "import/max-dependencies": "off",
+    // The panels in ui/panels.ts share private helpers and are only used together.
+    "max-classes-per-file": "off"
   },
   "overrides": [
     {
@@ -138,6 +86,14 @@
         "vitest/expect-expect": ["error", { "assertFunctionNames": ["expect", "expect*"] }],
         // The second argument is the failure message, naming the offending input.
         "vitest/valid-expect": ["error", { "maxArgs": 2 }]
+      }
+    },
+    {
+      // Upstream servers are hit one request at a time on purpose (rate limits,
+      // readable progress output, and later steps depend on earlier files).
+      "files": ["scripts/fetch-assets.ts"],
+      "rules": {
+        "no-await-in-loop": "off"
       }
     },
     {

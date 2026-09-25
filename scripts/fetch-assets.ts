@@ -28,7 +28,6 @@ import { createReadStream } from 'node:fs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { createInterface } from 'node:readline';
-import { promisify } from 'node:util';
 import { createGunzip, deflateSync, gunzipSync, inflateRawSync } from 'node:zlib';
 
 /**
@@ -36,7 +35,19 @@ import { createGunzip, deflateSync, gunzipSync, inflateRawSync } from 'node:zlib
  * scripts/convert-textures.sh; this uses it only as a rasteriser and decoder,
  * because a scanned map sheet arrives as PDF and nothing here can decode one.
  */
-const execFile = promisify(execFileCb);
+function execFile(file: string, args: string[]): Promise<{ stdout: string; stderr: string }> {
+  // Hand-rolled rather than util.promisify(execFile): the promisified overload
+  // types the callback-style original as returning void, which it does not.
+  return new Promise((resolve, reject) => {
+    execFileCb(file, args, (err, stdout, stderr) => {
+      if (err instanceof Error) {
+        reject(err);
+      } else {
+        resolve({ stdout, stderr });
+      }
+    });
+  });
+}
 
 const ROOT = path.resolve(import.meta.dirname, '..');
 const CACHE = path.join(ROOT, '.cache');
@@ -55,14 +66,19 @@ const UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 A
 const argv = process.argv.slice(2);
 const flag = (name: string): string | null => {
   const hit = argv.find((a) => a === `--${name}` || a.startsWith(`--${name}=`));
-  if (!hit) {
+  if (hit === undefined) {
     return null;
   }
   const eq = hit.indexOf('=');
   return eq === -1 ? '' : hit.slice(eq + 1);
 };
 const only = flag('only');
-const tier = (flag('tier') ?? 'max') as 'max' | 'high' | 'lean';
+const TIERS = ['max', 'high', 'lean'] as const;
+const isTier = (value: string): value is (typeof TIERS)[number] =>
+  (TIERS as ReadonlyArray<string>).includes(value);
+const tierFlag = flag('tier') ?? 'max';
+// An unrecognised --tier has always fallen through to the 'max' set.
+const tier = isTier(tierFlag) ? tierFlag : 'max';
 const skipUsgs = flag('skip-usgs') !== null;
 const doTextures = only === null || only === 'textures';
 const doData = only === null || only === 'data';
@@ -116,7 +132,7 @@ async function download(url: string, dest: string, label: string): Promise<boole
     const ct = res.headers.get('content-type') ?? '';
     const buf = Buffer.from(await res.arrayBuffer());
     // Solar System Scope answers unknown filenames with a 200 HTML page.
-    if (/text\/html/i.test(ct)) {
+    if (/text\/html/iu.test(ct)) {
       console.log(C.red('got HTML, not an asset'));
       return false;
     }
@@ -124,7 +140,7 @@ async function download(url: string, dest: string, label: string): Promise<boole
     console.log(C.green(mb(buf.length)));
     return true;
   } catch (err) {
-    console.log(C.red(`failed: ${(err as Error).message}`));
+    console.log(C.red(`failed: ${err instanceof Error ? err.message : String(err)}`));
     return false;
   }
 }
@@ -407,17 +423,17 @@ async function astropediaImageUrl(spec: AstropediaSpec): Promise<string | null> 
     `astropedia-${spec.id}.xml`,
     `metadata for ${spec.out}`,
   );
-  if (!xml) {
+  if (xml === null || xml === '') {
     return null;
   }
-  if (/^\s*<!DOCTYPE html/i.test(xml)) {
+  if (/^\s*<!DOCTYPE html/iu.test(xml)) {
     console.log(`  ${C.yellow('missing')} Astropedia id not found: ${spec.id}`);
     return null;
   }
   const urls = [
-    ...xml.matchAll(/https:\/\/astrogeology\.usgs\.gov[^\s"'<>]+\/download\/[^\s"'<>]+/g),
+    ...xml.matchAll(/https:\/\/astrogeology\.usgs\.gov[^\s"'<>]+\/download\/[^\s"'<>]+/gu),
   ].map((m) => m[0]);
-  return urls.find((u) => !/thumb/i.test(u) && /\.(jpe?g|png|tif)$/i.test(u)) ?? null;
+  return urls.find((u) => !/thumb/iu.test(u) && /\.(jpe?g|png|tif)$/iu.test(u)) ?? null;
 }
 
 // ---------------------------------------------------------------------------
@@ -801,7 +817,7 @@ async function buildRelief(spec: ReliefSpec): Promise<ReliefResult | null> {
   // Widened because inflateRawSync's buffer is not the same flavour readFile's
   // is, and the two have to share this variable.
   let raw: Buffer = await fs.readFile(cachePath);
-  if (spec.zipEntry) {
+  if (spec.zipEntry !== undefined && spec.zipEntry !== '') {
     const entry = unzipEntry(raw, spec.zipEntry);
     if (!entry) {
       console.log(
@@ -826,12 +842,14 @@ async function buildRelief(spec: ReliefSpec): Promise<ReliefResult | null> {
   // Where each source sample actually sits. Corner-registered grids repeat the
   // 180 degree meridian and include both poles, so their spacing is one cell
   // wider than a centre-registered grid of the same column count.
-  const lonOfCol = spec.gridRegistered
-    ? (c: number) => spec.originLonEast + (c * 360) / (spec.width - 1)
-    : (c: number) => spec.originLonEast + ((c + 0.5) * 360) / spec.width;
-  const latOfRow = spec.gridRegistered
-    ? (r: number) => 90 - (r * 180) / (spec.height - 1)
-    : (r: number) => 90 - ((r + 0.5) * 180) / spec.height;
+  const lonOfCol =
+    spec.gridRegistered === true
+      ? (c: number) => spec.originLonEast + (c * 360) / (spec.width - 1)
+      : (c: number) => spec.originLonEast + ((c + 0.5) * 360) / spec.width;
+  const latOfRow =
+    spec.gridRegistered === true
+      ? (r: number) => 90 - (r * 180) / (spec.height - 1)
+      : (r: number) => 90 - ((r + 0.5) * 180) / spec.height;
 
   // Scatter every source sample into the output cell it falls in and average.
   // For a same-size grid this reduces to a pure roll — one sample per cell — so
@@ -985,7 +1003,7 @@ async function fetchZipEntries(url: string, names: string[]): Promise<Map<string
     const localOffset = cd.readUInt32LE(pos + 42);
     const name = cd.toString('ascii', pos + 46, pos + 46 + nameLen);
     const wanted = names.find((n) => name.includes(n));
-    if (wanted && !found.has(wanted)) {
+    if (wanted !== undefined && wanted !== '' && !found.has(wanted)) {
       // The local header repeats the name and may carry a different extra field
       // than the central one, so over-fetch and let unzipEntry read the real
       // lengths out of the header it finds at byte 0.
@@ -1011,15 +1029,26 @@ async function fetchZipEntries(url: string, names: string[]): Promise<Map<string
   return found.size === names.length ? found : null;
 }
 
+/**
+ * `parseFloat`, which stops at the first non-numeric character. PDS values
+ * carry trailing units (`2.0<PIX/DEG>`) and MPC's fixed-width fields can be
+ * blank, where `Number()` would give NaN and 0 respectively; the JPL table
+ * cells keep the same loose parse they have always had.
+ */
+function parseLeadingFloat(text: string): number {
+  // oxlint-disable-next-line unicorn/prefer-number-coercion -- Number() rejects trailing units and reads blank fields as 0
+  return Number.parseFloat(text);
+}
+
 /** Read a PDS3 keyword. Values carry units (`2.0<PIX/DEG>`), so parse loosely. */
 function pdsValue(label: string, key: string): string | null {
-  const m = label.match(new RegExp(`^\\s*${key}\\s*=\\s*(.+)$`, 'm'));
+  const m = label.match(new RegExp(`^\\s*${key}\\s*=\\s*(.+)$`, 'mu'));
   return m ? m[1].trim() : null;
 }
 
 function pdsNumber(label: string, key: string): number {
   const raw = pdsValue(label, key);
-  const n = raw === null ? NaN : Number.parseFloat(raw);
+  const n = raw === null ? NaN : parseLeadingFloat(raw);
   if (!Number.isFinite(n)) {
     // oxlint-disable-next-line unicorn/prefer-type-error -- a malformed label, not a type error
     throw new Error(`PDS label has no numeric ${key}`);
@@ -1194,7 +1223,7 @@ async function buildGriddedTopo(spec: GriddedTopoSpec): Promise<ReliefResult | n
     }
 
     const missing = Number.parseInt(
-      (pdsValue(label, 'MISSING_CONSTANT') ?? '').replaceAll(/^16#|#$/g, ''),
+      (pdsValue(label, 'MISSING_CONSTANT') ?? '').replaceAll(/^16#|#$/gu, ''),
       16,
     );
     for (let line = 1; line <= lines; line++) {
@@ -1288,9 +1317,7 @@ async function buildShapeModel(spec: ShapeModelSpec): Promise<ReliefResult | nul
 
   const text = await fs.readFile(cachePath, 'utf8');
   const radii =
-    spec.format === 'lat-lon-table'
-      ? sampleLatLonTable(spec, text)
-      : await rasteriseCubeQuad(spec, text);
+    spec.format === 'lat-lon-table' ? sampleLatLonTable(spec, text) : rasteriseCubeQuad(spec, text);
   if (!radii) {
     return null;
   }
@@ -1313,7 +1340,7 @@ function sampleLatLonTable(spec: ShapeModelSpec, text: string): Float64Array | n
     if (!t) {
       continue;
     }
-    const p = t.split(/\s+/).map(Number);
+    const p = t.split(/\s+/u).map(Number);
     if (p.length < 3 || p.some((v) => !Number.isFinite(v))) {
       console.log(`  ${C.red('bad    ')} ${spec.out}: unparseable row "${t.slice(0, 40)}"`);
       return null;
@@ -1321,8 +1348,8 @@ function sampleLatLonTable(spec: ShapeModelSpec, text: string): Float64Array | n
     rows.push([p[0], p[1], p[2]]);
   }
 
-  const lats = [...new Set(rows.map((r) => r[0]))].sort((a, b) => a - b);
-  const lons = [...new Set(rows.map((r) => r[1]))].sort((a, b) => a - b);
+  const lats = [...new Set(rows.map((r) => r[0]))].toSorted((a, b) => a - b);
+  const lons = [...new Set(rows.map((r) => r[1]))].toSorted((a, b) => a - b);
   if (lats.length * lons.length !== rows.length) {
     console.log(
       `  ${C.red('bad    ')} ${spec.out}: ${rows.length} rows is not ${lats.length} x ${lons.length}`,
@@ -1369,7 +1396,7 @@ function sampleLatLonTable(spec: ShapeModelSpec, text: string): Float64Array | n
   return out;
 }
 
-async function rasteriseCubeQuad(spec: ShapeModelSpec, text: string): Promise<Float64Array | null> {
+function rasteriseCubeQuad(spec: ShapeModelSpec, text: string): Float64Array | null {
   const lines = text.split('\n').filter((l) => l.trim().length > 0);
   const n = Number(lines[0].trim());
   const side = n + 1;
@@ -1385,7 +1412,7 @@ async function rasteriseCubeQuad(spec: ShapeModelSpec, text: string): Promise<Fl
   const vy = new Float64Array(6 * perFace);
   const vz = new Float64Array(6 * perFace);
   for (let i = 0; i < 6 * perFace; i++) {
-    const parts = lines[i + 1].trim().split(/\s+/);
+    const parts = lines[i + 1].trim().split(/\s+/u);
     vx[i] = Number(parts[0]);
     vy[i] = Number(parts[1]);
     vz[i] = Number(parts[2]);
@@ -1427,7 +1454,7 @@ async function rasteriseCubeQuad(spec: ShapeModelSpec, text: string): Promise<Fl
   };
   const radOf = (i: number) => Math.hypot(vx[i], vy[i], vz[i]);
 
-  const rasterise = (a: number, b: number, c: number): void => {
+  const rasteriseTriangle = (a: number, b: number, c: number): void => {
     let l0 = lonOf(a);
     let l1 = lonOf(b);
     let l2 = lonOf(c);
@@ -1482,14 +1509,33 @@ async function rasteriseCubeQuad(spec: ShapeModelSpec, text: string): Promise<Fl
     for (let j = 0; j + 1 < side; j++) {
       for (let i = 0; i + 1 < side; i++) {
         const k = f * perFace + j * side + i;
-        rasterise(k, k + 1, k + side);
-        rasterise(k + 1, k + side + 1, k + side);
+        rasteriseTriangle(k, k + 1, k + side);
+        rasteriseTriangle(k + 1, k + side + 1, k + side);
       }
     }
   }
 
   // The projection is singular at the poles, so a handful of pixels there can
   // fall outside every triangle. Fill them from their filled neighbours.
+  const filledNeighbourMean = (x: number, y: number): number | null => {
+    let sum = 0;
+    let count = 0;
+    for (let dy = -1; dy <= 1; dy++) {
+      for (let dx = -1; dx <= 1; dx++) {
+        const ny = y + dy;
+        if (ny < 0 || ny >= h) {
+          continue;
+        }
+        const nx = (((x + dx) % w) + w) % w;
+        if (!filled[ny * w + nx]) {
+          continue;
+        }
+        sum += radii[ny * w + nx];
+        count++;
+      }
+    }
+    return count > 0 ? sum / count : null;
+  };
   let holes = 0;
   for (let pass = 0; pass < 8; pass++) {
     holes = 0;
@@ -1498,27 +1544,12 @@ async function rasteriseCubeQuad(spec: ShapeModelSpec, text: string): Promise<Fl
         if (filled[y * w + x]) {
           continue;
         }
-        let sum = 0;
-        let count = 0;
-        for (let dy = -1; dy <= 1; dy++) {
-          for (let dx = -1; dx <= 1; dx++) {
-            const ny = y + dy;
-            if (ny < 0 || ny >= h) {
-              continue;
-            }
-            const nx = (((x + dx) % w) + w) % w;
-            if (!filled[ny * w + nx]) {
-              continue;
-            }
-            sum += radii[ny * w + nx];
-            count++;
-          }
-        }
-        if (count > 0) {
-          radii[y * w + x] = sum / count;
-          filled[y * w + x] = 2;
-        } else {
+        const mean = filledNeighbourMean(x, y);
+        if (mean === null) {
           holes++;
+        } else {
+          radii[y * w + x] = mean;
+          filled[y * w + x] = 2;
         }
       }
     }
@@ -1905,9 +1936,52 @@ async function pageSize(src: string): Promise<[number, number]> {
     '%w %h',
     `${src}[0]`,
   ]);
-  const [w, h] = stdout.trim().split(/\s+/).map(Number);
+  const [w, h] = stdout.trim().split(/\s+/u).map(Number);
   return [w, h];
 }
+
+// Measure how far the ink actually reaches rather than assuming a width: the
+// sheet letters its graticule ("-30", "-60") right against the lines, and a
+// fixed-width repair leaves the digits printed across the terrain. The gap
+// tolerance is what carries the repair over the whitespace around a glyph.
+const measureInk = (sample: (d: number) => number, cap: number): [number, number] => {
+  const far = (sample(cap) + sample(-cap)) / 2;
+  const run = (dir: number): number => {
+    let edge = 0;
+    let gap = 0;
+    for (let d = 1; d <= cap; d++) {
+      const v = sample(dir * d);
+      if (v >= 0 && v < far - 16) {
+        edge = d;
+        gap = 0;
+      } else if (++gap > 5) {
+        break;
+      }
+    }
+    return edge;
+  };
+  return [-run(-1) - 1.5, run(1) + 1.5];
+};
+
+// Paint over one line crossing with a straight blend between the pixels just
+// beyond either side of the ink.
+const bridge = (
+  sample: (d: number) => number,
+  write: (d: number, v: number) => void,
+  cap: number,
+  stepSize: number,
+): void => {
+  const [lo, hi] = measureInk(sample, cap);
+  const a = sample(lo - 2);
+  const b = sample(hi + 2);
+  if (a < 0 || b < 0) {
+    return;
+  }
+  for (let d = lo; d <= hi; d += stepSize) {
+    const f = (d - lo) / Math.max(hi - lo, 0.5);
+    write(d, Math.round(a * (1 - f) + b * f));
+  }
+};
 
 async function buildLithoMosaic(spec: LithoMosaicSpec): Promise<boolean> {
   const cachePath = path.join(CACHE, path.basename(spec.url));
@@ -1999,45 +2073,6 @@ async function buildLithoMosaic(spec: LithoMosaicSpec): Promise<boolean> {
     }
     src[yi * w + xi] = v;
   };
-  // Measure how far the ink actually reaches rather than assuming a width: the
-  // sheet letters its graticule ("-30", "-60") right against the lines, and a
-  // fixed-width repair leaves the digits printed across the terrain. The gap
-  // tolerance is what carries the repair over the whitespace around a glyph.
-  const measure = (sample: (d: number) => number, cap: number): [number, number] => {
-    const far = (sample(cap) + sample(-cap)) / 2;
-    const run = (dir: number): number => {
-      let edge = 0;
-      let gap = 0;
-      for (let d = 1; d <= cap; d++) {
-        const v = sample(dir * d);
-        if (v >= 0 && v < far - 16) {
-          edge = d;
-          gap = 0;
-        } else if (++gap > 5) {
-          break;
-        }
-      }
-      return edge;
-    };
-    return [-run(-1) - 1.5, run(1) + 1.5];
-  };
-  const bridge = (
-    sample: (d: number) => number,
-    write: (d: number, v: number) => void,
-    cap: number,
-    stepSize: number,
-  ): void => {
-    const [lo, hi] = measure(sample, cap);
-    const a = sample(lo - 2);
-    const b = sample(hi + 2);
-    if (a < 0 || b < 0) {
-      return;
-    }
-    for (let d = lo; d <= hi; d += stepSize) {
-      const f = (d - lo) / Math.max(hi - lo, 0.5);
-      write(d, Math.round(a * (1 - f) + b * f));
-    }
-  };
   const latRadii = [0, -30, -60].map(
     (lat) => spec.radius * Math.tan((((90 + lat) / 2) * Math.PI) / 180),
   );
@@ -2083,6 +2118,30 @@ async function buildLithoMosaic(spec: LithoMosaicSpec): Promise<boolean> {
   const grid = 6;
   const out = new Uint8Array(outW * outH);
   const known = new Uint8Array(outW * outH);
+  // Mean of the non-paper sheet pixels on a grid x grid patch over one output
+  // cell's footprint, or null when none of them landed on imagery.
+  const footprintMean = (rho: number, a: number, dRho: number, dLon: number): number | null => {
+    let acc = 0;
+    let n = 0;
+    for (let i = 0; i < grid; i++) {
+      for (let j = 0; j < grid; j++) {
+        const r2 = rho + ((i + 0.5) / grid - 0.5) * dRho;
+        const t2 = a + (((j + 0.5) / grid - 0.5) * dLon) / Math.max(rho, 1);
+        const xi = Math.round(cx + r2 * Math.sin(t2));
+        const yi = Math.round(cy - r2 * Math.cos(t2));
+        if (xi < 0 || yi < 0 || xi >= w || yi >= h) {
+          continue;
+        }
+        const k = yi * w + xi;
+        if (paper[k]) {
+          continue;
+        }
+        acc += src[k];
+        n++;
+      }
+    }
+    return n > 0 ? acc / n : null;
+  };
   let sum = 0;
   let count = 0;
   for (let oy = 0; oy < outH; oy++) {
@@ -2101,29 +2160,11 @@ async function buildLithoMosaic(spec: LithoMosaicSpec): Promise<boolean> {
     for (let ox = 0; ox < outW; ox++) {
       const a = ((-180 + ((ox + 0.5) / outW) * 360) * Math.PI) / 180;
       const dLon = ((2 * Math.PI) / outW) * rho;
-      let acc = 0;
-      let n = 0;
-      for (let i = 0; i < grid; i++) {
-        for (let j = 0; j < grid; j++) {
-          const r2 = rho + ((i + 0.5) / grid - 0.5) * dRho;
-          const t2 = a + (((j + 0.5) / grid - 0.5) * dLon) / Math.max(rho, 1);
-          const xi = Math.round(cx + r2 * Math.sin(t2));
-          const yi = Math.round(cy - r2 * Math.cos(t2));
-          if (xi < 0 || yi < 0 || xi >= w || yi >= h) {
-            continue;
-          }
-          const k = yi * w + xi;
-          if (paper[k]) {
-            continue;
-          }
-          acc += src[k];
-          n++;
-        }
-      }
-      if (!n) {
+      const mean = footprintMean(rho, a, dRho, dLon);
+      if (mean === null) {
         continue;
       }
-      const v = Math.round(acc / n);
+      const v = Math.round(mean);
       const oi = oy * outW + ox;
       out[oi] = v;
       known[oi] = 1;
@@ -2161,21 +2202,21 @@ async function buildLithoMosaic(spec: LithoMosaicSpec): Promise<boolean> {
 
 const stripTags = (s: string) =>
   s
-    .replaceAll(/<[^>]+>/g, ' ')
+    .replaceAll(/<[^>]+>/gu, ' ')
     .replaceAll('&nbsp;', ' ')
     .replaceAll('&amp;', '&')
     .replaceAll('&deg;', '')
-    .replaceAll(/\s+/g, ' ')
+    .replaceAll(/\s+/gu, ' ')
     .trim();
 
 function tableRows(html: string, tableId: string): string[][] {
-  const table = new RegExp(`<table[^>]*id="${tableId}"[^>]*>([\\s\\S]*?)</table>`).exec(html);
+  const table = new RegExp(`<table[^>]*id="${tableId}"[^>]*>([\\s\\S]*?)</table>`, 'u').exec(html);
   if (!table) {
     return [];
   }
   const out: string[][] = [];
-  for (const tr of table[1].matchAll(/<tr>([\s\S]*?)<\/tr>/g)) {
-    const cells = [...tr[1].matchAll(/<td[^>]*>([\s\S]*?)<\/td>/g)].map((m) => stripTags(m[1]));
+  for (const tr of table[1].matchAll(/<tr>([\s\S]*?)<\/tr>/gu)) {
+    const cells = [...tr[1].matchAll(/<td[^>]*>([\s\S]*?)<\/td>/gu)].map((m) => stripTags(m[1]));
     if (cells.length > 0) {
       out.push(cells);
     }
@@ -2184,14 +2225,14 @@ function tableRows(html: string, tableId: string): string[][] {
 }
 
 const num = (s: string | undefined): number | null => {
-  if (!s) {
+  if (s === undefined || s === '') {
     return null;
   }
   const t = s.trim();
   if (!t || t === '-' || t === 'n/a') {
     return null;
   }
-  const v = Number.parseFloat(t);
+  const v = parseLeadingFloat(t);
   return Number.isFinite(v) ? v : null;
 };
 
@@ -2209,7 +2250,7 @@ function gregorianToJd(year: number, month: number, day: number): number {
 
 /** `2000-01-01.5` -> Julian Date (TDB). */
 function epochStringToJd(s: string): number {
-  const m = /^(\d{4})-(\d{2})-(\d{2})(?:\.(\d+))?$/.exec(s.trim());
+  const m = /^(\d{4})-(\d{2})-(\d{2})(?:\.(\d+))?$/u.exec(s.trim());
   if (!m) {
     return 2451545.0;
   }
@@ -2390,7 +2431,7 @@ async function buildSatelliteData(): Promise<SatelliteRecord[] | null> {
     'sats_phys.html',
     'JPL satellite physical parameters',
   );
-  if (!elemHtml) {
+  if (elemHtml === null || elemHtml === '') {
     return null;
   }
 
@@ -2400,8 +2441,8 @@ async function buildSatelliteData(): Promise<SatelliteRecord[] | null> {
     number,
     { gm: number | null; radius: number | null; density: number | null }
   >();
-  if (physHtml) {
-    const firstToken = (s: string | undefined) => num(s?.trim().split(/\s+/)[0]);
+  if (physHtml !== null && physHtml !== '') {
+    const firstToken = (s: string | undefined) => num(s?.trim().split(/\s+/u)[0]);
     for (const row of tableRows(physHtml, 'sat_phys_par')) {
       const code = num(row[2]);
       if (code === null) {
@@ -2555,13 +2596,13 @@ function parseMpcLine(line: string): SmallBody | null {
   if (line.length < 103) {
     return null;
   }
-  const h = Number.parseFloat(line.slice(8, 13));
-  const m0 = Number.parseFloat(line.slice(26, 35));
-  const argPeri = Number.parseFloat(line.slice(37, 46));
-  const node = Number.parseFloat(line.slice(48, 57));
-  const inc = Number.parseFloat(line.slice(59, 68));
-  const e = Number.parseFloat(line.slice(69, 79));
-  const a = Number.parseFloat(line.slice(92, 103));
+  const h = parseLeadingFloat(line.slice(8, 13));
+  const m0 = parseLeadingFloat(line.slice(26, 35));
+  const argPeri = parseLeadingFloat(line.slice(37, 46));
+  const node = parseLeadingFloat(line.slice(48, 57));
+  const inc = parseLeadingFloat(line.slice(59, 68));
+  const e = parseLeadingFloat(line.slice(69, 79));
+  const a = parseLeadingFloat(line.slice(92, 103));
 
   if (![m0, argPeri, node, inc, e, a].every(Number.isFinite)) {
     return null;
@@ -2576,7 +2617,7 @@ function parseMpcLine(line: string): SmallBody | null {
     name = line.slice(0, 7).trim();
   }
   // "(1) Ceres" -> "Ceres"; bare provisional designations keep their form.
-  const paren = /^\((\d+)\)\s*(.*)$/.exec(name);
+  const paren = /^\((\d+)\)\s*(.*)$/u.exec(name);
   if (paren) {
     name = paren[2].trim() || `(${paren[1]})`;
   }
@@ -2751,6 +2792,12 @@ function temperatureFromBV(bv: number): number {
   return 4600 * (1 / (0.92 * c + 1.7) + 1 / (0.92 * c + 0.62));
 }
 
+/** One piecewise Gaussian of the colour-matching fit: width s1 below the peak, s2 above. */
+const lobe = (x: number, mu: number, s1: number, s2: number): number => {
+  const t = (x - mu) / (x < mu ? s1 : s2);
+  return Math.exp(-0.5 * t * t);
+};
+
 /**
  * Blackbody colour, as a multi-lobe Gaussian fit to the CIE 1931 colour
  * matching functions (Wyman, Sloan & Shirley 2013) integrated against Planck's
@@ -2761,10 +2808,6 @@ function temperatureFromBV(bv: number): number {
  * B stars must come out blue-white and M stars orange, never red.
  */
 function colourFromTemperature(kelvin: number): [number, number, number] {
-  const lobe = (x: number, mu: number, s1: number, s2: number): number => {
-    const t = (x - mu) / (x < mu ? s1 : s2);
-    return Math.exp(-0.5 * t * t);
-  };
   let X = 0;
   let Y = 0;
   let Z = 0;
@@ -2797,11 +2840,12 @@ function colourFromTemperature(kelvin: number): [number, number, number] {
   // *bright* the star is comes from its magnitude, and the renderer divides
   // this colour by its own luminance so the two never fight.
   const peak = Math.max(linear[0], linear[1], linear[2]) || 1;
-  return linear.map((c) => {
+  const encode = (c: number): number => {
     const u = Math.max(0, Math.min(1, c / peak));
     const encoded = u <= 0.0031308 ? 12.92 * u : 1.055 * Math.pow(u, 1 / 2.4) - 0.055;
     return Math.round(255 * encoded);
-  }) as [number, number, number];
+  };
+  return [encode(linear[0]), encode(linear[1]), encode(linear[2])];
 }
 
 async function buildStarCatalogue(): Promise<Star[] | null> {
@@ -2880,6 +2924,9 @@ async function buildStarCatalogue(): Promise<Star[] | null> {
   return stars.length > 0 ? stars : null;
 }
 
+/** Proper motion, mas/yr, rounded into the signed 16-bit block it is stored in. */
+const clampPm = (v: number) => Math.max(-32767, Math.min(32767, Math.round(v)));
+
 /**
  * Write the packed catalogue and the module that describes it.
  *
@@ -2923,7 +2970,6 @@ async function writeStarCatalogue(stars: Star[]): Promise<void> {
       Math.max(-32767, Math.min(32767, Math.round((s.dec / (Math.PI / 2)) * 32767))),
       decAt + i * 2,
     );
-    const clampPm = (v: number) => Math.max(-32767, Math.min(32767, Math.round(v)));
     buf.writeInt16LE(clampPm(s.pmRA), pmAt + i * 4);
     buf.writeInt16LE(clampPm(s.pmDec), pmAt + i * 4 + 2);
     buf.writeInt16LE(Math.max(-32767, Math.min(32767, Math.round(s.vmag * 1000))), magAt + i * 2);
@@ -2938,7 +2984,7 @@ async function writeStarCatalogue(stars: Star[]): Promise<void> {
     `  ${C.green('wrote  ')} public/sky/${STAR_FILE} ${C.dim(`(${n} stars, ${mb(bytes)})`)}`,
   );
 
-  const brightest = [...stars].sort((a, b) => a.vmag - b.vmag)[0];
+  const brightest = stars.toSorted((a, b) => a.vmag - b.vmag)[0];
   const src = `/**
  * GENERATED by scripts/fetch-assets.ts -- do not edit by hand.
  *
@@ -3098,7 +3144,7 @@ async function writeSmallBodyModule(bodies: SmallBody[]): Promise<void> {
     byGroup.set(b.group, (byGroup.get(b.group) ?? 0) + 1);
   }
   const summary = [...byGroup.entries()]
-    .sort((a, b) => b[1] - a[1])
+    .toSorted((a, b) => b[1] - a[1])
     .map(([g, n]) => `${g} ${n}`)
     .join(', ');
 
@@ -3161,7 +3207,7 @@ ${lines.join('\n')}
 async function writeManifest(): Promise<void> {
   let names: string[] = [];
   try {
-    names = (await fs.readdir(TEXTURES)).filter((f) => /\.(jpg|png|webp)$/i.test(f)).sort();
+    names = (await fs.readdir(TEXTURES)).filter((f) => /\.(jpg|png|webp)$/iu.test(f)).toSorted();
   } catch {
     names = [];
   }
@@ -3218,7 +3264,7 @@ async function main(): Promise<void> {
         if (!(await download(SSS_BASE + cand, cachePath, cand))) {
           continue;
         }
-        if (/\.tif$/i.test(cand)) {
+        if (/\.tif$/iu.test(cand)) {
           queueConvert(cachePath, outPath, spec.convertTo ?? 4096);
         } else {
           await fs.copyFile(cachePath, outPath);
@@ -3275,7 +3321,7 @@ async function main(): Promise<void> {
         continue;
       }
       const url = await astropediaImageUrl(spec);
-      if (!url) {
+      if (url === null) {
         failures.push(spec.out);
         continue;
       }
@@ -3399,7 +3445,10 @@ async function main(): Promise<void> {
   console.log('');
 }
 
-main().catch((err) => {
-  console.error(C.red(`\nfetch-assets failed: ${(err as Error).stack ?? err}`));
+try {
+  await main();
+} catch (err) {
+  const detail = err instanceof Error ? (err.stack ?? String(err)) : String(err);
+  console.error(C.red(`\nfetch-assets failed: ${detail}`));
   process.exit(1);
-});
+}

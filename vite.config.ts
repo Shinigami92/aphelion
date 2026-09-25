@@ -4,7 +4,7 @@ import path from 'node:path';
 import { defineConfig } from 'vite';
 
 /**
- * Rewrites the `__CACHE_VERSION__` and `__APP_CHUNKS__` placeholders in the
+ * Rewrites the `__CACHE_VERSION__` and `['__APP_CHUNKS__']` placeholders in the
  * copied `public/sw.js`. The version only has to differ between deploys for
  * the old cache to be dropped: a commit SHA in CI, a timestamp locally. The
  * chunk list has to come from here because the hashed filenames (index-*.js,
@@ -18,7 +18,7 @@ function stampServiceWorker(): Plugin {
     async writeBundle(options, bundle) {
       const appAssets = Object.values(bundle)
         .filter(
-          (entry) => entry.fileName.startsWith('assets/') && /\.(js|css)$/.test(entry.fileName),
+          (entry) => entry.fileName.startsWith('assets/') && /\.(js|css)$/u.test(entry.fileName),
         )
         .map((entry) => `./${entry.fileName}`);
 
@@ -26,7 +26,7 @@ function stampServiceWorker(): Plugin {
       const source = await readFile(file, 'utf8');
       const stamped = source
         .replace('__CACHE_VERSION__', version)
-        .replace('__APP_CHUNKS__', JSON.stringify(appAssets));
+        .replace("['__APP_CHUNKS__']", JSON.stringify(appAssets));
       await writeFile(file, stamped);
     },
   };

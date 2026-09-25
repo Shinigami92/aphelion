@@ -26,6 +26,23 @@ const RELIEF_BASE = 'shapes/';
 
 export type LoadListener = (loaded: number, total: number) => void;
 
+/**
+ * Hand a texture to `apply` once it has decoded.
+ *
+ * Every load resolves to null rather than rejecting when the file is missing
+ * or broken, and in that case the caller's stand-in simply stays, so `apply`
+ * only ever sees a real texture.
+ */
+export async function whenLoaded(
+  pending: Promise<Texture | null>,
+  apply: (tex: Texture) => void,
+): Promise<void> {
+  const tex = await pending;
+  if (tex !== null) {
+    apply(tex);
+  }
+}
+
 export class TextureLibrary {
   private loader = new TextureLoader();
   private cache = new Map<string, Texture>();
@@ -41,8 +58,8 @@ export class TextureLibrary {
   }
 
   /** Is real imagery available for this filename? */
-  available(file: string | null | undefined): boolean {
-    return !!file && hasTexture(file);
+  available(file: string | null | undefined): file is string {
+    return file !== null && file !== undefined && file !== '' && hasTexture(file);
   }
 
   /** Already-decoded texture, if we have it. */
@@ -163,9 +180,9 @@ export class TextureLibrary {
   }
 
   /** Fire-and-forget preload of several files. */
-  preload(files: Array<string | null | undefined>): Promise<void> {
+  async preload(files: Array<string | null | undefined>): Promise<void> {
     const jobs = files.filter((f): f is string => this.available(f)).map((f) => this.load(f));
-    return Promise.all(jobs).then(() => {});
+    await Promise.all(jobs);
   }
 
   get progress(): { loaded: number; total: number } {
@@ -178,7 +195,9 @@ export class TextureLibrary {
 
   onProgress(fn: LoadListener): () => void {
     this.listeners.add(fn);
-    return () => this.listeners.delete(fn);
+    return () => {
+      this.listeners.delete(fn);
+    };
   }
 
   private emit(): void {

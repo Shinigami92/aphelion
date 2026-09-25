@@ -23,7 +23,7 @@ const el = <K extends keyof HTMLElementTagNameMap>(
   text?: string,
 ): HTMLElementTagNameMap[K] => {
   const node = document.createElement(tag);
-  if (className) {
+  if (className !== undefined && className !== '') {
     node.className = className;
   }
   if (text !== undefined) {
@@ -397,7 +397,7 @@ export class BodyBrowser {
       ev.stopPropagation();
       if (ev.key === 'Enter') {
         const first = this.matches()[0];
-        if (first) {
+        if (first !== undefined) {
           this.onSelect(first);
         }
       } else if (ev.key === 'Escape') {
@@ -496,7 +496,7 @@ export class BodyBrowser {
     if (this.selectedKey === body.key) {
       return;
     }
-    if (this.selectedKey) {
+    if (this.selectedKey !== null) {
       this.rows.get(this.selectedKey)?.classList.remove('row--selected');
     }
     this.selectedKey = body.key;
@@ -527,7 +527,7 @@ export class BodyBrowser {
           b.name.toLowerCase().includes(this.query) ||
           (b.type === 'lagrange' && b.subtitle.toLowerCase().includes(this.query)),
       )
-      .sort((a, b) => {
+      .toSorted((a, b) => {
         // Prefer prefix matches, then bigger bodies.
         const ap = a.name.toLowerCase().startsWith(this.query) ? 0 : 1;
         const bp = b.name.toLowerCase().startsWith(this.query) ? 0 : 1;
@@ -629,14 +629,14 @@ export class BodyBrowser {
       });
       minorGroup.append(header);
       if (this.expanded.has(key)) {
-        for (const body of bodies.sort((a, b) => b.radiusKm - a.radiusKm)) {
+        for (const body of bodies.toSorted((a, b) => b.radiusKm - a.radiusKm)) {
           minorGroup.append(this.makeRow(body, 1, `${fmt(body.radiusKm * 2, 0)} km`));
         }
       }
     }
     this.list.append(minorGroup);
 
-    if (this.selectedKey) {
+    if (this.selectedKey !== null) {
       this.rows.get(this.selectedKey)?.classList.add('row--selected');
     }
   }
@@ -644,20 +644,20 @@ export class BodyBrowser {
   /**
    * The moons of one body in the chosen order.
    *
-   * `moonsOf` hands back a fresh array already sorted largest first, so sorting
-   * in place is safe and the size case needs no work at all.
+   * `moonsOf` hands back a fresh array already sorted largest first, so the
+   * size case needs no work at all.
    */
   private sortedMoons(key: string): SimBody[] {
     const moons = this.system.moonsOf(key);
     if (this.moonSort === 'name') {
       // Numeric collation so that S/2004 S 9 precedes S/2004 S 24 rather than
       // following it — half of Saturn's family is still provisional.
-      return moons.sort((a, b) => a.name.localeCompare(b.name, 'en', { numeric: true }));
+      return moons.toSorted((a, b) => a.name.localeCompare(b.name, 'en', { numeric: true }));
     }
     if (this.moonSort === 'distance') {
       // Semi-major axis rather than where the moon happens to be right now: a
       // live distance would reshuffle the list under the cursor every frame.
-      return moons.sort((a, b) => orbitRadius(a) - orbitRadius(b));
+      return moons.toSorted((a, b) => orbitRadius(a) - orbitRadius(b));
     }
     return moons;
   }
@@ -733,7 +733,7 @@ export class BodyBrowser {
     swatch.style.background = `#${body.color.toString(16).padStart(6, '0')}`;
     swatch.style.color = `#${body.color.toString(16).padStart(6, '0')}`;
     row.append(swatch, el('span', 'row__name', body.name));
-    if (meta) {
+    if (meta !== undefined && meta !== '') {
       row.append(el('span', 'row__meta', meta));
     }
 
@@ -800,7 +800,7 @@ export class InfoPanel {
     }
     // "surface synthesised" is a statement about imagery we do not have. A
     // Lagrange point has no surface to have imagery of.
-    if (!body.textureFile && body.type !== 'lagrange') {
+    if ((body.textureFile === null || body.textureFile === '') && body.type !== 'lagrange') {
       flags.push('surface synthesised');
     }
     if (body.type === 'lagrange') {
@@ -832,7 +832,7 @@ export class InfoPanel {
         continue;
       }
       target.append(el('div', 'facts__key', key));
-      target.append(el('div', `facts__val${wrap ? ' facts__val--wrap' : ''}`, value));
+      target.append(el('div', `facts__val${wrap === true ? ' facts__val--wrap' : ''}`, value));
     }
   }
 
@@ -915,38 +915,33 @@ export class InfoPanel {
       rows.push(
         ['Mass', formatMass(facts.mass)],
         ['Surface gravity', `${facts.gravity.toFixed(2)} m/s²`],
-      );
-      rows.push(
         ['Escape velocity', `${facts.escapeVelocity.toFixed(2)} km/s`],
         ['Rotation', formatHours(facts.rotationHours)],
-      );
-      rows.push(
         ['Axial tilt', `${facts.axialTilt.toFixed(2)}°`],
         ['Mean temperature', `${fmt(facts.temperatureC, 0)} °C`],
+        ['Albedo', facts.albedo.toFixed(3)],
       );
-      rows.push(['Albedo', facts.albedo.toFixed(3)]);
     } else if (body.sat) {
-      if (body.sat.gm && body.sat.gm > 0) {
+      if (body.sat.gm !== null && body.sat.gm > 0) {
         // Mass from GM, and gravity/escape velocity from GM and radius.
         const massKg = (body.sat.gm * 1e9) / 6.6743e-11;
         rows.push(
           ['Mass', formatMass(massKg)],
           ['Surface gravity', `${((body.sat.gm / (radius * radius)) * 1000).toFixed(3)} m/s²`],
+          ['Escape velocity', `${escapeVelocity(body.sat.gm, radius).toFixed(3)} km/s`],
         );
-        rows.push(['Escape velocity', `${escapeVelocity(body.sat.gm, radius).toFixed(3)} km/s`]);
       }
-      if (body.sat.density) {
+      if (body.sat.density !== null && body.sat.density !== 0) {
         rows.push(['Density', `${body.sat.density.toFixed(3)} g/cm³`]);
       }
       rows.push(['Rotation', 'tidally locked']);
     } else if (body.small) {
-      rows.push(['Absolute magnitude', `H = ${body.small.h.toFixed(2)}`]);
-      // Only say "from H" when it really is: a body with a measured radius
-      // (SMALL_BODY_RADII) is no longer being sized by its brightness.
-      rows.push([
-        body.radiusEstimated ? 'Diameter (from H)' : 'Diameter',
-        `${fmt(radius * 2, 0)} km`,
-      ]);
+      rows.push(
+        ['Absolute magnitude', `H = ${body.small.h.toFixed(2)}`],
+        // Only say "from H" when it really is: a body with a measured radius
+        // (SMALL_BODY_RADII) is no longer being sized by its brightness.
+        [body.radiusEstimated ? 'Diameter (from H)' : 'Diameter', `${fmt(radius * 2, 0)} km`],
+      );
     }
     this.rowsInto(this.physFacts, rows);
   }
@@ -969,12 +964,10 @@ export class InfoPanel {
       rows.push(
         ['Semi-major axis', formatDistance(elements.a)],
         ['Eccentricity', elements.e.toFixed(5)],
-      );
-      rows.push(
         ['Inclination', `${((elements.i * 180) / Math.PI).toFixed(3)}°`],
         ['Periapsis', formatDistance(elements.a * (1 - elements.e))],
+        ['Apoapsis', formatDistance(elements.a * (1 + elements.e))],
       );
-      rows.push(['Apoapsis', formatDistance(elements.a * (1 + elements.e))]);
       if (body.sat?.frame) {
         rows.push([
           'Reference plane',
@@ -986,8 +979,9 @@ export class InfoPanel {
         ]);
       }
     }
-    if (body.spec?.facts.discovered && body.spec.facts.discovered !== 'n/a') {
-      rows.push(['Discovered', body.spec.facts.discovered, true]);
+    const discovered = body.spec?.facts.discovered;
+    if (discovered !== undefined && discovered !== '' && discovered !== 'n/a') {
+      rows.push(['Discovered', discovered, true]);
     }
     const moons = body.children.filter((c) => c.type === 'moon').length;
     if (moons) {
@@ -999,8 +993,9 @@ export class InfoPanel {
 
   private buildComposition(body: SimBody): void {
     const rows: Array<[string, string, boolean?]> = [];
-    if (body.spec?.facts.composition) {
-      rows.push(['Makeup', body.spec.facts.composition, true]);
+    const composition = body.spec?.facts.composition;
+    if (composition !== undefined && composition !== '') {
+      rows.push(['Makeup', composition, true]);
     }
     if (body.small) {
       rows.push(['Family', body.subtitle, true]);
@@ -1016,16 +1011,16 @@ export class InfoPanel {
       const block = el('div', 'ring');
       block.append(el('div', 'ring__name', ring.name));
       block.append(el('div', 'ring__span', `${fmt(ring.innerKm, 0)} – ${fmt(ring.outerKm, 0)} km`));
-      if (ring.note) {
+      if (ring.note !== undefined && ring.note !== '') {
         block.append(el('div', 'ring__note', ring.note));
       }
       this.ringsEl.append(block);
     }
 
     const hasAny = rows.length > 0 || rings.length > 0;
-    for (const section of this.host.querySelectorAll('.section')) {
+    for (const section of this.host.querySelectorAll<HTMLElement>('.section')) {
       if (section.textContent === 'Composition') {
-        (section as HTMLElement).style.display = hasAny ? 'block' : 'none';
+        section.style.display = hasAny ? 'block' : 'none';
       }
     }
   }
@@ -1139,7 +1134,7 @@ export class TogglePanel {
     const title = el('div', 'panel__title');
     title.append(el('span', undefined, 'View'));
 
-    if (repoUrl) {
+    if (repoUrl !== undefined && repoUrl !== '') {
       const link = document.createElement('a');
       link.className = 'title-link';
       link.href = repoUrl;
@@ -1204,14 +1199,14 @@ export class TogglePanel {
     }
     const orbitMode = this.orbits.get();
     const modes = ['none', 'planets', 'all'];
-    this.orbitButtons.forEach((btn, i) =>
-      btn.classList.toggle('btn--active', modes[i] === orbitMode),
-    );
+    this.orbitButtons.forEach((btn, i) => {
+      btn.classList.toggle('btn--active', modes[i] === orbitMode);
+    });
     const scaleMode = this.scale.get();
     const scaleModes = ['explore', 'true'];
-    this.scaleButtons.forEach((btn, i) =>
-      btn.classList.toggle('btn--active', scaleModes[i] === scaleMode),
-    );
+    this.scaleButtons.forEach((btn, i) => {
+      btn.classList.toggle('btn--active', scaleModes[i] === scaleMode);
+    });
   }
 }
 
@@ -1220,7 +1215,7 @@ export class TogglePanel {
 // ---------------------------------------------------------------------------
 
 export class Toast {
-  private timer: number | null = null;
+  private timer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(private host: HTMLElement) {}
 
@@ -1232,7 +1227,7 @@ export class Toast {
     }
     this.timer = setTimeout(() => {
       this.host.classList.remove('toast--show');
-    }, ms) as unknown as number;
+    }, ms);
   }
 }
 
@@ -1412,10 +1407,10 @@ export class HelpOverlay {
         'The four dwarf planet maps are artistic, and ~450 small bodies have synthesised surfaces — no resolved imagery of them exists.',
       ),
     );
-    if (repoUrl) {
+    if (repoUrl !== undefined && repoUrl !== '') {
       credits.append(
         line('Source, full provenance and licences —', {
-          label: repoUrl.replace(/^https?:\/\//, ''),
+          label: repoUrl.replace(/^https?:\/\//u, ''),
           href: repoUrl,
         }),
       );
@@ -1438,7 +1433,8 @@ export class HelpOverlay {
   }
 
   get visible(): boolean {
-    return !this.host.hidden;
+    // `hidden` can also be 'until-found', which still hides the element.
+    return this.host.hidden === false;
   }
 
   show(): void {
@@ -1450,7 +1446,7 @@ export class HelpOverlay {
   }
 
   toggle(): void {
-    this.host.hidden = !this.host.hidden;
+    this.host.hidden = this.host.hidden === false;
   }
 }
 
