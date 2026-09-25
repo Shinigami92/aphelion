@@ -70,10 +70,10 @@
     "unicorn/prefer-query-selector": "off",
     // Hot numeric loops read clearer with a named callback than an inline arrow.
     "unicorn/no-array-callback-reference": "off",
-    // Scene setup, the asset pipeline and the validation suite are long by
-    // nature; splitting them by line count scatters one linear story.
+    // Material factories, the asset pipeline and the validation sections are
+    // long single functions by nature; splitting them by line count scatters
+    // one linear story.
     "max-lines-per-function": "off",
-    "max-lines": "off",
     "import/max-dependencies": "off"
   },
   "overrides": [
@@ -89,7 +89,7 @@
     {
       // Upstream servers are hit one request at a time on purpose (rate limits,
       // readable progress output, and later steps depend on earlier files).
-      "files": ["scripts/fetch-assets.ts"],
+      "files": ["scripts/fetch-assets.ts", "scripts/assets/*.ts"],
       "rules": {
         "no-await-in-loop": "off"
       }
