@@ -74,9 +74,7 @@
     // nature; splitting them by line count scatters one linear story.
     "max-lines-per-function": "off",
     "max-lines": "off",
-    "import/max-dependencies": "off",
-    // The panels in ui/panels.ts share private helpers and are only used together.
-    "max-classes-per-file": "off"
+    "import/max-dependencies": "off"
   },
   "overrides": [
     {
