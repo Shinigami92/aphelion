@@ -22,7 +22,7 @@
 import { formatUtc, parseUtc } from '../astro/timescales.ts';
 import { RATE_PRESETS } from './time.ts';
 
-// These mirror the unions in render/scene.ts and core/scale.ts. They are
+// These mirror the unions in render/scene/types.ts and core/scale.ts. They are
 // redeclared rather than imported so this module stays free of the render layer;
 // TypeScript's structural typing makes them assignable in both directions.
 const ORBIT_MODES = ['none', 'planets', 'all'] as const;

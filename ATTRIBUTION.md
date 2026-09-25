@@ -589,7 +589,7 @@ True irradiance falls as 1/r², which renders Saturn at 1% of Earth's brightness
 and Neptune at 0.1% — black, on a display that cannot adapt the way an eye does.
 Aphelion compresses the exponent to 0.45, which preserves the ordering and the
 sense of dimming while keeping every planet visible. It is confined to one line
-in `src/render/scene.ts`.
+in `src/render/scene/lighting.ts`.
 
 Surface relief is measured elevation, but at explore scale its vertical scale is
 multiplied (Mars by 12) so that terrain under one percent of a planet's radius is

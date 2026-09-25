@@ -80,7 +80,8 @@ src/
   render/
     materials/      one file per material: uniforms, defines, blending
     shaders/        the GLSL behind them; chunks/ holds the shared #include chunks
-    scene.ts        scene assembly, LOD, floating origin, picking
+    scene.ts        SceneView: builds the scene and runs its layers each frame
+    scene/          one file per layer: bodies, rings, orbits, labels, picking, ...
     sky.ts          the star field and the deep-sky backdrop
     procedural.ts   synthesised surfaces
     textures.ts     lazy loading with procedural fallback
@@ -88,7 +89,7 @@ src/
   ui/               panels, orrery mini-map, styles
   sw-register.ts    registers the service worker in production
 test/               Vitest unit tests for the pure modules (*.spec.ts)
-e2e/                Playwright screenshot guard for render/UI refactors (*.e2e.ts)
+e2e/                Playwright guards for render/UI refactors: screenshots and pick maps (*.e2e.ts)
 docs/               long-form documentation linked from the README
 public/
   sw.js             offline cache: network-first shell, stale-while-revalidate assets

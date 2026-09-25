@@ -15,7 +15,7 @@
 
 import type { SimBody } from './core/system.ts';
 import type { SharedView } from './core/url-state.ts';
-import type { LabelMode, OrbitMode, Quality } from './render/scene.ts';
+import type { LabelMode, OrbitMode, Quality } from './render/scene/types.ts';
 import { Vector3 } from 'three';
 import { CameraController } from './controls/camera.ts';
 import { AU_KM, SCENE_UNIT_KM } from './core/constants.ts';
