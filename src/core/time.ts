@@ -6,7 +6,8 @@
  * dynamics read `jdTT`; all UI reads `jdUTC`.
  */
 
-import { formatUtc, jdUtcToTt, nowJdUtc, parseUtc } from '../astro/timescales.ts';
+import { formatUtc, parseUtc } from '../astro/calendar.ts';
+import { jdUtcToTt, nowJdUtc } from '../astro/timescales.ts';
 import { SEC_PER_DAY } from './constants.ts';
 
 export interface RatePreset {
@@ -34,6 +35,25 @@ export const RATE_PRESETS: ReadonlyArray<RatePreset> = [
   { secondsPerSecond: 315_576_000, label: '10 years/s' },
   { secondsPerSecond: 3_155_760_000, label: '100 years/s' },
 ];
+
+/**
+ * Nearest entry in the rate ladder to a signed seconds-per-second value, so a
+ * link keeps working if the ladder is ever re-tuned.
+ */
+export function rateToPreset(rate: number): { index: number; direction: 1 | -1 } {
+  const magnitude = Math.abs(rate) || 1;
+  let index = 0;
+  let best = Infinity;
+  for (let i = 0; i < RATE_PRESETS.length; i++) {
+    // Compare on a log scale: the ladder spans nine orders of magnitude.
+    const error = Math.abs(Math.log(RATE_PRESETS[i].secondsPerSecond / magnitude));
+    if (error < best) {
+      best = error;
+      index = i;
+    }
+  }
+  return { index, direction: rate < 0 ? -1 : 1 };
+}
 
 /**
  * Clamp range. The planetary theory is a Keplerian fit whose quoted validity is

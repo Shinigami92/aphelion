@@ -8,7 +8,7 @@ import type { FrameState } from './state.ts';
 import type { BodyVisual, PromotionSlot } from './visual.ts';
 import type { BufferGeometry } from 'three';
 import { Group, Mesh, Vector3 } from 'three';
-import { RELIEF_EXAGGERATION } from '../../data/bodies.ts';
+import { RELIEF_EXAGGERATION } from '../../data/bodies/relief.ts';
 import { reliefFor } from '../../data/generated/relief.ts';
 import { createBodyMaterial } from '../materials/body.ts';
 import { solidTexture } from '../procedural.ts';

@@ -14,11 +14,14 @@
 import type { Vec3 } from '../src/astro/kepler.ts';
 import type { SimBody } from '../src/core/system.ts';
 import { beforeAll, describe, expect, it } from 'vitest';
-import { jdUtcToTt, parseUtc } from '../src/astro/timescales.ts';
+import { parseUtc } from '../src/astro/calendar.ts';
+import { jdUtcToTt } from '../src/astro/timescales.ts';
 import { AU_KM, GM } from '../src/core/constants.ts';
 import { ScaleModel } from '../src/core/scale.ts';
-import { escapeVelocity, hillRadius, SolarSystem } from '../src/core/system.ts';
-import { DWARF_PLANETS, PLANETS } from '../src/data/bodies.ts';
+import { SolarSystem } from '../src/core/system.ts';
+import { escapeVelocity, hillRadius } from '../src/core/system/physics.ts';
+import { PLANETS } from '../src/data/bodies.ts';
+import { DWARF_PLANETS } from '../src/data/bodies/dwarf-planets.ts';
 
 // NaN rather than a cast: should the fixture ever stop parsing, every
 // comparison against it fails instead of quietly testing `null`.

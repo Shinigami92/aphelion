@@ -14,7 +14,7 @@
  * instead of neat spheres.
  */
 
-import type { RingBand } from '../data/bodies.ts';
+import type { RingBand } from '../data/body-spec.ts';
 import type { Texture } from 'three';
 import {
   CanvasTexture,

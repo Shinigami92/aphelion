@@ -13,17 +13,17 @@
 import type { SharedView } from '../src/core/url-state.ts';
 import type { Mock } from 'vitest';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { parseUtc } from '../src/astro/timescales.ts';
+import { parseUtc } from '../src/astro/calendar.ts';
 import { RATE_PRESETS } from '../src/core/time.ts';
+import { rateToPreset } from '../src/core/time.ts';
+import { parseView } from '../src/core/url-parse.ts';
 import {
   DEFAULT_LABELS,
   DEFAULT_ORBITS,
   DEFAULT_TOGGLES,
   encodeView,
-  parseView,
-  rateToPreset,
-  UrlWriter,
 } from '../src/core/url-state.ts';
+import { UrlWriter } from '../src/core/url-writer.ts';
 
 // NaN rather than a cast: should the fixture ever stop parsing, every
 // comparison against it fails instead of quietly testing `null`.

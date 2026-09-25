@@ -15,20 +15,21 @@
  *   - **Only non-default values are written.** The default view is a bare URL,
  *     and a shared link stays short enough to read.
  *
+ * Reading a link is in url-parse.ts and writing the address bar in url-writer.ts.
+ *
  * Writes go through `history.replaceState`, never `pushState`: with a live clock
  * the state changes every second and pushing would bury the back button.
  */
 
-import { formatUtc, parseUtc } from '../astro/timescales.ts';
-import { RATE_PRESETS } from './time.ts';
+import { formatUtc } from '../astro/calendar.ts';
 
 // These mirror the unions in render/scene/types.ts and core/scale.ts. They are
 // redeclared rather than imported so this module stays free of the render layer;
 // TypeScript's structural typing makes them assignable in both directions.
-const ORBIT_MODES = ['none', 'planets', 'all'] as const;
-const LABEL_MODES = ['none', 'major', 'all'] as const;
-const SCALE_MODES = ['explore', 'true'] as const;
-const CAMERA_MODES = ['orbit', 'free'] as const;
+export const ORBIT_MODES = ['none', 'planets', 'all'] as const;
+export const LABEL_MODES = ['none', 'major', 'all'] as const;
+export const SCALE_MODES = ['explore', 'true'] as const;
+export const CAMERA_MODES = ['orbit', 'free'] as const;
 
 export type UrlOrbitMode = (typeof ORBIT_MODES)[number];
 export type UrlLabelMode = (typeof LABEL_MODES)[number];
@@ -97,7 +98,7 @@ export const DEFAULT_TOGGLES: ViewToggles = {
  * it folds away with every other panel now, and a link carrying the old
  * parameter is ignored the same way any other unknown one is.
  */
-const TOGGLE_PARAMS: ReadonlyArray<readonly [keyof ViewToggles, string]> = [
+export const TOGGLE_PARAMS: ReadonlyArray<readonly [keyof ViewToggles, string]> = [
   ['belts', 'belts'],
   ['rings', 'rings'],
   ['atmospheres', 'atmo'],
@@ -114,7 +115,7 @@ const TOGGLE_PARAMS: ReadonlyArray<readonly [keyof ViewToggles, string]> = [
 const enc = (s: string): string => encodeURIComponent(s).replaceAll(/%3A/giu, ':');
 
 /** Narrow a query value to one of a fixed set of options without a cast. */
-function isOneOf<T extends string>(options: ReadonlyArray<T>, value: string): value is T {
+export function isOneOf<T extends string>(options: ReadonlyArray<T>, value: string): value is T {
   return options.some((option) => option === value);
 }
 
@@ -171,206 +172,4 @@ export function encodeView(v: SharedView): string {
   }
 
   return parts.join('&');
-}
-
-// ---------------------------------------------------------------------------
-// Parse
-// ---------------------------------------------------------------------------
-
-/**
- * Read a shared view out of a query string.
- *
- * Every field is optional and every malformed field is ignored rather than
- * throwing: a hand-edited or truncated link should still open the app, just with
- * fewer things restored.
- */
-export function parseView(search: string): Partial<SharedView> {
-  const q = new URLSearchParams(search);
-  const out: Partial<SharedView> = {};
-
-  const t = q.get('t');
-  if (t !== null && t !== '') {
-    const jd = parseUtc(t.replace('T', ' ').replace(/Z$/iu, ''));
-    if (jd !== null) {
-      out.jdUtc = jd;
-    }
-  }
-
-  const focus = q.get('focus');
-  if (focus !== null && focus !== '') {
-    out.focusKey = focus;
-  }
-  const sel = q.get('sel');
-  if (sel !== null && sel !== '') {
-    out.selectedKey = sel;
-  }
-
-  const mode = q.get('mode');
-  if (mode !== null && isOneOf(SCALE_MODES, mode)) {
-    out.scaleMode = mode;
-  }
-
-  const rate = q.get('rate');
-  if (rate !== null) {
-    const value = Number(rate);
-    if (Number.isFinite(value) && value !== 0) {
-      out.rate = value;
-    }
-  }
-
-  const paused = q.get('paused');
-  if (paused !== null) {
-    out.paused = paused === '1' || paused === 'true';
-  }
-
-  const num = (name: string): number | undefined => {
-    const raw = q.get(name);
-    if (raw === null) {
-      return undefined;
-    }
-    const value = Number(raw);
-    return Number.isFinite(value) ? value : undefined;
-  };
-  const az = num('az');
-  if (az !== undefined) {
-    out.azimuth = az;
-  }
-  // Elevation is bounded by geometry, so anything outside the range is garbage
-  // rather than something to clamp — `el=999` should leave the default alone, not
-  // silently pin the camera over the pole.
-  const el = num('el');
-  if (el !== undefined && Math.abs(el) <= Math.PI / 2) {
-    out.elevation = el;
-  }
-  const d = num('d');
-  if (d !== undefined && d > 0) {
-    out.distanceRadii = d;
-  }
-
-  const cam = q.get('cam');
-  if (cam !== null && isOneOf(CAMERA_MODES, cam)) {
-    out.cameraMode = cam;
-  }
-
-  /** A fixed-length list of finite numbers, or undefined if it is anything else. */
-  const vector = (name: string, length: number): number[] | undefined => {
-    const raw = q.get(name);
-    if (raw === null) {
-      return undefined;
-    }
-    const parts = raw.split(',').map(Number);
-    if (parts.length !== length || parts.some((n) => !Number.isFinite(n))) {
-      return undefined;
-    }
-    return parts;
-  };
-  const fp = vector('fp', 3);
-  if (fp) {
-    out.freePosition = [fp[0], fp[1], fp[2]];
-  }
-  const fq = vector('fq', 4);
-  // A zero-length quaternion cannot be normalised into a rotation.
-  if (fq && Math.hypot(fq[0], fq[1], fq[2], fq[3]) > 1e-6) {
-    out.freeOrientation = [fq[0], fq[1], fq[2], fq[3]];
-  }
-
-  const orbits = q.get('orbits');
-  if (orbits !== null && isOneOf(ORBIT_MODES, orbits)) {
-    out.orbits = orbits;
-  }
-  const labels = q.get('labels');
-  if (labels !== null && isOneOf(LABEL_MODES, labels)) {
-    out.labels = labels;
-  }
-
-  const toggles: Partial<ViewToggles> = {};
-  let sawToggle = false;
-  for (const [key, param] of TOGGLE_PARAMS) {
-    const raw = q.get(param);
-    if (raw === null) {
-      continue;
-    }
-    // Only explicit values count. Treating anything unrecognised as false let a
-    // typo silently switch a layer off, which is the opposite of the
-    // ignore-what-you-cannot-parse rule the rest of this function follows.
-    if (raw === '1' || raw === 'true') {
-      toggles[key] = true;
-    } else if (raw === '0' || raw === 'false') {
-      toggles[key] = false;
-    } else {
-      continue;
-    }
-    sawToggle = true;
-  }
-  if (sawToggle) {
-    out.toggles = { ...DEFAULT_TOGGLES, ...toggles };
-  }
-
-  return out;
-}
-
-/**
- * Nearest entry in the rate ladder to a signed seconds-per-second value, so a
- * link keeps working if the ladder is ever re-tuned.
- */
-export function rateToPreset(rate: number): { index: number; direction: 1 | -1 } {
-  const magnitude = Math.abs(rate) || 1;
-  let index = 0;
-  let best = Infinity;
-  for (let i = 0; i < RATE_PRESETS.length; i++) {
-    // Compare on a log scale: the ladder spans nine orders of magnitude.
-    const error = Math.abs(Math.log(RATE_PRESETS[i].secondsPerSecond / magnitude));
-    if (error < best) {
-      best = error;
-      index = i;
-    }
-  }
-  return { index, direction: rate < 0 ? -1 : 1 };
-}
-
-// ---------------------------------------------------------------------------
-// Writer
-// ---------------------------------------------------------------------------
-
-/**
- * Keeps the address bar in step with the view, cheaply.
- *
- * Rebuilding and writing the URL every frame would be wasteful at 120 fps, so
- * this rebuilds at most every `intervalMs` and only touches history when the
- * string actually changed.
- */
-export class UrlWriter {
-  private lastQuery: string | null = null;
-  private lastWriteAt = -Infinity;
-
-  private intervalMs: number;
-
-  // Written out rather than as a constructor parameter property: `pnpm validate`
-  // runs this module under Node's type-stripping, which does not support them.
-  constructor(intervalMs = 400) {
-    this.intervalMs = intervalMs;
-  }
-
-  /** Call once per frame with a lazily-evaluated snapshot. */
-  sync(nowMs: number, snapshot: () => SharedView): void {
-    if (nowMs - this.lastWriteAt < this.intervalMs) {
-      return;
-    }
-    this.lastWriteAt = nowMs;
-
-    const query = encodeView(snapshot());
-    if (query === this.lastQuery) {
-      return;
-    }
-    this.lastQuery = query;
-
-    const url = query ? `${window.location.pathname}?${query}` : window.location.pathname;
-    window.history.replaceState(null, '', url);
-  }
-
-  /** Write immediately, ignoring the throttle (used right after a jump). */
-  flush(snapshot: () => SharedView): void {
-    this.lastWriteAt = -Infinity;
-    this.sync(Number.POSITIVE_INFINITY, snapshot);
-  }
 }

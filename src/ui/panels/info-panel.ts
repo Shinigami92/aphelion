@@ -1,8 +1,8 @@
 /** Facts about the selected body: live readouts, physical data, orbit, composition. */
 
 import type { SimBody, SolarSystem } from '../../core/system.ts';
-import { escapeVelocity } from '../../core/system.ts';
-import { RELIEF_EXAGGERATION } from '../../data/bodies.ts';
+import { escapeVelocity } from '../../core/system/physics.ts';
+import { RELIEF_EXAGGERATION } from '../../data/bodies/relief.ts';
 import { reliefFor } from '../../data/generated/relief.ts';
 import { el } from './dom.ts';
 import {

@@ -9,18 +9,20 @@
 import { describe, expect, it } from 'vitest';
 import {
   calendarToJd,
-  deltaTSeconds,
   formatUtc,
   formatUtcDate,
   formatUtcTime,
-  gmst,
   jdToCalendar,
+  parseUtc,
+} from '../src/astro/calendar.ts';
+import {
+  deltaTSeconds,
+  gmst,
   jdToMs,
   jdToYearFraction,
   jdUtcToTt,
   msToJd,
   nowJdUtc,
-  parseUtc,
   taiMinusUtc,
 } from '../src/astro/timescales.ts';
 import { J2000, SEC_PER_DAY } from '../src/core/constants.ts';
