@@ -47,7 +47,12 @@ export default defineConfig({
     },
     // Device scale 1: the phone layout keys off the viewport width, and at the
     // Pixel's native 2.6 SwiftShader has seven times the pixels to fill per frame.
-    { name: 'phone', use: { ...devices['Pixel 7'], deviceScaleFactor: 1 } },
+    {
+      name: 'phone',
+      use: { ...devices['Pixel 7'], deviceScaleFactor: 1 },
+      // Keyboard shortcuts are a desktop affordance.
+      testIgnore: '**/input.e2e.ts',
+    },
   ],
   webServer: {
     // Its own port, so a `pnpm dev` already running on 5173 is left alone.

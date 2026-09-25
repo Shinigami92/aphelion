@@ -61,6 +61,8 @@ end-to-end check, `http://localhost:5173/?t=2024-04-08T18:17:16Z&focus=earth`.
 
 ```
 src/
+  main.ts     entry point: builds everything in order and runs the frame loop
+  app/        what main.ts wires up: input, panel layout, shared links, frame governor
   astro/      pure astronomy — no Three.js, independently testable
     kepler.ts       Kepler's equation, elements → state vectors
     planets.ts      JPL Keplerian planetary theory
@@ -89,7 +91,7 @@ src/
   ui/               panels, orrery mini-map, styles
   sw-register.ts    registers the service worker in production
 test/               Vitest unit tests for the pure modules (*.spec.ts)
-e2e/                Playwright guards for render/UI refactors: screenshots and pick maps (*.e2e.ts)
+e2e/                Playwright guards for render/UI refactors: screenshots, pick maps, input (*.e2e.ts)
 docs/               long-form documentation linked from the README
 public/
   sw.js             offline cache: network-first shell, stale-while-revalidate assets
