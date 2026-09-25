@@ -1,6 +1,7 @@
-import { readFile, writeFile } from 'node:fs/promises'
-import path from 'node:path'
-import { defineConfig, type Plugin } from 'vite'
+import type { Plugin } from 'vite';
+import { readFile, writeFile } from 'node:fs/promises';
+import path from 'node:path';
+import { defineConfig } from 'vite';
 
 /**
  * Rewrites the `__CACHE_VERSION__` and `__APP_CHUNKS__` placeholders in the
@@ -10,23 +11,25 @@ import { defineConfig, type Plugin } from 'vite'
  * three-*.js, index-*.css) aren't known until Rollup has named them.
  */
 function stampServiceWorker(): Plugin {
-  const version = process.env.GITHUB_SHA?.slice(0, 12) ?? `local-${Date.now()}`
+  const version = process.env.GITHUB_SHA?.slice(0, 12) ?? `local-${Date.now()}`;
   return {
     name: 'aphelion:stamp-service-worker',
     apply: 'build',
     async writeBundle(options, bundle) {
       const appAssets = Object.values(bundle)
-        .filter((entry) => entry.fileName.startsWith('assets/') && /\.(js|css)$/.test(entry.fileName))
-        .map((entry) => `./${entry.fileName}`)
+        .filter(
+          (entry) => entry.fileName.startsWith('assets/') && /\.(js|css)$/.test(entry.fileName),
+        )
+        .map((entry) => `./${entry.fileName}`);
 
-      const file = path.join(options.dir ?? 'dist', 'sw.js')
-      const source = await readFile(file, 'utf8')
+      const file = path.join(options.dir ?? 'dist', 'sw.js');
+      const source = await readFile(file, 'utf8');
       const stamped = source
         .replace('__CACHE_VERSION__', version)
-        .replace('__APP_CHUNKS__', JSON.stringify(appAssets))
-      await writeFile(file, stamped)
+        .replace('__APP_CHUNKS__', JSON.stringify(appAssets));
+      await writeFile(file, stamped);
     },
-  }
+  };
 }
 
 export default defineConfig({
@@ -38,7 +41,7 @@ export default defineConfig({
     // Textures are already compressed; don't inline anything binary.
     assetsInlineLimit: 0,
     chunkSizeWarningLimit: 2048,
-    rollupOptions: {
+    rolldownOptions: {
       output: {
         // Three.js is the bulk of the bundle and changes only on a dependency
         // bump; the app code changes every commit. Splitting them lets a deploy
@@ -48,4 +51,4 @@ export default defineConfig({
       },
     },
   },
-})
+});

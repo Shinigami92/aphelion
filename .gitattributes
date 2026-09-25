@@ -1,0 +1,14 @@
+# Normalize line endings to LF across the repo (oxfmt emits LF).
+* text=auto eol=lf
+
+# Binary assets — never normalize. public/ holds ~130 MB of committed imagery
+# and elevation grids; a CRLF conversion would silently corrupt them.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.ico binary
+*.bin binary
+*.tif binary
+*.tiff binary

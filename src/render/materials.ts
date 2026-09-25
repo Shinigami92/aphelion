@@ -20,6 +20,7 @@
  *     when you look toward the Sun through the atmosphere.
  */
 
+import type { Texture } from 'three';
 import {
   AdditiveBlending,
   BackSide,
@@ -31,11 +32,10 @@ import {
   Vector2,
   Vector3,
   Vector4,
-  type Texture,
-} from 'three'
+} from 'three';
 
 /** Maximum simultaneous eclipse occluders per body. */
-export const MAX_OCCLUDERS = 4
+export const MAX_OCCLUDERS = 4;
 
 // ---------------------------------------------------------------------------
 // Shared GLSL
@@ -51,7 +51,7 @@ const GLSL_COLOR = /* glsl */ `
 vec3 srgbToLinear(vec3 c) {
   return mix(c / 12.92, pow((c + 0.055) / 1.055, vec3(2.4)), step(vec3(0.04045), c));
 }
-`
+`;
 
 /**
  * Fraction of a disc of angular radius `rSun` hidden behind a disc of angular
@@ -96,7 +96,7 @@ float eclipseFactor(vec3 P, vec3 sunPos, float sunRadius, vec4 occ[${MAX_OCCLUDE
   }
   return clamp(1.0 - blocked, 0.0, 1.0);
 }
-`
+`;
 
 /** Ray-sphere intersection; returns (near, far) or (1, -1) when missed. */
 const GLSL_RAY_SPHERE = /* glsl */ `
@@ -109,7 +109,7 @@ vec2 raySphere(vec3 origin, vec3 dir, vec3 centre, float radius) {
   h = sqrt(h);
   return vec2(-b - h, -b + h);
 }
-`
+`;
 
 /**
  * The uniforms describing the radial remap a ring shares with the moons.
@@ -130,7 +130,7 @@ uniform float uSatExponent;
 uniform float uSatKnee;
 uniform float uScaleBlend;
 uniform float uSceneUnitKm;
-`
+`;
 
 /** Mirror of `ScaleModel.satelliteDistance()`. Keep the two in lockstep. */
 const GLSL_RING_TO_UNITS = /* glsl */ `
@@ -140,7 +140,7 @@ float ringRadiusToUnits(float km) {
   float compressed = uParentRadiusKm * uBodyScale * shaped;
   return mix(km, compressed, uScaleBlend) / uSceneUnitKm;
 }
-`
+`;
 
 /**
  * The inverse, for code that starts from a rendered radius — the ring shadow
@@ -159,24 +159,24 @@ float ringUnitsToKm(float units) {
   float x = shaped <= uSatKnee ? shaped : uSatKnee * pow(shaped / uSatKnee, 1.0 / uSatExponent);
   return mix(km, x * uParentRadiusKm, uScaleBlend);
 }
-`
+`;
 
 // ---------------------------------------------------------------------------
 // Body (planet / moon / dwarf) surface
 // ---------------------------------------------------------------------------
 
 export interface BodyMaterialOptions {
-  map: Texture
-  nightMap?: Texture | null
-  normalMap?: Texture | null
-  specularMap?: Texture | null
+  map: Texture;
+  nightMap?: Texture | null;
+  normalMap?: Texture | null;
+  specularMap?: Texture | null;
   /** Tint multiplied into the albedo. */
-  tint?: number
+  tint?: number;
   /** Terminator/atmosphere rim colour; null disables the rim. */
-  rimColor?: [number, number, number] | null
-  rimStrength?: number
+  rimColor?: [number, number, number] | null;
+  rimStrength?: number;
   /** Roughness for the specular lobe (only used where specularMap is set). */
-  shininess?: number
+  shininess?: number;
 }
 
 export function createBodyMaterial(opts: BodyMaterialOptions): ShaderMaterial {
@@ -230,7 +230,7 @@ export function createBodyMaterial(opts: BodyMaterialOptions): ShaderMaterial {
     uReliefScale: { value: 0 },
     /** uv spacing of the drawn LOD's vertices, for the differenced normal. */
     uReliefStep: { value: new Vector2(1, 1) },
-  }
+  };
 
   return new ShaderMaterial({
     uniforms,
@@ -465,7 +465,7 @@ export function createBodyMaterial(opts: BodyMaterialOptions): ShaderMaterial {
         gl_FragColor = vec4(lit, 1.0);
       }
     `,
-  })
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -476,7 +476,7 @@ export function createBodyMaterial(opts: BodyMaterialOptions): ShaderMaterial {
  * Latitude samples in the zonal wind profile — 19, one every 10 degrees, index
  * 0 at the south pole. See `BodySpec.cloudWindMs`.
  */
-export const ZONAL_SAMPLES = 19
+export const ZONAL_SAMPLES = 19;
 
 export function createCloudMaterial(map: Texture, opts: { opacity?: number } = {}): ShaderMaterial {
   return new ShaderMaterial({
@@ -487,7 +487,7 @@ export function createCloudMaterial(map: Texture, opts: { opacity?: number } = {
       // Angular form of the wind profile: degrees of longitude per day at each
       // sampled latitude. Filled in by the renderer, which is where the body's
       // radius lives. Zero everywhere means a deck that does not shear.
-      uZonalDeg: { value: new Array<number>(ZONAL_SAMPLES).fill(0) },
+      uZonalDeg: { value: Array.from({ length: ZONAL_SAMPLES }, () => 0) },
       uHasFlow: { value: 0 },
       // Two ages, in days, and the weight of the second. See the fragment
       // shader for why there are two.
@@ -599,7 +599,7 @@ export function createCloudMaterial(map: Texture, opts: { opacity?: number } = {
         gl_FragColor = vec4(col, cover * uOpacity);
       }
     `,
-  })
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -607,13 +607,13 @@ export function createCloudMaterial(map: Texture, opts: { opacity?: number } = {
 // ---------------------------------------------------------------------------
 
 export interface AtmosphereMaterialOptions {
-  planetRadius: number
-  atmosphereRadius: number
-  rayleigh: [number, number, number]
-  mie: number
-  density: number
+  planetRadius: number;
+  atmosphereRadius: number;
+  rayleigh: [number, number, number];
+  mie: number;
+  density: number;
   /** View-ray march steps; 12 is plenty at these angular sizes. */
-  steps?: number
+  steps?: number;
 }
 
 /**
@@ -634,8 +634,8 @@ export interface AtmosphereMaterialOptions {
  * kept this shader from drawing a single pixel for its first several months.
  */
 export function createAtmosphereMaterial(opts: AtmosphereMaterialOptions): ShaderMaterial {
-  const steps = opts.steps ?? 12
-  const lightSteps = 4
+  const steps = opts.steps ?? 12;
+  const lightSteps = 4;
 
   return new ShaderMaterial({
     transparent: true,
@@ -840,7 +840,7 @@ export function createAtmosphereMaterial(opts: AtmosphereMaterialOptions): Shade
         gl_FragColor = vec4(max(colour, vec3(0.0)), 1.0);
       }
     `,
-  })
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -848,13 +848,13 @@ export function createAtmosphereMaterial(opts: AtmosphereMaterialOptions): Shade
 // ---------------------------------------------------------------------------
 
 export interface RingMaterialOptions {
-  texture: Texture
+  texture: Texture;
   /** Inner edge in true kilometres from the planet's centre. */
-  innerKm: number
+  innerKm: number;
   /** Outer edge in true kilometres from the planet's centre. */
-  outerKm: number
-  opacity: number
-  parentRadiusKm: number
+  outerKm: number;
+  opacity: number;
+  parentRadiusKm: number;
 }
 
 export function createRingMaterial(opts: RingMaterialOptions): ShaderMaterial {
@@ -970,7 +970,7 @@ export function createRingMaterial(opts: RingMaterialOptions): ShaderMaterial {
         gl_FragColor = vec4(colour, alpha);
       }
     `,
-  })
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -1004,10 +1004,10 @@ export function createRingMaterial(opts: RingMaterialOptions): ShaderMaterial {
  * is a clear lane with Pan in it, because the same data drew both.
  */
 export interface RingParticleMaterialOptions {
-  profile: Texture
-  innerKm: number
-  outerKm: number
-  parentRadiusKm: number
+  profile: Texture;
+  innerKm: number;
+  outerKm: number;
+  parentRadiusKm: number;
 }
 
 export function createRingParticleMaterial(opts: RingParticleMaterialOptions): ShaderMaterial {
@@ -1212,7 +1212,7 @@ export function createRingParticleMaterial(opts: RingParticleMaterialOptions): S
         gl_FragColor = vec4(albedo * diffuse * shadow, 1.0);
       }
     `,
-  })
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -1301,7 +1301,7 @@ export function createSunMaterial(map: Texture | null): ShaderMaterial {
         gl_FragColor = vec4(colour, 1.0);
       }
     `,
-  })
+  });
 }
 
 /** Soft corona shell that fades outward; additive, drawn after the photosphere. */
@@ -1359,7 +1359,7 @@ export function createCoronaMaterial(): ShaderMaterial {
         gl_FragColor = vec4(uColor * glow * uIntensity, glow);
       }
     `,
-  })
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -1394,7 +1394,7 @@ const GLSL_SKY_DEPTH = /* glsl */ `
 vec4 pinToFarPlane(vec4 clip) {
   return vec4(clip.xy, clip.w * (1.0 - 1e-6), clip.w);
 }
-`
+`;
 
 /**
  * The deep sky, as an equirectangular texture on the inside of a sphere.
@@ -1403,7 +1403,10 @@ vec4 pinToFarPlane(vec4 clip) {
  * the ecliptic — so u = 0.5 is right ascension zero and v = 0 is the north
  * celestial pole.
  */
-export function createSkyMaterial(map: Texture, opts: { brightness?: number } = {}): ShaderMaterial {
+export function createSkyMaterial(
+  map: Texture,
+  opts: { brightness?: number } = {},
+): ShaderMaterial {
   return new ShaderMaterial({
     side: BackSide,
     depthWrite: false,
@@ -1430,7 +1433,7 @@ export function createSkyMaterial(map: Texture, opts: { brightness?: number } = 
         gl_FragColor = vec4(c * uBrightness, 1.0);
       }
     `,
-  })
+  });
 }
 
 /**
@@ -1564,7 +1567,7 @@ export function createStarMaterial(): ShaderMaterial {
         gl_FragColor = vec4(vColor * profile * uOpacity, 1.0);
       }
     `,
-  })
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -1691,7 +1694,7 @@ export function createSwarmMaterial(sprite: Texture): ShaderMaterial {
         gl_FragColor = vec4(vColor, a * vFade * uOpacity);
       }
     `,
-  })
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -1799,7 +1802,7 @@ export function createDustMaterial(): ShaderMaterial {
         gl_FragColor = vec4(vec3(0.62, 0.72, 0.9), vFade * 0.5);
       }
     `,
-  })
+  });
 }
 
 export function createOrbitMaterial(color: number, opacity: number): ShaderMaterial {
@@ -1846,7 +1849,7 @@ export function createOrbitMaterial(color: number, opacity: number): ShaderMater
         gl_FragColor = vec4(uColor, alpha);
       }
     `,
-  })
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -1858,21 +1861,26 @@ export function createOrbitMaterial(color: number, opacity: number): ShaderMater
  * shader above decodes sRGB itself. Keeps the colour pipeline in one place.
  */
 function prepare(tex: Texture): Texture {
-  tex.colorSpace = LinearSRGBColorSpace
-  return tex
+  tex.colorSpace = LinearSRGBColorSpace;
+  return tex;
 }
 
 /** Push occluder data into a material's uniform array. */
 export function setOccluders(
   material: ShaderMaterial,
-  occluders: { x: number; y: number; z: number; radius: number }[],
+  occluders: Array<{ x: number; y: number; z: number; radius: number }>,
 ): void {
-  const slot = material.uniforms.uOccluders?.value as Vector4[] | undefined
-  if (!slot) return
+  const slot = material.uniforms.uOccluders?.value as Vector4[] | undefined;
+  if (!slot) {
+    return;
+  }
   for (let i = 0; i < MAX_OCCLUDERS; i++) {
-    const src = occluders[i]
-    const dst = slot[i]!
-    if (src) dst.set(src.x, src.y, src.z, src.radius)
-    else dst.set(0, 0, 0, 0)
+    const src = occluders[i];
+    const dst = slot[i];
+    if (src) {
+      dst.set(src.x, src.y, src.z, src.radius);
+    } else {
+      dst.set(0, 0, 0, 0);
+    }
   }
 }

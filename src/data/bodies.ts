@@ -7,14 +7,14 @@
  * vertical squash. Rotation models are the IAU values (see astro/frames.ts).
  */
 
-import type { SpinModel } from '../astro/frames.ts'
+import type { SpinModel } from '../astro/frames.ts';
 
 /**
  * `lagrange` is the one member that is not an object: it marks the massless
  * equilibrium points of a Sun-planet pair, which are simulated and focusable
  * but have no mass, no surface and no orbit of their own. See core/system.ts.
  */
-export type BodyType = 'star' | 'planet' | 'dwarf' | 'moon' | 'asteroid' | 'lagrange'
+export type BodyType = 'star' | 'planet' | 'dwarf' | 'moon' | 'asteroid' | 'lagrange';
 
 /**
  * Single-scattering atmosphere parameters.
@@ -43,15 +43,15 @@ export type BodyType = 'star' | 'planet' | 'dwarf' | 'moon' | 'asteroid' | 'lagr
  */
 export interface AtmosphereSpec {
   /** Scale height of the visible haze, km — the shell is five of them. */
-  thicknessKm: number
+  thicknessKm: number;
   /** Rayleigh scattering tint (relative RGB, not physical units). */
-  rayleigh: [number, number, number]
+  rayleigh: [number, number, number];
   /** Mie (aerosol) strength, relative to the Rayleigh tint. */
-  mie: number
+  mie: number;
   /** Vertical optical depth of the haze — see above; not a free multiplier. */
-  density: number
+  density: number;
   /** Ground-level haze colour, used for the terminator glow. */
-  groundTint: [number, number, number]
+  groundTint: [number, number, number];
 }
 
 /**
@@ -68,32 +68,32 @@ export interface AtmosphereSpec {
  * it, and `pnpm validate` checks exactly that.
  */
 export interface RingBand {
-  name: string
-  innerKm: number
-  outerKm: number
+  name: string;
+  innerKm: number;
+  outerKm: number;
   /** Normal optical depth. 0 for a gap. */
-  tau: number
+  tau: number;
   /** sRGB colour of the particles in this band. */
-  color: number
+  color: number;
   /** What clears or confines this band, when something does. */
-  cause?: string
+  cause?: string;
 }
 
 export interface RingSpec {
-  name: string
-  innerKm: number
-  outerKm: number
+  name: string;
+  innerKm: number;
+  outerKm: number;
   /** Texture file in public/textures; procedural when absent. */
-  texture?: string
+  texture?: string;
   /** Peak opacity. */
-  opacity: number
+  opacity: number;
   /** Optional description for the info panel. */
-  note?: string
+  note?: string;
   /**
    * Radial structure. When present the profile is generated from these bands
    * instead of from noise, so every edge lands at a real kilometre.
    */
-  bands?: RingBand[]
+  bands?: RingBand[];
   /**
    * Brightness multiplier applied in explore scale only, 1 by default.
    *
@@ -107,7 +107,7 @@ export interface RingSpec {
    * fidelity for being able to see the thing at all. It changes opacity only:
    * no radius, no width, no gap moves.
    */
-  exploreBoost?: number
+  exploreBoost?: number;
   /**
    * Albedo multiplier in explore scale only, 1 by default.
    *
@@ -120,50 +120,50 @@ export interface RingSpec {
    * is a few times more light. Folding both into one number would blow one of
    * them out while barely touching the other.
    */
-  exploreBrightness?: number
+  exploreBrightness?: number;
 }
 
 export interface BodyFacts {
   /** kg */
-  mass: number
+  mass: number;
   /** m/s^2 at the equator */
-  gravity: number
+  gravity: number;
   /** km/s */
-  escapeVelocity: number
+  escapeVelocity: number;
   /** Sidereal rotation period in hours; negative is retrograde. */
-  rotationHours: number
+  rotationHours: number;
   /** Obliquity to its orbit, degrees. */
-  axialTilt: number
+  axialTilt: number;
   /** Mean surface or 1-bar temperature, degrees C. */
-  temperatureC: number
+  temperatureC: number;
   /** Bond albedo. */
-  albedo: number
-  composition: string
-  discovered: string
-  blurb: string
+  albedo: number;
+  composition: string;
+  discovered: string;
+  blurb: string;
 }
 
 export interface BodySpec {
-  key: string
-  name: string
-  type: BodyType
+  key: string;
+  name: string;
+  type: BodyType;
   /** Parent key; null for the Sun. */
-  parent: string | null
+  parent: string | null;
   /** Equatorial radius, km. */
-  radiusKm: number
+  radiusKm: number;
   /** (Req - Rpol) / Req. 0 for a sphere. */
-  flattening: number
-  spin: SpinModel
+  flattening: number;
+  spin: SpinModel;
   /** Base colour used by the procedural texture generator and for orbit lines. */
-  color: number
+  color: number;
   /** Texture files, all optional — missing ones fall back to procedural. */
   textures?: {
-    map?: string
-    night?: string
-    clouds?: string
-    normal?: string
-    specular?: string
-  }
+    map?: string;
+    night?: string;
+    clouds?: string;
+    normal?: string;
+    specular?: string;
+  };
   /**
    * Multiplied into the albedo map. Use only to colourise a *panchromatic*
    * source: several USGS mosaics are single-channel, and rendering Pluto in grey
@@ -174,7 +174,7 @@ export interface BodySpec {
    * Bodies that genuinely are neutral (Charon, Phobos, Vesta) must leave this
    * unset — inventing colour for them would be the opposite of the point.
    */
-  textureTint?: number
+  textureTint?: number;
   /**
    * Rotation of the cloud deck *relative to the crust below it*, degrees of
    * longitude per day, positive eastward — the same sense as `spin.wDot`, so
@@ -188,7 +188,7 @@ export interface BodySpec {
    * its superrotation is near solid-body out to 50 degrees. Earth does not, and
    * uses `cloudWindMs` instead; the two are alternatives, never both.
    */
-  cloudDriftDegPerDay?: number
+  cloudDriftDegPerDay?: number;
   /**
    * Mean zonal wind, m/s, **positive eastward**, sampled at 19 latitudes evenly
    * spaced from -90 to +90 (10 degree steps, index 0 is the south pole).
@@ -204,12 +204,12 @@ export interface BodySpec {
    * Must fall to zero at both poles: the wind is a linear speed and the angular
    * rate it implies diverges as `cos lat` vanishes.
    */
-  cloudWindMs?: readonly number[]
-  atmosphere?: AtmosphereSpec
-  rings?: RingSpec[]
+  cloudWindMs?: ReadonlyArray<number>;
+  atmosphere?: AtmosphereSpec;
+  rings?: RingSpec[];
   /** Emissive bodies (the Sun) skip lighting entirely. */
-  emissive?: boolean
-  facts: BodyFacts
+  emissive?: boolean;
+  facts: BodyFacts;
 }
 
 // ---------------------------------------------------------------------------
@@ -240,7 +240,7 @@ export const SUN: BodySpec = {
     blurb:
       'A G2V main-sequence star holding 99.86% of the mass of the solar system. Fuses ~600 million tonnes of hydrogen every second; the light reaching Earth left the surface 8 minutes 20 seconds ago.',
   },
-}
+};
 
 // ---------------------------------------------------------------------------
 // Planets
@@ -254,7 +254,14 @@ export const PLANETS: BodySpec[] = [
     parent: 'sun',
     radiusKm: 2439.7,
     flattening: 0,
-    spin: { poleRa: 281.0103, poleRaDot: -0.0328, poleDec: 61.4155, poleDecDot: -0.0049, w0: 329.5988, wDot: 6.1385108 },
+    spin: {
+      poleRa: 281.0103,
+      poleRaDot: -0.0328,
+      poleDec: 61.4155,
+      poleDecDot: -0.0049,
+      w0: 329.5988,
+      wDot: 6.1385108,
+    },
     color: 0x9c8e82,
     textures: { map: 'mercury.jpg' },
     facts: {
@@ -321,7 +328,14 @@ export const PLANETS: BodySpec[] = [
     parent: 'sun',
     radiusKm: 6378.137,
     flattening: 1 / 298.257223563,
-    spin: { poleRa: 0.0, poleRaDot: -0.641, poleDec: 90.0, poleDecDot: -0.557, w0: 190.147, wDot: 360.9856235 },
+    spin: {
+      poleRa: 0.0,
+      poleRaDot: -0.641,
+      poleDec: 90.0,
+      poleDecDot: -0.557,
+      w0: 190.147,
+      wDot: 360.9856235,
+    },
     color: 0x2b5c8a,
     textures: {
       map: 'earth_day.jpg',
@@ -346,9 +360,11 @@ export const PLANETS: BodySpec[] = [
     // to the same quantity agree to about 25%. Both would have to be wrong
     // together for the deck to be turning at the wrong average rate.
     //            -90 -80 -70 -60 -50 -40 -30 -20 -10   0
-    cloudWindMs: [0, 1, 6, 16, 20, 16, 8, -2, -5, -4,
-    //             10  20 30 40 50 60 70 80  90
-      -5, -3, 6, 14, 14, 11, 5, 1, 0],
+    cloudWindMs: [
+      0, 1, 6, 16, 20, 16, 8, -2, -5, -4,
+      //             10  20 30 40 50 60 70 80  90
+      -5, -3, 6, 14, 14, 11, 5, 1, 0,
+    ],
     atmosphere: {
       thicknessKm: 100,
       rayleigh: [0.19, 0.45, 1.0],
@@ -381,7 +397,14 @@ export const PLANETS: BodySpec[] = [
     parent: 'sun',
     radiusKm: 3396.2,
     flattening: 0.00589,
-    spin: { poleRa: 317.681, poleRaDot: -0.106, poleDec: 52.887, poleDecDot: -0.061, w0: 176.63, wDot: 350.89198226 },
+    spin: {
+      poleRa: 317.681,
+      poleRaDot: -0.106,
+      poleDec: 52.887,
+      poleDecDot: -0.061,
+      w0: 176.63,
+      wDot: 350.89198226,
+    },
     color: 0xc1502e,
     textures: { map: 'mars.jpg' },
     atmosphere: {
@@ -416,7 +439,14 @@ export const PLANETS: BodySpec[] = [
     parent: 'sun',
     radiusKm: 71_492,
     flattening: 0.06487,
-    spin: { poleRa: 268.056595, poleRaDot: -0.006499, poleDec: 64.495303, poleDecDot: 0.002413, w0: 284.95, wDot: 870.536 },
+    spin: {
+      poleRa: 268.056595,
+      poleRaDot: -0.006499,
+      poleDec: 64.495303,
+      poleDecDot: 0.002413,
+      w0: 284.95,
+      wDot: 870.536,
+    },
     color: 0xc9a882,
     textures: { map: 'jupiter.jpg' },
     atmosphere: {
@@ -454,7 +484,13 @@ export const PLANETS: BodySpec[] = [
         // to see stars through. The outer edge is Adrastea's orbit, because
         // that is where the dust comes from.
         bands: [
-          { name: 'Main ring (inner)', innerKm: 122_500, outerKm: 128_000, tau: 3e-6, color: 0x9a7358 },
+          {
+            name: 'Main ring (inner)',
+            innerKm: 122_500,
+            outerKm: 128_000,
+            tau: 3e-6,
+            color: 0x9a7358,
+          },
           {
             name: 'Main ring (bright core)',
             innerKm: 128_000,
@@ -514,7 +550,14 @@ export const PLANETS: BodySpec[] = [
     parent: 'sun',
     radiusKm: 60_268,
     flattening: 0.09796,
-    spin: { poleRa: 40.589, poleRaDot: -0.036, poleDec: 83.537, poleDecDot: -0.004, w0: 38.9, wDot: 810.7939024 },
+    spin: {
+      poleRa: 40.589,
+      poleRaDot: -0.036,
+      poleDec: 83.537,
+      poleDecDot: -0.004,
+      w0: 38.9,
+      wDot: 810.7939024,
+    },
     color: 0xd9c08a,
     textures: { map: 'saturn.jpg' },
     atmosphere: {
@@ -574,9 +617,21 @@ export const PLANETS: BodySpec[] = [
             color: 0x9c9080,
             cause: 'a confined eccentric ringlet',
           },
-          { name: 'C ring (outermost)', innerKm: 87_591, outerKm: 91_975, tau: 0.12, color: 0x9c9080 },
+          {
+            name: 'C ring (outermost)',
+            innerKm: 87_591,
+            outerKm: 91_975,
+            tau: 0.12,
+            color: 0x9c9080,
+          },
           { name: 'B ring (inner)', innerKm: 91_975, outerKm: 99_000, tau: 0.9, color: 0xc4ab8a },
-          { name: 'B ring (central)', innerKm: 99_000, outerKm: 110_000, tau: 2.1, color: 0xd8c2a0 },
+          {
+            name: 'B ring (central)',
+            innerKm: 99_000,
+            outerKm: 110_000,
+            tau: 2.1,
+            color: 0xd8c2a0,
+          },
           { name: 'B ring (outer)', innerKm: 110_000, outerKm: 117_580, tau: 1.4, color: 0xcdb694 },
           {
             name: 'Huygens Gap',
@@ -594,7 +649,13 @@ export const PLANETS: BodySpec[] = [
             color: 0x9a8e7d,
             cause: 'cleared by the Mimas 2:1 resonance',
           },
-          { name: 'A ring (inner)', innerKm: 122_170, outerKm: 133_424, tau: 0.62, color: 0xc0a98c },
+          {
+            name: 'A ring (inner)',
+            innerKm: 122_170,
+            outerKm: 133_424,
+            tau: 0.62,
+            color: 0xc0a98c,
+          },
           {
             name: 'Encke Gap',
             innerKm: 133_424,
@@ -620,7 +681,13 @@ export const PLANETS: BodySpec[] = [
             color: 0xc0a98c,
             cause: 'outer edge held by the Janus/Epimetheus 7:6 resonance',
           },
-          { name: 'Roche Division', innerKm: 136_775, outerKm: 139_380, tau: 0.002, color: 0x8c8378 },
+          {
+            name: 'Roche Division',
+            innerKm: 136_775,
+            outerKm: 139_380,
+            tau: 0.002,
+            color: 0x8c8378,
+          },
           {
             name: 'F ring',
             innerKm: 140_140,
@@ -640,7 +707,13 @@ export const PLANETS: BodySpec[] = [
         exploreBrightness: 1.4,
         note: 'fed by the plumes of Enceladus',
         bands: [
-          { name: 'E ring (inner)', innerKm: 180_000, outerKm: 230_000, tau: 1e-6, color: 0xaebccc },
+          {
+            name: 'E ring (inner)',
+            innerKm: 180_000,
+            outerKm: 230_000,
+            tau: 1e-6,
+            color: 0xaebccc,
+          },
           {
             name: 'E ring (peak)',
             innerKm: 230_000,
@@ -649,7 +722,13 @@ export const PLANETS: BodySpec[] = [
             color: 0xc2d2e4,
             cause: 'densest at the orbit of Enceladus, its source',
           },
-          { name: 'E ring (outer)', innerKm: 250_000, outerKm: 480_000, tau: 1e-6, color: 0xaebccc },
+          {
+            name: 'E ring (outer)',
+            innerKm: 250_000,
+            outerKm: 480_000,
+            tau: 1e-6,
+            color: 0xaebccc,
+          },
         ],
       },
     ],
@@ -712,14 +791,20 @@ export const PLANETS: BodySpec[] = [
           { name: 'Eta ring', innerKm: 47_175, outerKm: 47_177, tau: 0.25, color: 0x2a2724 },
           {
             name: 'Gamma ring',
-            innerKm: 47_625, outerKm: 47_628, tau: 0.5, color: 0x2a2724,
+            innerKm: 47_625,
+            outerKm: 47_628,
+            tau: 0.5,
+            color: 0x2a2724,
             cause: 'confined by an Ophelia 6:5 resonance',
           },
           { name: 'Delta ring', innerKm: 48_298, outerKm: 48_303, tau: 0.4, color: 0x2a2724 },
           { name: 'Lambda ring', innerKm: 50_023, outerKm: 50_026, tau: 0.1, color: 0x333029 },
           {
             name: 'Epsilon ring',
-            innerKm: 51_120, outerKm: 51_179, tau: 1.5, color: 0x38342e,
+            innerKm: 51_120,
+            outerKm: 51_179,
+            tau: 1.5,
+            color: 0x38342e,
             cause: 'shepherded between Cordelia and Ophelia',
           },
         ],
@@ -740,7 +825,10 @@ export const PLANETS: BodySpec[] = [
           { name: '(empty)', innerKm: 69_900, outerKm: 86_000, tau: 0, color: 0x000000 },
           {
             name: 'Mu ring',
-            innerKm: 86_000, outerKm: 103_000, tau: 8e-6, color: 0x8fa8c4,
+            innerKm: 86_000,
+            outerKm: 103_000,
+            tau: 8e-6,
+            color: 0x8fa8c4,
             cause: 'peaks at the orbit of Mab, its source',
           },
         ],
@@ -795,7 +883,10 @@ export const PLANETS: BodySpec[] = [
           { name: 'Le Verrier ring', innerKm: 53_150, outerKm: 53_250, tau: 0.01, color: 0x5a453b },
           {
             name: 'Lassell ring (plateau)',
-            innerKm: 53_250, outerKm: 57_200, tau: 1e-4, color: 0x4a3a33,
+            innerKm: 53_250,
+            outerKm: 57_200,
+            tau: 1e-4,
+            color: 0x4a3a33,
           },
           { name: 'Arago ring', innerKm: 57_200, outerKm: 57_300, tau: 1e-3, color: 0x5a453b },
         ],
@@ -811,7 +902,10 @@ export const PLANETS: BodySpec[] = [
         bands: [
           {
             name: 'Adams ring',
-            innerKm: 62_915, outerKm: 62_950, tau: 0.01, color: 0x5a453b,
+            innerKm: 62_915,
+            outerKm: 62_950,
+            tau: 0.01,
+            color: 0x5a453b,
             cause: 'arcs confined by a Galatea 42:43 resonance',
           },
         ],
@@ -831,7 +925,7 @@ export const PLANETS: BodySpec[] = [
         'Found by mathematics before it was seen: predicted from irregularities in Uranus’s orbit and spotted within a degree of the prediction. Its winds reach 2,100 km/h, the fastest measured anywhere.',
     },
   },
-]
+];
 
 // ---------------------------------------------------------------------------
 // Dwarf planets
@@ -978,13 +1072,13 @@ export const DWARF_PLANETS: BodySpec[] = [
         'The second-brightest Kuiper belt object after Pluto. Its surface carries centimetre-sized methane ice grains, unusually large, and a single dark moon was found in 2016.',
     },
   },
-]
+];
 
-export const ALL_BODY_SPECS: BodySpec[] = [SUN, ...PLANETS, ...DWARF_PLANETS]
+export const ALL_BODY_SPECS: BodySpec[] = [SUN, ...PLANETS, ...DWARF_PLANETS];
 
 export const BODY_SPECS_BY_KEY: Map<string, BodySpec> = new Map(
   ALL_BODY_SPECS.map((b) => [b.key, b]),
-)
+);
 
 /**
  * Fallback colours for satellites, by parent, so procedurally textured moons
@@ -998,7 +1092,7 @@ export const MOON_TINTS: Record<string, number> = {
   uranus: 0x8f9498,
   neptune: 0x8a8f96,
   pluto: 0xa89c90,
-}
+};
 
 /**
  * Named textures for the moons we have real imagery for.
@@ -1046,7 +1140,7 @@ export const MOON_TEXTURES: Record<string, string> = {
   Triton: 'triton.jpg',
   // Pluto
   Charon: 'charon.jpg',
-}
+};
 
 /**
  * Satellites with an atmosphere worth rendering. Only Titan qualifies.
@@ -1077,7 +1171,7 @@ export const MOON_ATMOSPHERES: Record<string, AtmosphereSpec> = {
     density: 2.5,
     groundTint: [1.0, 0.72, 0.35],
   },
-}
+};
 
 /**
  * Textures for catalogued minor planets. These bodies are point-rendered until
@@ -1087,7 +1181,7 @@ export const MOON_ATMOSPHERES: Record<string, AtmosphereSpec> = {
 export const SMALL_BODY_TEXTURES: Record<string, string> = {
   Vesta: 'vesta.jpg',
   Eros: 'eros.jpg',
-}
+};
 
 /**
  * Measured mean radii, km, for minor planets that have actually been visited or
@@ -1104,7 +1198,7 @@ export const SMALL_BODY_RADII: Record<string, number> = {
   // Eros is 34 x 11 x 11 km; the magnitude estimator, which assumes a sphere,
   // has no way to know that and lands nowhere near.
   Eros: 8.42,
-}
+};
 
 /**
  * Vertical exaggeration applied to relief in *explore* scale. True scale always
@@ -1136,7 +1230,7 @@ export const RELIEF_EXAGGERATION: Record<string, number> = {
   // anywhere on it. 30x puts that range at the same fraction of a radius as
   // Earth's 25x does, which is where it stops reading as a smooth ball.
   'moon:Titan': 30,
-}
+};
 
 /**
  * Notable moons, surfaced first in the browser and given a description in the
@@ -1147,21 +1241,27 @@ export const MOON_NOTES: Record<string, string> = {
   Phobos: 'Spiralling inward; will break up into a ring or strike Mars within 50 million years.',
   Deimos: 'So small and distant that from the Martian surface it looks like a moving star.',
   Io: 'The most volcanically active body in the solar system, squeezed by resonance with Europa and Ganymede.',
-  Europa: 'A water ocean twice Earth’s volume beneath 15-25 km of ice, the leading target in the search for life.',
+  Europa:
+    'A water ocean twice Earth’s volume beneath 15-25 km of ice, the leading target in the search for life.',
   Ganymede: 'Larger than Mercury, and the only moon with its own magnetic field.',
   Callisto: 'The most heavily cratered surface known — essentially unchanged for 4 billion years.',
   Amalthea: 'Redder than anything else near Jupiter, and less dense than water ice.',
-  Titan: 'Thicker atmosphere than Earth’s, with rivers, lakes and seas of liquid methane and ethane.',
-  Enceladus: 'Vents water vapour from a subsurface ocean through south-polar fissures, feeding Saturn’s E ring.',
+  Titan:
+    'Thicker atmosphere than Earth’s, with rivers, lakes and seas of liquid methane and ethane.',
+  Enceladus:
+    'Vents water vapour from a subsurface ocean through south-polar fissures, feeding Saturn’s E ring.',
   Mimas: 'Herschel crater spans a third of its diameter; the impact nearly shattered it.',
-  Iapetus: 'One hemisphere is as dark as coal, the other as bright as snow, split by an equatorial ridge 13 km high.',
+  Iapetus:
+    'One hemisphere is as dark as coal, the other as bright as snow, split by an equatorial ridge 13 km high.',
   Hyperion: 'Tumbles chaotically — its orientation is genuinely unpredictable.',
   Rhea: 'Saturn’s second largest moon, an icy, ancient, heavily cratered world.',
   Titania: 'The largest Uranian moon, scarred by Messina Chasmata, a 1,500 km rift.',
   Miranda: 'Verona Rupes is a 20 km cliff, the tallest known anywhere.',
-  Triton: 'Orbits backwards, so it was captured, not formed in place. Nitrogen geysers erupt through its polar cap.',
+  Triton:
+    'Orbits backwards, so it was captured, not formed in place. Nitrogen geysers erupt through its polar cap.',
   Nereid: 'One of the most eccentric orbits of any moon: 1.4 to 9.7 million km from Neptune.',
-  Charon: 'Half Pluto’s diameter — the two are effectively a double dwarf planet orbiting a shared barycentre.',
+  Charon:
+    'Half Pluto’s diameter — the two are effectively a double dwarf planet orbiting a shared barycentre.',
   Proteus: 'About as large as a body can be while remaining irregular rather than spherical.',
   Phoebe: 'Retrograde and captured, probably a Centaur from the Kuiper belt.',
   Janus: 'Swaps orbits with Epimetheus every four years without ever colliding.',
@@ -1169,4 +1269,4 @@ export const MOON_NOTES: Record<string, string> = {
   Pan: 'Shaped like a ravioli, sweeping the Encke Gap clear inside the A ring.',
   Prometheus: 'Steals material from the F ring, drawing out streamers and channels.',
   Hippocamp: 'Only 34 km across, probably chipped off Proteus by an ancient impact.',
-}
+};

@@ -33,7 +33,7 @@ coordinates, which is the natural frame for a picture of the galaxy and the wron
 one for a sky you have to register against planets.
 
 **Important caveat.** Solar System Scope publishes the Ceres, Eris, Haumea and
-Makemake maps as *fictional* — they are artistic impressions, because no
+Makemake maps as _fictional_ — they are artistic impressions, because no
 resolved global map of those bodies exists. Aphelion uses them and labels the
 affected bodies "surface synthesised" in the info panel. Treat those four
 surfaces as illustration, not observation.
@@ -74,7 +74,7 @@ brightness is untouched.
 
 ### ESA Hipparcos catalogue — the stars
 
-**Licence: freely available** (ESA, 1997). *The Hipparcos and Tycho Catalogues*,
+**Licence: freely available** (ESA, 1997). _The Hipparcos and Tycho Catalogues_,
 ESA SP-1200. Retrieved from the CDS/VizieR archive as catalogue I/239.
 <https://cdsarc.cds.unistra.fr/viz-bin/cat/I/239> — VizieR is described in
 Ochsenbein, Bauer & Marcout (2000), A&AS 143, 23.
@@ -87,7 +87,7 @@ Ochsenbein, Bauer & Marcout (2000), A&AS 143, 23.
   interval; `pnpm validate` checks it landed.
 - **Proper motion** — carried into the renderer, so the constellations are drawn
   for whatever date the clock shows rather than frozen at J2000. Precession is
-  deliberately *not* applied: Aphelion's frame is inertial, so precession moves
+  deliberately _not_ applied: Aphelion's frame is inertial, so precession moves
   the coordinate grid, not the stars.
 - **Brightness** — Johnson V, rendered through Pogson's law.
 - **Colour** — the measured B−V index mapped to an effective temperature by
@@ -99,16 +99,16 @@ Ochsenbein, Bauer & Marcout (2000), A&AS 143, 23.
 
 **Licence: public domain** (US Government work, derived from NASA mission data).
 
-| Body | Source mosaic | Instruments |
-| --- | --- | --- |
-| Io | `Io_GalileoSSI-Voyager_Global_Mosaic_1km` | Galileo SSI + Voyager, 1 km/px |
-| Europa | `Europa_Voyager_GalileoSSI_global_mosaic_500m` | Voyager + Galileo SSI, 500 m/px |
-| Ganymede | `Ganymede_Voyager_GalileoSSI_global_mosaic_1km` | Voyager + Galileo SSI, 1 km/px |
-| Callisto | `Callisto_Voyager_GalileoSSI_global_mosaic_1km` | Voyager + Galileo SSI, 1 km/px |
-| Enceladus | `Enceladus_Cassini_mosaic_global_110m` | Cassini ISS, 110 m/px |
-| Titan | `Titan_ISS_P19658_Mosaic_Global_4km_clon0` | Cassini ISS 938 nm, 4 km/px |
-| Mimas | `Mimas_PDS_8ppd_dd360` | Cassini ISS, 8 px/deg |
-| Phoebe | `Phoebe_PDS_8ppd_dd360` | Cassini ISS, 8 px/deg |
+| Body      | Source mosaic                                   | Instruments                     |
+| --------- | ----------------------------------------------- | ------------------------------- |
+| Io        | `Io_GalileoSSI-Voyager_Global_Mosaic_1km`       | Galileo SSI + Voyager, 1 km/px  |
+| Europa    | `Europa_Voyager_GalileoSSI_global_mosaic_500m`  | Voyager + Galileo SSI, 500 m/px |
+| Ganymede  | `Ganymede_Voyager_GalileoSSI_global_mosaic_1km` | Voyager + Galileo SSI, 1 km/px  |
+| Callisto  | `Callisto_Voyager_GalileoSSI_global_mosaic_1km` | Voyager + Galileo SSI, 1 km/px  |
+| Enceladus | `Enceladus_Cassini_mosaic_global_110m`          | Cassini ISS, 110 m/px           |
+| Titan     | `Titan_ISS_P19658_Mosaic_Global_4km_clon0`      | Cassini ISS 938 nm, 4 km/px     |
+| Mimas     | `Mimas_PDS_8ppd_dd360`                          | Cassini ISS, 8 px/deg           |
+| Phoebe    | `Phoebe_PDS_8ppd_dd360`                         | Cassini ISS, 8 px/deg           |
 
 Courtesy NASA / JPL-Caltech / USGS Astrogeology Science Center. Downloaded as
 GeoTIFF and downsampled to 4096 px wide.
@@ -131,7 +131,7 @@ not what Titan looks like.
 Titan in visible light is a featureless orange ball: the haze is optically thick
 and nothing at those wavelengths reaches the ground. This mosaic is built from
 ISS's 938 nm channel, a methane window the haze is comparatively transparent in,
-and it is the only global picture of Titan's *surface* that exists. Aphelion
+and it is the only global picture of Titan's _surface_ that exists. Aphelion
 renders it under Titan's atmosphere rather than instead of it, so the dark
 equatorial sand seas — Belet, Shangri-La, Fensal-Aztlan — and the bright
 continent Xanadu are all there to be found, seen the one way they have ever been
@@ -142,7 +142,7 @@ ISS observations meet at different brightness. They are in the published product
 not introduced here, and they are a consequence of the same haze — photometric
 normalisation between frames taken at different phase angles through a scattering
 atmosphere is close to unsolvable. The alternative product, the older
-`Titan_PDS_10ppd_dd360` basemap, has stronger seams *and* leaves the whole north
+`Titan_PDS_10ppd_dd360` basemap, has stronger seams _and_ leaves the whole north
 polar region blank, so this is the better of the two rather than a good one. As
 with every other panchromatic mosaic here, no tint is applied.
 
@@ -156,18 +156,18 @@ Gazetteer puts Xanadu's centre at 260°E and Belet's at 105°E.
 
 **Licence: public domain** (US Government work, derived from NASA mission data).
 
-| Body | Source | Instruments |
-| --- | --- | --- |
-| Pluto | `pluto_new_horizons_lorri_mvic_global_mosaic_300m` | New Horizons LORRI + MVIC, 300 m/px |
-| Charon | `charon_new_horizons_lorri_mvic_global_mosaic_300m` | New Horizons LORRI + MVIC, 300 m/px |
-| Phobos | `phobos_mars_express_src_global_mosaic_12m` | Mars Express SRC + Viking, 12 m/px |
-| Triton | `triton_voyager_2_global_color_mosaic_600m` | Voyager 2 colour, 600 m/px |
-| Tethys | `tethys_cassini_global_mosaic_293m` | Cassini ISS, 293 m/px |
-| Dione | `dione_cassini_voyager_global_mosaic_154m` | Cassini + Voyager, 154 m/px |
-| Rhea | `rhea_cassini_voyager_global_mosaic_417m` | Cassini + Voyager, 417 m/px |
-| Iapetus | `iapetus_cassini_voyager_global_mosaic_803m` | Cassini + Voyager, 803 m/px |
-| Vesta | `vesta_dawn_fc_hamo_global_mosaic_60m` | Dawn FC HAMO, 60 m/px |
-| Eros | `near_msi_albedo_mosaics` | NEAR MSI albedo mosaic, 1024 px |
+| Body    | Source                                              | Instruments                         |
+| ------- | --------------------------------------------------- | ----------------------------------- |
+| Pluto   | `pluto_new_horizons_lorri_mvic_global_mosaic_300m`  | New Horizons LORRI + MVIC, 300 m/px |
+| Charon  | `charon_new_horizons_lorri_mvic_global_mosaic_300m` | New Horizons LORRI + MVIC, 300 m/px |
+| Phobos  | `phobos_mars_express_src_global_mosaic_12m`         | Mars Express SRC + Viking, 12 m/px  |
+| Triton  | `triton_voyager_2_global_color_mosaic_600m`         | Voyager 2 colour, 600 m/px          |
+| Tethys  | `tethys_cassini_global_mosaic_293m`                 | Cassini ISS, 293 m/px               |
+| Dione   | `dione_cassini_voyager_global_mosaic_154m`          | Cassini + Voyager, 154 m/px         |
+| Rhea    | `rhea_cassini_voyager_global_mosaic_417m`           | Cassini + Voyager, 417 m/px         |
+| Iapetus | `iapetus_cassini_voyager_global_mosaic_803m`        | Cassini + Voyager, 803 m/px         |
+| Vesta   | `vesta_dawn_fc_hamo_global_mosaic_60m`              | Dawn FC HAMO, 60 m/px               |
+| Eros    | `near_msi_albedo_mosaics`                           | NEAR MSI albedo mosaic, 1024 px     |
 
 Retrieved as 1024 x 512 browse JPEGs from Astropedia's CKAN store. These are
 lower resolution than the Galilean mosaics above; they were chosen because these
@@ -191,17 +191,17 @@ is tinted.
 
 **Licence: public domain** (US Government work, derived from NASA mission data).
 
-| Body | Source | Instruments |
-| --- | --- | --- |
-| Miranda | I-1920 sheet 1, controlled photomosaic | Voyager 2 ISS, 1:2,000,000 |
-| Ariel | I-1920 sheet 2, controlled photomosaic | Voyager 2 ISS, 1:5,000,000 |
+| Body                     | Source                                  | Instruments                 |
+| ------------------------ | --------------------------------------- | --------------------------- |
+| Miranda                  | I-1920 sheet 1, controlled photomosaic  | Voyager 2 ISS, 1:2,000,000  |
+| Ariel                    | I-1920 sheet 2, controlled photomosaic  | Voyager 2 ISS, 1:5,000,000  |
 | Umbriel, Titania, Oberon | I-1920 sheet 3, controlled photomosaics | Voyager 2 ISS, 1:10,000,000 |
 
-U.S. Geological Survey, 1988, *The Southern hemispheres of the Uranian
-satellites*: USGS IMAP 1920, 10 remote sensing images on 3 sheets.
+U.S. Geological Survey, 1988, _The Southern hemispheres of the Uranian
+satellites_: USGS IMAP 1920, 10 remote sensing images on 3 sheets.
 <https://doi.org/10.3133/i1920>. Prepared for the Voyager Imaging Science Team
 in cooperation with JPL and NASA; control from Davies, Colvin, Katayama and
-Thomas (1987), *The control networks of the satellites of Uranus*, Icarus 71,
+Thomas (1987), _The control networks of the satellites of Uranus_, Icarus 71,
 137–147.
 
 **These five moons have no digital global mosaic, and this is why.** Voyager 2
@@ -212,7 +212,7 @@ entry at all, and NAIF has no shape model — the archives were listed, not
 guessed. So `scripts/fetch-assets.ts` takes the scanned sheets, rasterises them
 at 300 dpi, and reads the maps back off the paper.
 
-Each sheet carries a controlled photomosaic *and* an airbrush pictorial map of
+Each sheet carries a controlled photomosaic _and_ an airbrush pictorial map of
 the same hemisphere, side by side. **Aphelion uses only the photomosaics** —
 real Voyager pixels — and ignores the airbrush renderings, which are
 interpretations.
@@ -258,11 +258,11 @@ photometrically flattened albedo.
 
 **Licence: public domain** (US Government work, NASA mission data).
 
-| Body | Source | Instrument |
-| --- | --- | --- |
-| Mars | `megt90n000cb.img` (MEGDR) | MGS MOLA, 4 px/deg |
-| Moon | `ldem_4.img` (LOLA GDR) | LRO LOLA, 4 px/deg |
-| Earth | `ETOPO2v2g_i2_LSB` | NOAA ETOPO2v2, 2 arc-min |
+| Body  | Source                     | Instrument               |
+| ----- | -------------------------- | ------------------------ |
+| Mars  | `megt90n000cb.img` (MEGDR) | MGS MOLA, 4 px/deg       |
+| Moon  | `ldem_4.img` (LOLA GDR)    | LRO LOLA, 4 px/deg       |
+| Earth | `ETOPO2v2g_i2_LSB`         | NOAA ETOPO2v2, 2 arc-min |
 
 - <https://pds-geosciences.wustl.edu/mgs/mgs-m-mola-5-megdr-l3-v1/>
 - <https://pds-geosciences.wustl.edu/lro/lro-l-lola-3-rdr-v1/>
@@ -295,8 +295,8 @@ order — MOLA is big-endian, LOLA little-endian — which is not something to i
 
 **Licence: public domain** (US Government work, NASA mission data).
 
-| Body | Source | Instrument |
-| --- | --- | --- |
+| Body  | Source                               | Instrument                                  |
+| ----- | ------------------------------------ | ------------------------------------------- |
 | Titan | `GTIEB00N090` + `GTIEB00N270` (GTDR) | Cassini RADAR altimetry + SARTopo, 2 px/deg |
 
 - <https://astrogeology.usgs.gov/search/map/titan_cassini_gtdr_data>
@@ -306,7 +306,7 @@ shape models for Titan, produced by H. Zebker (Stanford) and R. Lorenz (JHU/APL)
 Aphelion uses the `GTI` member: a tensioned-spline interpolation through every
 RADAR altimetry and SARTopo track from flybys TA to T77, described in Lorenz et
 al. (2013). The twenty-odd files sitting beside it are ellipsoid and spherical
-harmonic *fits* — smooth analytic figures rather than terrain — which is why the
+harmonic _fits_ — smooth analytic figures rather than terrain — which is why the
 archive's own `GTDR_info.pdf` had to be read before choosing.
 
 **This is the one elevation grid here that is mostly interpolation.** Cassini's
@@ -343,16 +343,16 @@ RADAR altimetry.
 
 **Licence: public domain** (US Government work, NASA mission data).
 
-| Body | Source | Form |
-| --- | --- | --- |
-| Phobos | `phobos_quad128q.tab` (Gaskell) | 6 cube faces × 129² vertices, km |
-| Deimos | `m2deimos.tab` (Thomas) | 37 × 73 lat/lon/radius table, 5° grid |
-| Mimas | `mimas_quad128q.tab` (Cassini ISS) | cube-quad |
-| Tethys | `tethys_quad128q.tab` (Cassini ISS) | cube-quad |
-| Dione | `dione_quad128q.tab` (Cassini ISS) | cube-quad |
-| Phoebe | `phoebe_quad128q.tab` (Cassini ISS) | cube-quad |
-| Eros | `quad128q.tab` (Gaskell, NEAR) | cube-quad |
-| Vesta | `4vesta.tab` (Thomas, HST) | lat/lon/radius table, 5° grid |
+| Body   | Source                              | Form                                  |
+| ------ | ----------------------------------- | ------------------------------------- |
+| Phobos | `phobos_quad128q.tab` (Gaskell)     | 6 cube faces × 129² vertices, km      |
+| Deimos | `m2deimos.tab` (Thomas)             | 37 × 73 lat/lon/radius table, 5° grid |
+| Mimas  | `mimas_quad128q.tab` (Cassini ISS)  | cube-quad                             |
+| Tethys | `tethys_quad128q.tab` (Cassini ISS) | cube-quad                             |
+| Dione  | `dione_quad128q.tab` (Cassini ISS)  | cube-quad                             |
+| Phoebe | `phoebe_quad128q.tab` (Cassini ISS) | cube-quad                             |
+| Eros   | `quad128q.tab` (Gaskell, NEAR)      | cube-quad                             |
+| Vesta  | `4vesta.tab` (Thomas, HST)          | lat/lon/radius table, 5° grid         |
 
 - <https://sbn.psi.edu/pds/resource/phobosshape.html>
 - <https://sbnarchive.psi.edu/pds4/non_mission/ast-sat.thomas.shape-models_V1_0/>
@@ -421,7 +421,7 @@ invented terrain.
 
 The FITS header records no row order. It is read south-first, on the evidence
 that the shape model in the same bundle by the same author is explicitly
-south-first, and that the unimaged region then lands on the same latitudes *and*
+south-first, and that the unimaged region then lands on the same latitudes _and_
 longitudes as that model's unusually smooth southern depression — which is what a
 region with no imaging would produce. Read north-first the two would not overlap
 at all.
@@ -430,7 +430,7 @@ at all.
 
 Roughly 450 of the 687 bodies have **no map that has ever been made**; most are
 unresolved points of light even to Hubble. Their surfaces are generated
-procedurally by `src/render/procedural.ts` from properties that *are* known —
+procedurally by `src/render/procedural.ts` from properties that _are_ known —
 radius, parent, albedo class, whether the body is icy or rocky — producing
 plausible crater densities, albedo mottling and polar frost.
 
@@ -443,8 +443,8 @@ The info panel marks every one of them "surface synthesised".
 
 ### Planetary positions
 
-E. M. Standish, *Keplerian Elements for Approximate Positions of the Major
-Planets*, JPL Solar System Dynamics.
+E. M. Standish, _Keplerian Elements for Approximate Positions of the Major
+Planets_, JPL Solar System Dynamics.
 <https://ssd.jpl.nasa.gov/planets/approx_pos.html>
 
 Six elements plus linear rates per Julian century for Mercury through Pluto.
@@ -452,7 +452,7 @@ Quoted accuracy is on the order of arcminutes over 1800–2050. Public domain.
 
 ### The Moon
 
-Jean Meeus, *Astronomical Algorithms*, 2nd ed., chapter 47 — an abridgement of
+Jean Meeus, _Astronomical Algorithms_, 2nd ed., chapter 47 — an abridgement of
 the ELP-2000/82 lunar theory. Aphelion implements the full 60-term longitude and
 radius table, the 60-term latitude table, and the planetary additive terms,
 giving roughly 10 arcseconds in longitude. Algorithm used with citation; no code
@@ -504,7 +504,7 @@ right ascension/declination, prime meridian `W₀` and rotation rate `Ẇ` for t
 Sun, planets and Pluto, hard-coded in `src/data/bodies.ts`.
 
 Satellites are oriented from geometry instead: a tidally locked moon's prime
-meridian faces its parent and its pole is the orbit normal. That *is* what tidal
+meridian faces its parent and its pole is the orbit normal. That _is_ what tidal
 locking means, and it stays correct for all 459 without needing per-moon
 constants.
 
@@ -517,7 +517,7 @@ affects Triton, Phoebe and the six inner Uranian moons and leaves every prograde
 satellite untouched. `pnpm validate` checks all 459.
 
 One related correction, since it decides where those maps land: JPL's satellite
-elements quoted in a planet's *equatorial* frame are referred to the planet's
+elements quoted in a planet's _equatorial_ frame are referred to the planet's
 rotational pole, which is its IAU north pole only for a prograde rotator. Uranus
 is the exception in this catalogue — it spins retrograde about an IAU north pole
 that lies 7.7° north of the ecliptic, and its regular moons follow the spin, not
@@ -528,8 +528,8 @@ system as the control that must not move.
 
 ### Time scales
 
-Espenak & Meeus ΔT polynomial fits, as used in NASA's *Five Millennium Canon of
-Solar Eclipses*, for dates before the leap-second era. Leap seconds (TAI−UTC)
+Espenak & Meeus ΔT polynomial fits, as used in NASA's _Five Millennium Canon of
+Solar Eclipses_, for dates before the leap-second era. Leap seconds (TAI−UTC)
 are tabulated through 2017-01-01 = 37 s in `src/astro/timescales.ts`.
 
 ### Belt structure
@@ -541,7 +541,7 @@ Jupiter resonances, Trojan camps librating about Jupiter's L4/L5, the Hilda grou
 at the 3:2 resonance, and a Kuiper belt with cold classical, hot classical,
 plutino, twotino and scattered-disc components.
 
-Individual particles correspond to no real object. The *structure* is real; the
+Individual particles correspond to no real object. The _structure_ is real; the
 members are synthetic.
 
 ---
@@ -558,29 +558,29 @@ All shaders in `src/render/materials.ts` are original to this project.
 
 ## Summary of what is and is not measured
 
-| Aspect | Status |
-| --- | --- |
-| Planet positions | Real theory, ~arcminute accuracy 1800–2050 |
-| Moon position | Real theory, ~10 arcsecond accuracy |
-| Satellite orbits | Real published mean elements, all 459 |
-| Minor planet orbits | Real published osculating elements, 221 bodies |
-| Rotation / axial tilts | Real IAU values for Sun, planets, Pluto |
-| Satellite rotation | Derived from tidal locking (physically correct) |
-| Eclipse geometry | Computed from the above; umbra verified to ~130 km |
-| Planet / major moon surfaces | Real spacecraft imagery |
-| Uranian moon surfaces | Real Voyager 2 imagery, **southern hemisphere only** |
-| Dwarf planet surfaces | **Artistic** (no resolved maps exist) |
-| ~450 small body surfaces | **Synthesised** from known bulk properties |
-| Satellite radii | 134 measured, 325 nominal estimates |
-| Minor planet diameters | Derived from magnitude + assumed albedo |
-| Belt particles | **Generated** from real distributions |
-| Star positions, colours, motions | Real Hipparcos astrometry and photometry, 41,394 stars to V 8 |
-| Milky Way | Real Gaia DR2 photometry, in its true celestial frame |
-| Surface relief | Real measured topography; **exaggerated** at explore scale |
-| Titan's relief | Real RADAR altimetry, **spline-interpolated** between sparse tracks |
-| Phobos and Deimos shapes | Real shape models, unexaggerated |
-| Illumination falloff | Deliberately compressed (see below) |
-| Sky exposure | Deliberately raised (see below) |
+| Aspect                           | Status                                                              |
+| -------------------------------- | ------------------------------------------------------------------- |
+| Planet positions                 | Real theory, ~arcminute accuracy 1800–2050                          |
+| Moon position                    | Real theory, ~10 arcsecond accuracy                                 |
+| Satellite orbits                 | Real published mean elements, all 459                               |
+| Minor planet orbits              | Real published osculating elements, 221 bodies                      |
+| Rotation / axial tilts           | Real IAU values for Sun, planets, Pluto                             |
+| Satellite rotation               | Derived from tidal locking (physically correct)                     |
+| Eclipse geometry                 | Computed from the above; umbra verified to ~130 km                  |
+| Planet / major moon surfaces     | Real spacecraft imagery                                             |
+| Uranian moon surfaces            | Real Voyager 2 imagery, **southern hemisphere only**                |
+| Dwarf planet surfaces            | **Artistic** (no resolved maps exist)                               |
+| ~450 small body surfaces         | **Synthesised** from known bulk properties                          |
+| Satellite radii                  | 134 measured, 325 nominal estimates                                 |
+| Minor planet diameters           | Derived from magnitude + assumed albedo                             |
+| Belt particles                   | **Generated** from real distributions                               |
+| Star positions, colours, motions | Real Hipparcos astrometry and photometry, 41,394 stars to V 8       |
+| Milky Way                        | Real Gaia DR2 photometry, in its true celestial frame               |
+| Surface relief                   | Real measured topography; **exaggerated** at explore scale          |
+| Titan's relief                   | Real RADAR altimetry, **spline-interpolated** between sparse tracks |
+| Phobos and Deimos shapes         | Real shape models, unexaggerated                                    |
+| Illumination falloff             | Deliberately compressed (see below)                                 |
+| Sky exposure                     | Deliberately raised (see below)                                     |
 
 Three knowing departures from physics, all confined and the first two labelled in
 the UI.
@@ -599,7 +599,7 @@ the info panel rather than left for the viewer to guess.
 The sky is exposed far above the planets it sits behind. The Milky Way's surface
 brightness is around 22 magnitudes per square arcsecond, some twenty magnitudes
 under a sunlit planet, so at a shared exposure the backdrop would be black — as
-it is in every photograph ever taken of a spacecraft. The *relative* photometry
+it is in every photograph ever taken of a spacecraft. The _relative_ photometry
 within the sky is untouched: star brightnesses keep their magnitude ratios, and
 the deep-sky image keeps its linear values through to the shader. Only the one
 exposure constant in `src/render/sky.ts` is chosen by eye.

@@ -17,13 +17,13 @@
  * and never swept, so a deploy doesn't cost the reader their imagery.
  */
 
-const CACHE_VERSION = '__CACHE_VERSION__'
-const SHELL_CACHE = `aphelion-shell-${CACHE_VERSION}`
-const RUNTIME_CACHE = 'aphelion-runtime'
+const CACHE_VERSION = '__CACHE_VERSION__';
+const SHELL_CACHE = `aphelion-shell-${CACHE_VERSION}`;
+const RUNTIME_CACHE = 'aphelion-runtime';
 
-const APP_ASSETS = __APP_CHUNKS__
+const APP_ASSETS = __APP_CHUNKS__;
 
-const SHELL = ['./', './index.html', './manifest.webmanifest', './icon.png', ...APP_ASSETS]
+const SHELL = ['./', './index.html', './manifest.webmanifest', './icon.png', ...APP_ASSETS];
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
@@ -31,8 +31,8 @@ self.addEventListener('install', (event) => {
       .open(SHELL_CACHE)
       .then((cache) => cache.addAll(SHELL.map((url) => new Request(url, { cache: 'reload' }))))
       .then(() => self.skipWaiting()),
-  )
-})
+  );
+});
 
 self.addEventListener('activate', (event) => {
   event.waitUntil(
@@ -46,56 +46,62 @@ self.addEventListener('activate', (event) => {
         ),
       )
       .then(() => self.clients.claim()),
-  )
-})
+  );
+});
 
 function isAphelionHtml(body) {
-  return body.includes('id="app"')
+  return body.includes('id="app"');
 }
 
 async function cacheIndexHtml(cache, response) {
   try {
-    await cache.put('./index.html', response)
+    await cache.put('./index.html', response);
   } catch {}
 }
 
 async function networkFirstShell(request) {
-  const cache = await caches.open(SHELL_CACHE)
+  const cache = await caches.open(SHELL_CACHE);
   try {
-    const response = await fetch(request)
+    const response = await fetch(request);
     if (response.ok && isAphelionHtml(await response.clone().text())) {
-      await cacheIndexHtml(cache, response.clone())
+      await cacheIndexHtml(cache, response.clone());
     }
-    return response
+    return response;
   } catch {
-    return (await cache.match('./index.html')) ?? (await cache.match('./')) ?? Response.error()
+    return (await cache.match('./index.html')) ?? (await cache.match('./')) ?? Response.error();
   }
 }
 
 async function staleWhileRevalidate(event) {
-  const { request } = event
-  const cached = await caches.match(request)
-  const runtime = await caches.open(RUNTIME_CACHE)
+  const { request } = event;
+  const cached = await caches.match(request);
+  const runtime = await caches.open(RUNTIME_CACHE);
 
   const network = fetch(request)
     .then((response) => {
-      if (response.ok) runtime.put(request, response.clone())
-      return response
+      if (response.ok) {
+        void runtime.put(request, response.clone());
+      }
+      return response;
     })
-    .catch(() => undefined)
+    .catch(() => {});
 
-  event.waitUntil(network)
+  event.waitUntil(network);
 
-  return cached ?? (await network) ?? Response.error()
+  return cached ?? (await network) ?? Response.error();
 }
 
 self.addEventListener('fetch', (event) => {
-  const { request } = event
-  if (request.method !== 'GET') return
+  const { request } = event;
+  if (request.method !== 'GET') {
+    return;
+  }
 
-  if (new URL(request.url).origin !== self.location.origin) return
+  if (new URL(request.url).origin !== self.location.origin) {
+    return;
+  }
 
   event.respondWith(
     request.mode === 'navigate' ? networkFirstShell(request) : staleWhileRevalidate(event),
-  )
-})
+  );
+});

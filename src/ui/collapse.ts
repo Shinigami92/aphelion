@@ -14,34 +14,34 @@
  * `height` again hands it straight back to the layout in main.ts.
  */
 
-const DURATION_MS = 260
-const SVG_NS = 'http://www.w3.org/2000/svg'
+const DURATION_MS = 260;
+const SVG_NS = 'http://www.w3.org/2000/svg';
 
 export interface Collapsible {
-  readonly collapsed: boolean
-  toggle(): void
+  readonly collapsed: boolean;
+  toggle(): void;
   /** Re-measure while collapsed, after the header itself changes size. */
-  remeasure(): void
+  remeasure(): void;
 }
 
 function prefersReducedMotion(): boolean {
-  return window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false
+  return window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
 }
 
 /** A caret, rather than a text glyph, so it can rotate instead of being swapped. */
 function caret(): SVGSVGElement {
-  const svg = document.createElementNS(SVG_NS, 'svg')
-  svg.setAttribute('viewBox', '0 0 10 10')
-  svg.setAttribute('aria-hidden', 'true')
-  const path = document.createElementNS(SVG_NS, 'path')
-  path.setAttribute('d', 'M2 3.5 5 6.5 8 3.5')
-  path.setAttribute('fill', 'none')
-  path.setAttribute('stroke', 'currentColor')
-  path.setAttribute('stroke-width', '1.4')
-  path.setAttribute('stroke-linecap', 'round')
-  path.setAttribute('stroke-linejoin', 'round')
-  svg.append(path)
-  return svg
+  const svg = document.createElementNS(SVG_NS, 'svg');
+  svg.setAttribute('viewBox', '0 0 10 10');
+  svg.setAttribute('aria-hidden', 'true');
+  const path = document.createElementNS(SVG_NS, 'path');
+  path.setAttribute('d', 'M2 3.5 5 6.5 8 3.5');
+  path.setAttribute('fill', 'none');
+  path.setAttribute('stroke', 'currentColor');
+  path.setAttribute('stroke-width', '1.4');
+  path.setAttribute('stroke-linecap', 'round');
+  path.setAttribute('stroke-linejoin', 'round');
+  svg.append(path);
+  return svg;
 }
 
 /**
@@ -56,14 +56,14 @@ export function makeCollapsible(
   body: HTMLElement,
   label: string,
 ): Collapsible {
-  const button = document.createElement('button')
-  button.className = 'chip chip--collapse'
-  button.type = 'button'
-  button.append(caret())
-  head.append(button)
+  const button = document.createElement('button');
+  button.className = 'chip chip--collapse';
+  button.type = 'button';
+  button.append(caret());
+  head.append(button);
 
-  let collapsed = false
-  let timer: number | undefined
+  let collapsed = false;
+  let timer: number | undefined;
 
   /**
    * Height of the panel with only its header showing — measured by hiding the
@@ -76,84 +76,92 @@ export function makeCollapsible(
    * stretched height and the panel would refuse to fold.
    */
   const collapsedHeight = (): number => {
-    const prevHeight = panel.style.height
-    const prevBottom = panel.style.bottom
-    const prevDisplay = body.style.display
-    panel.style.height = ''
-    panel.style.bottom = 'auto'
-    body.style.display = 'none'
-    const measured = panel.getBoundingClientRect().height
-    body.style.display = prevDisplay
-    panel.style.bottom = prevBottom
-    panel.style.height = prevHeight
-    return measured
-  }
+    const prevHeight = panel.style.height;
+    const prevBottom = panel.style.bottom;
+    const prevDisplay = body.style.display;
+    panel.style.height = '';
+    panel.style.bottom = 'auto';
+    body.style.display = 'none';
+    const measured = panel.getBoundingClientRect().height;
+    body.style.display = prevDisplay;
+    panel.style.bottom = prevBottom;
+    panel.style.height = prevHeight;
+    return measured;
+  };
 
   const settle = (): void => {
-    window.clearTimeout(timer)
+    window.clearTimeout(timer);
     timer = window.setTimeout(() => {
-      panel.classList.remove('is-animating')
+      panel.classList.remove('is-animating');
       // Expanded panels give their height back to the stylesheet; collapsed ones
       // keep theirs pinned, since the header height is the whole point.
-      if (!collapsed) panel.style.height = ''
-    }, DURATION_MS + 30)
-  }
+      if (!collapsed) {
+        panel.style.height = '';
+      }
+    }, DURATION_MS + 30);
+  };
 
   const apply = (next: boolean, animate: boolean): void => {
-    collapsed = next
-    const verb = collapsed ? 'Expand' : 'Collapse'
-    button.setAttribute('aria-expanded', String(!collapsed))
-    button.setAttribute('aria-label', `${verb} ${label}`)
-    button.title = `${verb} ${label}`
+    collapsed = next;
+    const verb = collapsed ? 'Expand' : 'Collapse';
+    button.setAttribute('aria-expanded', String(!collapsed));
+    button.setAttribute('aria-label', `${verb} ${label}`);
+    button.title = `${verb} ${label}`;
     // Hidden from assistive tech and from tab order, not merely from view: a
     // collapsed panel's search box must not still be focusable.
-    body.inert = collapsed
+    body.inert = collapsed;
 
     if (!animate) {
-      panel.classList.toggle('is-collapsed', collapsed)
-      panel.style.height = collapsed ? `${collapsedHeight()}px` : ''
-      return
+      panel.classList.toggle('is-collapsed', collapsed);
+      panel.style.height = collapsed ? `${collapsedHeight()}px` : '';
+      return;
     }
 
-    const from = panel.getBoundingClientRect().height
+    const from = panel.getBoundingClientRect().height;
 
     // Work out the destination first, and with the end-state class applied so
     // the margins that close up are accounted for. Measuring has to come before
     // the pin, not after: each measurement forces a layout, and a forced layout
     // at the destination size is what the transition then treats as its start —
     // which silently produces no animation at all.
-    let to: number
+    let to: number;
     if (collapsed) {
-      panel.classList.add('is-collapsed')
-      to = collapsedHeight()
-      panel.classList.remove('is-collapsed')
+      panel.classList.add('is-collapsed');
+      to = collapsedHeight();
+      panel.classList.remove('is-collapsed');
     } else {
-      panel.classList.remove('is-collapsed')
-      panel.style.height = ''
-      to = panel.getBoundingClientRect().height
+      panel.classList.remove('is-collapsed');
+      panel.style.height = '';
+      to = panel.getBoundingClientRect().height;
     }
 
-    panel.style.height = `${from}px`
-    panel.classList.add('is-animating')
+    panel.style.height = `${from}px`;
+    panel.classList.add('is-animating');
     // Settle the layout at the starting height, so that is where the transition
     // begins.
-    void panel.offsetHeight
+    void panel.offsetHeight;
 
-    panel.classList.toggle('is-collapsed', collapsed)
-    panel.style.height = `${to}px`
-    settle()
-  }
+    panel.classList.toggle('is-collapsed', collapsed);
+    panel.style.height = `${to}px`;
+    settle();
+  };
 
-  apply(false, false)
-  button.addEventListener('click', () => apply(!collapsed, !prefersReducedMotion()))
+  apply(false, false);
+  button.addEventListener('click', () => {
+    apply(!collapsed, !prefersReducedMotion());
+  });
 
   return {
     get collapsed() {
-      return collapsed
+      return collapsed;
     },
-    toggle: () => apply(!collapsed, !prefersReducedMotion()),
+    toggle: () => {
+      apply(!collapsed, !prefersReducedMotion());
+    },
     remeasure: () => {
-      if (collapsed) panel.style.height = `${collapsedHeight()}px`
+      if (collapsed) {
+        panel.style.height = `${collapsedHeight()}px`;
+      }
     },
-  }
+  };
 }

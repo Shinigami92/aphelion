@@ -34,20 +34,20 @@
  * mu < 0.0385, which every pair here satisfies by four orders of magnitude.
  */
 
-export type LagrangeId = 'L1' | 'L2' | 'L3' | 'L4' | 'L5'
+export type LagrangeId = 'L1' | 'L2' | 'L3' | 'L4' | 'L5';
 
 /** The five points, in the conventional order. */
-export const LAGRANGE_IDS: readonly LagrangeId[] = ['L1', 'L2', 'L3', 'L4', 'L5']
+export const LAGRANGE_IDS: ReadonlyArray<LagrangeId> = ['L1', 'L2', 'L3', 'L4', 'L5'];
 
 /** Whether a point is one of the unstable collinear three. */
-export const isCollinear = (id: LagrangeId): boolean => id !== 'L4' && id !== 'L5'
+export const isCollinear = (id: LagrangeId): boolean => id !== 'L4' && id !== 'L5';
 
 /** A position in the rotating frame, in units of the separation. */
 export interface RotatingPoint {
   /** Along the primary-to-secondary axis, barycentre at 0. */
-  x: number
+  x: number;
   /** Perpendicular to it, in the orbit plane, positive in the direction of travel. */
-  y: number
+  y: number;
 }
 
 /**
@@ -58,13 +58,9 @@ export interface RotatingPoint {
  * all three collinear points.
  */
 function potentialGradientX(x: number, mu: number): number {
-  const d1 = x + mu // to the primary
-  const d2 = x - 1 + mu // to the secondary
-  return (
-    x -
-    ((1 - mu) * d1) / (Math.abs(d1) * d1 * d1) -
-    (mu * d2) / (Math.abs(d2) * d2 * d2)
-  )
+  const d1 = x + mu; // to the primary
+  const d2 = x - 1 + mu; // to the secondary
+  return x - ((1 - mu) * d1) / (Math.abs(d1) * d1 * d1) - (mu * d2) / (Math.abs(d2) * d2 * d2);
 }
 
 /**
@@ -77,17 +73,22 @@ function potentialGradientX(x: number, mu: number): number {
  * float64 near 1; the extra iterations cost nothing at eight planets, once.
  */
 function bisect(mu: number, lo: number, hi: number): number {
-  let a = lo
-  let b = hi
-  const fa = potentialGradientX(a, mu)
+  let a = lo;
+  let b = hi;
+  const fa = potentialGradientX(a, mu);
   for (let i = 0; i < 100; i++) {
-    const m = (a + b) / 2
-    const fm = potentialGradientX(m, mu)
-    if (fm === 0) return m
-    if (fm > 0 === fa > 0) a = m
-    else b = m
+    const m = (a + b) / 2;
+    const fm = potentialGradientX(m, mu);
+    if (fm === 0) {
+      return m;
+    }
+    if (fm > 0 === fa > 0) {
+      a = m;
+    } else {
+      b = m;
+    }
   }
-  return (a + b) / 2
+  return (a + b) / 2;
 }
 
 /**
@@ -100,7 +101,7 @@ export function lagrangeGeometry(mu: number): Record<LagrangeId, RotatingPoint> 
   // Offset from each singularity. Small enough not to bias any root — the
   // nearest of them, Sun-Jupiter L1, sits 0.067 away — and large enough that
   // squaring it stays finite.
-  const eps = 1e-12
+  const eps = 1e-12;
 
   return {
     // Between the two, the point a transfer has to climb over.
@@ -113,7 +114,7 @@ export function lagrangeGeometry(mu: number): Record<LagrangeId, RotatingPoint> 
     L4: { x: 0.5 - mu, y: Math.sqrt(3) / 2 },
     // ...and the same, trailing it.
     L5: { x: 0.5 - mu, y: -Math.sqrt(3) / 2 },
-  }
+  };
 }
 
 /**
@@ -123,4 +124,4 @@ export function lagrangeGeometry(mu: number): Record<LagrangeId, RotatingPoint> 
  * first approximation how far out L1 and L2 sit. Exported so callers get the
  * same figure the info panel quotes rather than open-coding the cube root.
  */
-export const hillFraction = (mu: number): number => Math.cbrt(mu / 3)
+export const hillFraction = (mu: number): number => Math.cbrt(mu / 3);
