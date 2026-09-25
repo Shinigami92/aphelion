@@ -1,0 +1,89 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:best-practices",
+    "schedule:earlyMondays",
+    "group:allNonMajor",
+    ":prHourlyLimitNone",
+    "helpers:disableTypesNodeMajor"
+  ],
+  "timezone": "Europe/Berlin",
+  "labels": ["c: dependencies"],
+  "reviewersFromCodeOwners": true,
+  "rangeStrategy": "bump",
+  "lockFileMaintenance": {
+    "enabled": true
+  },
+  "packageRules": [
+    // --- by dependency type ---
+    {
+      "groupName": "devDependencies",
+      "matchDepTypes": ["devDependencies"],
+      "rangeStrategy": "bump",
+      "minimumReleaseAge": null
+    },
+    {
+      "groupName": "dependencies",
+      "matchDepTypes": ["dependencies"],
+      "rangeStrategy": "replace"
+    },
+    {
+      "groupName": "pnpm",
+      "matchPackageNames": ["pnpm"]
+    },
+
+    // --- Three.js: the runtime and its types must move in lockstep ---
+    {
+      "groupName": "three",
+      "matchPackageNames": ["three", "@types/three"]
+    },
+
+    // --- oxc toolchain ---
+    {
+      "groupName": "oxlint",
+      "matchPackageNames": ["oxlint", "oxlint-tsgolint"],
+      "minimumReleaseAge": null
+    },
+    {
+      "groupName": "oxfmt",
+      "matchPackageNames": ["oxfmt"],
+      "minimumReleaseAge": null
+    },
+
+    // --- build & test toolchain ---
+    {
+      "groupName": "typescript",
+      "matchPackageNames": ["typescript"]
+    },
+    {
+      "groupName": "vite",
+      "matchPackageNames": ["vite"]
+    },
+    {
+      "groupName": "vitest",
+      "matchPackageNames": ["vitest", "@vitest/**"],
+      "minimumReleaseAge": null
+    },
+    {
+      "groupName": "playwright",
+      "matchPackageNames": ["@playwright/**", "playwright"]
+    }
+  ],
+  "customManagers": [
+    {
+      // pnpm is pinned via `devEngines.packageManager`, not a `packageManager`
+      // field (see CONTRIBUTING.md), which Renovate does not read on its own.
+      "customType": "regex",
+      "managerFilePatterns": ["/^package\.json$/"],
+      "matchStrings": [
+        "\"devEngines\"\s*:\s*\{\s*\"packageManager\"\s*:\s*\{[^}]*?\"name\"\s*:\s*\"(?<depName>[^\"]+)\"[^}]*?\"version\"\s*:\s*\"(?<currentValue>[^\"]+)\""
+      ],
+      "datasourceTemplate": "npm",
+      "depTypeTemplate": "devEngines"
+    }
+  ],
+  "vulnerabilityAlerts": {
+    "labels": ["c: security"],
+    "assignees": ["@Shinigami92"]
+  }
+}

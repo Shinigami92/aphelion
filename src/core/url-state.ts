@@ -19,48 +19,48 @@
  * the state changes every second and pushing would bury the back button.
  */
 
-import { RATE_PRESETS } from './time.ts'
-import { formatUtc, parseUtc } from '../astro/timescales.ts'
+import { formatUtc, parseUtc } from '../astro/timescales.ts';
+import { RATE_PRESETS } from './time.ts';
 
 // These mirror the unions in render/scene.ts and core/scale.ts. They are
 // redeclared rather than imported so this module stays free of the render layer;
 // TypeScript's structural typing makes them assignable in both directions.
-const ORBIT_MODES = ['none', 'planets', 'all'] as const
-const LABEL_MODES = ['none', 'major', 'all'] as const
-const SCALE_MODES = ['explore', 'true'] as const
-const CAMERA_MODES = ['orbit', 'free'] as const
+const ORBIT_MODES = ['none', 'planets', 'all'] as const;
+const LABEL_MODES = ['none', 'major', 'all'] as const;
+const SCALE_MODES = ['explore', 'true'] as const;
+const CAMERA_MODES = ['orbit', 'free'] as const;
 
-export type UrlOrbitMode = (typeof ORBIT_MODES)[number]
-export type UrlLabelMode = (typeof LABEL_MODES)[number]
-export type UrlScaleMode = (typeof SCALE_MODES)[number]
-export type UrlCameraMode = (typeof CAMERA_MODES)[number]
+export type UrlOrbitMode = (typeof ORBIT_MODES)[number];
+export type UrlLabelMode = (typeof LABEL_MODES)[number];
+export type UrlScaleMode = (typeof SCALE_MODES)[number];
+export type UrlCameraMode = (typeof CAMERA_MODES)[number];
 
 export interface ViewToggles {
-  belts: boolean
-  rings: boolean
-  atmospheres: boolean
-  milkyway: boolean
-  minorBodies: boolean
-  lagrange: boolean
+  belts: boolean;
+  rings: boolean;
+  atmospheres: boolean;
+  milkyway: boolean;
+  minorBodies: boolean;
+  lagrange: boolean;
 }
 
 export interface SharedView {
   /** UTC Julian Date. */
-  jdUtc: number
-  focusKey: string
+  jdUtc: number;
+  focusKey: string;
   /** Only meaningful when it differs from the focus. */
-  selectedKey: string | null
-  scaleMode: UrlScaleMode
+  selectedKey: string | null;
+  scaleMode: UrlScaleMode;
   /** Signed simulated seconds per real second. */
-  rate: number
-  paused: boolean
+  rate: number;
+  paused: boolean;
   /** Camera azimuth and elevation about the focus, radians. */
-  azimuth: number
-  elevation: number
+  azimuth: number;
+  elevation: number;
   /** Camera distance from the focus centre, in radii of the focused body. */
-  distanceRadii: number
+  distanceRadii: number;
   /** Whether the camera is orbiting the focus or flying free. */
-  cameraMode: UrlCameraMode
+  cameraMode: UrlCameraMode;
   /**
    * Free-flight position relative to the focus, in radii of the focused body,
    * and orientation as a quaternion. Null unless the camera is flying free.
@@ -72,15 +72,15 @@ export interface SharedView {
    * derivable from anything else — that is the whole difference from orbit mode,
    * and losing it is what made a reload snap back to facing the focus.
    */
-  freePosition: readonly [number, number, number] | null
-  freeOrientation: readonly [number, number, number, number] | null
-  orbits: UrlOrbitMode
-  labels: UrlLabelMode
-  toggles: ViewToggles
+  freePosition: readonly [number, number, number] | null;
+  freeOrientation: readonly [number, number, number, number] | null;
+  orbits: UrlOrbitMode;
+  labels: UrlLabelMode;
+  toggles: ViewToggles;
 }
 
-export const DEFAULT_ORBITS: UrlOrbitMode = 'planets'
-export const DEFAULT_LABELS: UrlLabelMode = 'major'
+export const DEFAULT_ORBITS: UrlOrbitMode = 'planets';
+export const DEFAULT_LABELS: UrlLabelMode = 'major';
 export const DEFAULT_TOGGLES: ViewToggles = {
   belts: true,
   rings: true,
@@ -88,7 +88,7 @@ export const DEFAULT_TOGGLES: ViewToggles = {
   milkyway: true,
   minorBodies: true,
   lagrange: true,
-}
+};
 
 /**
  * Query parameter name for each boolean toggle.
@@ -104,50 +104,64 @@ const TOGGLE_PARAMS: ReadonlyArray<readonly [keyof ViewToggles, string]> = [
   ['milkyway', 'milkyway'],
   ['minorBodies', 'minor'],
   ['lagrange', 'lagrange'],
-]
+];
 
 /**
  * Percent-encode, but leave `:` legible. Body keys look like `moon:Io`, and a URL
  * full of `%3A` is unpleasant to read in a chat window. Colons are legal in a
  * query string; spaces (minor planets such as `sb:2002 MS4`) still get encoded.
  */
-const enc = (s: string): string => encodeURIComponent(s).replace(/%3A/gi, ':')
+const enc = (s: string): string => encodeURIComponent(s).replaceAll(/%3A/gi, ':');
 
-const round = (x: number, places = 4): number => Number(x.toFixed(places))
+const round = (x: number, places = 4): number => Number(x.toFixed(places));
 
 // ---------------------------------------------------------------------------
 // Encode
 // ---------------------------------------------------------------------------
 
 export function encodeView(v: SharedView): string {
-  const parts: string[] = []
+  const parts: string[] = [];
 
   // `YYYY-MM-DDTHH:MM:SSZ` — second precision, which is also how often a live
   // clock changes the URL.
-  parts.push(`t=${enc(`${formatUtc(v.jdUtc).replace(' ', 'T')}Z`)}`)
-  parts.push(`focus=${enc(v.focusKey)}`)
-  if (v.selectedKey && v.selectedKey !== v.focusKey) parts.push(`sel=${enc(v.selectedKey)}`)
-  if (v.scaleMode !== 'explore') parts.push(`mode=${v.scaleMode}`)
-  parts.push(`rate=${v.rate}`)
-  if (v.paused) parts.push('paused=1')
-  parts.push(`az=${round(v.azimuth)}`)
-  parts.push(`el=${round(v.elevation)}`)
-  parts.push(`d=${round(v.distanceRadii, 3)}`)
+  parts.push(`t=${enc(`${formatUtc(v.jdUtc).replace(' ', 'T')}Z`)}`, `focus=${enc(v.focusKey)}`);
+  if (v.selectedKey && v.selectedKey !== v.focusKey) {
+    parts.push(`sel=${enc(v.selectedKey)}`);
+  }
+  if (v.scaleMode !== 'explore') {
+    parts.push(`mode=${v.scaleMode}`);
+  }
+  parts.push(`rate=${v.rate}`);
+  if (v.paused) {
+    parts.push('paused=1');
+  }
+  parts.push(`az=${round(v.azimuth)}`, `el=${round(v.elevation)}`);
+  parts.push(`d=${round(v.distanceRadii, 3)}`);
   if (v.cameraMode === 'free') {
-    parts.push('cam=free')
+    parts.push('cam=free');
     // Six places, not the usual four. In radii of the focused body, four places
     // is ~36 km at Saturn — invisible for a planet, but enough to drop you
     // beside a different boulder when you were parked in the rings.
-    if (v.freePosition) parts.push(`fp=${v.freePosition.map((n) => round(n, 6)).join(',')}`)
-    if (v.freeOrientation) parts.push(`fq=${v.freeOrientation.map((n) => round(n, 5)).join(',')}`)
+    if (v.freePosition) {
+      parts.push(`fp=${v.freePosition.map((n) => round(n, 6)).join(',')}`);
+    }
+    if (v.freeOrientation) {
+      parts.push(`fq=${v.freeOrientation.map((n) => round(n, 5)).join(',')}`);
+    }
   }
-  if (v.orbits !== DEFAULT_ORBITS) parts.push(`orbits=${v.orbits}`)
-  if (v.labels !== DEFAULT_LABELS) parts.push(`labels=${v.labels}`)
+  if (v.orbits !== DEFAULT_ORBITS) {
+    parts.push(`orbits=${v.orbits}`);
+  }
+  if (v.labels !== DEFAULT_LABELS) {
+    parts.push(`labels=${v.labels}`);
+  }
   for (const [key, param] of TOGGLE_PARAMS) {
-    if (v.toggles[key] !== DEFAULT_TOGGLES[key]) parts.push(`${param}=${v.toggles[key] ? 1 : 0}`)
+    if (v.toggles[key] !== DEFAULT_TOGGLES[key]) {
+      parts.push(`${param}=${v.toggles[key] ? 1 : 0}`);
+    }
   }
 
-  return parts.join('&')
+  return parts.join('&');
 }
 
 // ---------------------------------------------------------------------------
@@ -162,92 +176,128 @@ export function encodeView(v: SharedView): string {
  * fewer things restored.
  */
 export function parseView(search: string): Partial<SharedView> {
-  const q = new URLSearchParams(search)
-  const out: Partial<SharedView> = {}
+  const q = new URLSearchParams(search);
+  const out: Partial<SharedView> = {};
 
-  const t = q.get('t')
+  const t = q.get('t');
   if (t) {
-    const jd = parseUtc(t.replace('T', ' ').replace(/Z$/i, ''))
-    if (jd !== null) out.jdUtc = jd
+    const jd = parseUtc(t.replace('T', ' ').replace(/Z$/i, ''));
+    if (jd !== null) {
+      out.jdUtc = jd;
+    }
   }
 
-  const focus = q.get('focus')
-  if (focus) out.focusKey = focus
-  const sel = q.get('sel')
-  if (sel) out.selectedKey = sel
+  const focus = q.get('focus');
+  if (focus) {
+    out.focusKey = focus;
+  }
+  const sel = q.get('sel');
+  if (sel) {
+    out.selectedKey = sel;
+  }
 
-  const mode = q.get('mode')
-  if (mode && (SCALE_MODES as readonly string[]).includes(mode)) out.scaleMode = mode as UrlScaleMode
+  const mode = q.get('mode');
+  if (mode && (SCALE_MODES as ReadonlyArray<string>).includes(mode)) {
+    out.scaleMode = mode as UrlScaleMode;
+  }
 
-  const rate = q.get('rate')
+  const rate = q.get('rate');
   if (rate !== null) {
-    const value = Number(rate)
-    if (Number.isFinite(value) && value !== 0) out.rate = value
+    const value = Number(rate);
+    if (Number.isFinite(value) && value !== 0) {
+      out.rate = value;
+    }
   }
 
-  const paused = q.get('paused')
-  if (paused !== null) out.paused = paused === '1' || paused === 'true'
+  const paused = q.get('paused');
+  if (paused !== null) {
+    out.paused = paused === '1' || paused === 'true';
+  }
 
   const num = (name: string): number | undefined => {
-    const raw = q.get(name)
-    if (raw === null) return undefined
-    const value = Number(raw)
-    return Number.isFinite(value) ? value : undefined
+    const raw = q.get(name);
+    if (raw === null) {
+      return undefined;
+    }
+    const value = Number(raw);
+    return Number.isFinite(value) ? value : undefined;
+  };
+  const az = num('az');
+  if (az !== undefined) {
+    out.azimuth = az;
   }
-  const az = num('az')
-  if (az !== undefined) out.azimuth = az
   // Elevation is bounded by geometry, so anything outside the range is garbage
   // rather than something to clamp — `el=999` should leave the default alone, not
   // silently pin the camera over the pole.
-  const el = num('el')
-  if (el !== undefined && Math.abs(el) <= Math.PI / 2) out.elevation = el
-  const d = num('d')
-  if (d !== undefined && d > 0) out.distanceRadii = d
+  const el = num('el');
+  if (el !== undefined && Math.abs(el) <= Math.PI / 2) {
+    out.elevation = el;
+  }
+  const d = num('d');
+  if (d !== undefined && d > 0) {
+    out.distanceRadii = d;
+  }
 
-  const cam = q.get('cam')
-  if (cam && (CAMERA_MODES as readonly string[]).includes(cam)) out.cameraMode = cam as UrlCameraMode
+  const cam = q.get('cam');
+  if (cam && (CAMERA_MODES as ReadonlyArray<string>).includes(cam)) {
+    out.cameraMode = cam as UrlCameraMode;
+  }
 
   /** A fixed-length list of finite numbers, or undefined if it is anything else. */
   const vector = (name: string, length: number): number[] | undefined => {
-    const raw = q.get(name)
-    if (raw === null) return undefined
-    const parts = raw.split(',').map(Number)
-    if (parts.length !== length || parts.some((n) => !Number.isFinite(n))) return undefined
-    return parts
+    const raw = q.get(name);
+    if (raw === null) {
+      return undefined;
+    }
+    const parts = raw.split(',').map(Number);
+    if (parts.length !== length || parts.some((n) => !Number.isFinite(n))) {
+      return undefined;
+    }
+    return parts;
+  };
+  const fp = vector('fp', 3);
+  if (fp) {
+    out.freePosition = [fp[0], fp[1], fp[2]];
   }
-  const fp = vector('fp', 3)
-  if (fp) out.freePosition = [fp[0]!, fp[1]!, fp[2]!]
-  const fq = vector('fq', 4)
+  const fq = vector('fq', 4);
   // A zero-length quaternion cannot be normalised into a rotation.
-  if (fq && Math.hypot(fq[0]!, fq[1]!, fq[2]!, fq[3]!) > 1e-6) {
-    out.freeOrientation = [fq[0]!, fq[1]!, fq[2]!, fq[3]!]
+  if (fq && Math.hypot(fq[0], fq[1], fq[2], fq[3]) > 1e-6) {
+    out.freeOrientation = [fq[0], fq[1], fq[2], fq[3]];
   }
 
-  const orbits = q.get('orbits')
-  if (orbits && (ORBIT_MODES as readonly string[]).includes(orbits)) {
-    out.orbits = orbits as UrlOrbitMode
+  const orbits = q.get('orbits');
+  if (orbits && (ORBIT_MODES as ReadonlyArray<string>).includes(orbits)) {
+    out.orbits = orbits as UrlOrbitMode;
   }
-  const labels = q.get('labels')
-  if (labels && (LABEL_MODES as readonly string[]).includes(labels)) {
-    out.labels = labels as UrlLabelMode
+  const labels = q.get('labels');
+  if (labels && (LABEL_MODES as ReadonlyArray<string>).includes(labels)) {
+    out.labels = labels as UrlLabelMode;
   }
 
-  const toggles: Partial<ViewToggles> = {}
-  let sawToggle = false
+  const toggles: Partial<ViewToggles> = {};
+  let sawToggle = false;
   for (const [key, param] of TOGGLE_PARAMS) {
-    const raw = q.get(param)
-    if (raw === null) continue
+    const raw = q.get(param);
+    if (raw === null) {
+      continue;
+    }
     // Only explicit values count. Treating anything unrecognised as false let a
     // typo silently switch a layer off, which is the opposite of the
     // ignore-what-you-cannot-parse rule the rest of this function follows.
-    if (raw === '1' || raw === 'true') toggles[key] = true
-    else if (raw === '0' || raw === 'false') toggles[key] = false
-    else continue
-    sawToggle = true
+    if (raw === '1' || raw === 'true') {
+      toggles[key] = true;
+    } else if (raw === '0' || raw === 'false') {
+      toggles[key] = false;
+    } else {
+      continue;
+    }
+    sawToggle = true;
   }
-  if (sawToggle) out.toggles = { ...DEFAULT_TOGGLES, ...toggles }
+  if (sawToggle) {
+    out.toggles = { ...DEFAULT_TOGGLES, ...toggles };
+  }
 
-  return out
+  return out;
 }
 
 /**
@@ -255,18 +305,18 @@ export function parseView(search: string): Partial<SharedView> {
  * link keeps working if the ladder is ever re-tuned.
  */
 export function rateToPreset(rate: number): { index: number; direction: 1 | -1 } {
-  const magnitude = Math.abs(rate) || 1
-  let index = 0
-  let best = Infinity
+  const magnitude = Math.abs(rate) || 1;
+  let index = 0;
+  let best = Infinity;
   for (let i = 0; i < RATE_PRESETS.length; i++) {
     // Compare on a log scale: the ladder spans nine orders of magnitude.
-    const error = Math.abs(Math.log(RATE_PRESETS[i]!.secondsPerSecond / magnitude))
+    const error = Math.abs(Math.log(RATE_PRESETS[i].secondsPerSecond / magnitude));
     if (error < best) {
-      best = error
-      index = i
+      best = error;
+      index = i;
     }
   }
-  return { index, direction: rate < 0 ? -1 : 1 }
+  return { index, direction: rate < 0 ? -1 : 1 };
 }
 
 // ---------------------------------------------------------------------------
@@ -281,33 +331,37 @@ export function rateToPreset(rate: number): { index: number; direction: 1 | -1 }
  * string actually changed.
  */
 export class UrlWriter {
-  private lastQuery: string | null = null
-  private lastWriteAt = -Infinity
+  private lastQuery: string | null = null;
+  private lastWriteAt = -Infinity;
 
-  private intervalMs: number
+  private intervalMs: number;
 
   // Written out rather than as a constructor parameter property: `pnpm validate`
   // runs this module under Node's type-stripping, which does not support them.
   constructor(intervalMs = 400) {
-    this.intervalMs = intervalMs
+    this.intervalMs = intervalMs;
   }
 
   /** Call once per frame with a lazily-evaluated snapshot. */
   sync(nowMs: number, snapshot: () => SharedView): void {
-    if (nowMs - this.lastWriteAt < this.intervalMs) return
-    this.lastWriteAt = nowMs
+    if (nowMs - this.lastWriteAt < this.intervalMs) {
+      return;
+    }
+    this.lastWriteAt = nowMs;
 
-    const query = encodeView(snapshot())
-    if (query === this.lastQuery) return
-    this.lastQuery = query
+    const query = encodeView(snapshot());
+    if (query === this.lastQuery) {
+      return;
+    }
+    this.lastQuery = query;
 
-    const url = query ? `${window.location.pathname}?${query}` : window.location.pathname
-    window.history.replaceState(null, '', url)
+    const url = query ? `${window.location.pathname}?${query}` : window.location.pathname;
+    window.history.replaceState(null, '', url);
   }
 
   /** Write immediately, ignoring the throttle (used right after a jump). */
   flush(snapshot: () => SharedView): void {
-    this.lastWriteAt = -Infinity
-    this.sync(Number.POSITIVE_INFINITY, snapshot)
+    this.lastWriteAt = -Infinity;
+    this.sync(Number.POSITIVE_INFINITY, snapshot);
   }
 }

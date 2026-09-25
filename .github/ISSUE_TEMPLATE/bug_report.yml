@@ -1,0 +1,63 @@
+name: "\U0001F41E Bug report"
+description: Report something that renders, moves or behaves wrongly
+labels: ['s: pending triage', 'c: bug']
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to fill out this bug report!
+
+        The fastest way to show a problem is the page URL: it encodes the focused
+        body, the instant, the camera and every display toggle, so pasting it
+        reproduces your exact view.
+
+  - type: textarea
+    id: bug-description
+    attributes:
+      label: Describe the bug
+      description: A clear and concise description of what the bug is. If you intend to submit a PR for this issue, tell us in the description. Thanks!
+      placeholder: I am doing ... What I expect is ... What actually happens is ...
+    validations:
+      required: true
+
+  - type: input
+    id: view-url
+    attributes:
+      label: View URL
+      description: Copy the address bar (or use the share button) at the moment the bug is visible.
+      placeholder: https://shinigami92.github.io/aphelion/#t=...
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction-steps
+    attributes:
+      label: Steps to reproduce
+      description: Anything the URL does not capture — keys pressed, how long time ran, what you clicked.
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behaviour
+      description: For accuracy issues, please cite a reference (JPL Horizons, a published value, a photo).
+
+  - type: input
+    id: browser
+    attributes:
+      label: Browser and OS
+      placeholder: Chrome 140 on Windows 11
+    validations:
+      required: true
+
+  - type: input
+    id: gpu
+    attributes:
+      label: GPU
+      description: Rendering bugs are often driver-specific. `chrome://gpu` or `about:support` lists it.
+      placeholder: NVIDIA RTX 4070 / Apple M3 / Intel Iris Xe
+
+  - type: textarea
+    id: additional-context
+    attributes:
+      label: Additional context
+      description: Screenshots, console errors, anything else.

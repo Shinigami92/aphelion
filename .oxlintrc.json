@@ -1,0 +1,151 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": ["import", "oxc", "promise", "typescript", "unicorn", "vitest"],
+  "categories": {
+    "correctness": "error",
+    "suspicious": "error",
+    "pedantic": "error",
+    "perf": "error",
+    "restriction": "off"
+  },
+  "options": {
+    "reportUnusedDisableDirectives": "error",
+    "typeAware": true,
+    "typeCheck": false
+  },
+  "env": {
+    "builtin": true,
+    "browser": true,
+    "node": true
+  },
+  "ignorePatterns": [
+    "**/dist/**",
+    "**/node_modules/**",
+    "**/coverage/**",
+    ".cache/**",
+    ".playwright-mcp/**",
+    // Written by `pnpm assets`; regenerated, never edited by hand.
+    "src/data/generated/**"
+  ],
+  "rules": {
+    // ==========================================================================
+    // Enforced rules (currently pass, keep on)
+    // ==========================================================================
+
+    // --- eslint core ---
+    "curly": "error",
+    // `eqeqeq` is already error via the `pedantic` category; this only sets the `null: ignore` option.
+    "eqeqeq": ["error", "always", { "null": "ignore" }],
+    "prefer-template": "error",
+    "sort-imports": ["error", { "ignoreCase": true, "ignoreDeclarationSort": true }],
+
+    // --- import ---
+    "import/consistent-type-specifier-style": ["error", "prefer-top-level"],
+
+    // --- typescript ---
+    "typescript/explicit-module-boundary-types": "error",
+    "typescript/array-type": ["error", { "default": "array-simple", "readonly": "generic" }],
+    "typescript/prefer-find": "error",
+    "typescript/prefer-for-of": "error",
+    "typescript/prefer-readonly-parameter-types": "off",
+
+    // --- unicorn ---
+    "unicorn/prefer-ternary": "error",
+
+    // ==========================================================================
+    // Permanently off — project conventions / deliberate decisions.
+    // ==========================================================================
+
+    // Short trailing notes (a date, a unit, what a term stands for) are the
+    // house style in the numeric code; moving them above the line loses the pairing.
+    "no-inline-comments": "off",
+    // `_field` backs a public getter of the same name (see core/time.ts).
+    "no-underscore-dangle": "off",
+    // `need<T>()` in main.ts is the `querySelector<T>()` idiom: a typed lookup
+    // whose single use of T is the whole point.
+    "typescript/no-unnecessary-type-parameters": "off",
+    // Exhaustive `switch`es over string unions; tsc already proves every case returns.
+    "typescript/consistent-return": "off",
+    // `getElementById` never throws on an id that is not a valid CSS selector.
+    "unicorn/prefer-query-selector": "off",
+    // Hot numeric loops read clearer with a named callback than an inline arrow.
+    "unicorn/no-array-callback-reference": "off",
+
+    // ==========================================================================
+    // Temporarily off — TODO(follow-up PR): re-enable one rule (or tight group)
+    // per PR and fix the violations.
+    // ==========================================================================
+
+    // --- eslint core ---
+    // 69 violations — mostly module-level helpers placed after their callers
+    "no-use-before-define": "off",
+    // 68 violations — scene setup and the asset pipeline are long by nature
+    "max-lines-per-function": "off",
+    // 14 violations
+    "max-lines": "off",
+    // 27 violations
+    "require-unicode-regexp": "off",
+    // 19 violations — sequential downloads in scripts/ are deliberate, review each
+    "no-await-in-loop": "off",
+    // 10 violations
+    "no-shadow": "off",
+    // 5 violations
+    "max-depth": "off",
+    "max-classes-per-file": "off", // 1
+    "no-loop-func": "off", // 1
+    "require-await": "off", // 1
+
+    // --- import ---
+    "import/max-dependencies": "off", // 4
+
+    // --- oxc ---
+    "oxc/branches-sharing-code": "off", // 2
+
+    // --- promise ---
+    "promise/always-return": "off", // 11
+
+    // --- type-aware typescript ---
+    // 52 violations — behaviour-changing for `0` and `''`, review each
+    "typescript/strict-boolean-expressions": "off",
+    // 49 violations — typed-array and Map lookups in hot loops
+    "typescript/no-non-null-assertion": "off",
+    // 37 violations
+    "typescript/no-unsafe-type-assertion": "off",
+    // 11 violations
+    "typescript/strict-void-return": "off",
+    // untyped JSON / GeoTIFF parsing in scripts/
+    "typescript/no-unsafe-call": "off", // 29
+    "typescript/no-unsafe-member-access": "off", // 28
+    "typescript/no-unsafe-argument": "off", // 6
+    "typescript/no-unsafe-assignment": "off", // 5
+    "typescript/no-unsafe-return": "off", // 3
+    "typescript/require-await": "off", // 1
+
+    // --- unicorn ---
+    // 13 violations — `toSorted()` allocates; check each call site first
+    "unicorn/no-array-sort": "off",
+    "unicorn/consistent-function-scoping": "off", // 12
+    "unicorn/prefer-number-coercion": "off", // 9
+    "unicorn/prefer-single-call": "off", // 8
+    "unicorn/no-immediate-mutation": "off", // 1
+    "unicorn/prefer-top-level-await": "off" // 1
+  },
+  "overrides": [
+    {
+      "files": ["test/**/*.spec.ts"],
+      "rules": {
+        // `expectFaithfulRoundTrip()` and friends wrap the assertion.
+        "vitest/expect-expect": ["error", { "assertFunctionNames": ["expect", "expect*"] }],
+        // The second argument is the failure message, naming the offending input.
+        "vitest/valid-expect": ["error", { "maxArgs": 2 }]
+      }
+    },
+    {
+      // Config/tooling files: idiomatic `process.env.X` boolean coercion is fine here.
+      "files": ["*.config.ts"],
+      "rules": {
+        "typescript/strict-boolean-expressions": "off"
+      }
+    }
+  ]
+}

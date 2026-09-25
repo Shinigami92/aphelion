@@ -3,46 +3,68 @@
   "version": "1.0.0",
   "private": true,
   "description": "An offline, physically accurate, real-time model of the solar system.",
+  "keywords": [
+    "astronomy",
+    "ephemeris",
+    "orrery",
+    "solar-system",
+    "three.js",
+    "webgl"
+  ],
+  "homepage": "https://shinigami92.github.io/aphelion/",
+  "bugs": {
+    "url": "https://github.com/Shinigami92/aphelion/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Shinigami92/aphelion.git"
+  },
+  "license": "MIT",
+  "author": "Christopher Quadflieg <chrissi92@hotmail.de> (https://github.com/Shinigami92)",
   "type": "module",
   "scripts": {
+    "clean": "git clean -fdx --exclude .claude --exclude .cache",
     "dev": "vite",
-    "build": "tsc --noEmit && vite build",
+    "build": "vite build",
     "preview": "vite preview",
-    "typecheck": "tsc --noEmit",
+    "format": "oxfmt",
+    "format:check": "oxfmt --check",
+    "lint": "oxlint",
+    "lint:fix": "oxlint --fix",
+    "ts-check": "tsc",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:update-snapshots": "vitest run -u",
+    "coverage": "vitest run --coverage",
     "validate": "node scripts/validate-astro.ts",
     "assets": "node scripts/fetch-assets.ts && bash scripts/convert-textures.sh && node scripts/fetch-assets.ts --only=manifest",
     "assets:data": "node scripts/fetch-assets.ts --only=data",
     "assets:relief": "node scripts/fetch-assets.ts --only=relief",
     "assets:textures": "node scripts/fetch-assets.ts --only=textures && bash scripts/convert-textures.sh && node scripts/fetch-assets.ts --only=manifest",
-    "assets:light": "node scripts/fetch-assets.ts --skip-usgs --tier=high && bash scripts/convert-textures.sh && node scripts/fetch-assets.ts --only=manifest"
+    "assets:light": "node scripts/fetch-assets.ts --skip-usgs --tier=high && bash scripts/convert-textures.sh && node scripts/fetch-assets.ts --only=manifest",
+    "preflight": "pnpm install && run-s format lint ts-check test:update-snapshots validate build"
   },
-  "keywords": [
-    "solar-system",
-    "astronomy",
-    "ephemeris",
-    "three.js",
-    "webgl",
-    "orrery"
-  ],
-  "license": "MIT",
+  "dependencies": {
+    "three": "0.185.1"
+  },
+  "devDependencies": {
+    "@playwright/mcp": "0.0.78",
+    "@types/node": "26.1.2",
+    "@types/three": "0.185.4",
+    "@vitest/coverage-v8": "5.0.1",
+    "npm-run-all2": "9.0.3",
+    "oxfmt": "0.70.0",
+    "oxlint": "1.85.0",
+    "oxlint-tsgolint": "7.0.2003",
+    "typescript": "7.0.2",
+    "vite": "8.2.0",
+    "vitest": "5.0.1"
+  },
   "devEngines": {
     "packageManager": {
       "name": "pnpm",
       "version": "^11.20.0",
       "onFail": "download"
     }
-  },
-  "dependencies": {
-    "three": "^0.185.1"
-  },
-  "devDependencies": {
-    "@playwright/mcp": "^0.0.78",
-    "@types/node": "^26.1.2",
-    "@types/three": "^0.185.4",
-    "typescript": "^7.0.2",
-    "vite": "^8.2.0",
-    "vitest": "^5.0.0"
   }
 }

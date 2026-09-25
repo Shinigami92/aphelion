@@ -1,0 +1,8 @@
+{
+  "recommendations": [
+    "editorconfig.editorconfig",
+    "oxc.oxc-vscode",
+    "redhat.vscode-yaml",
+    "vitest.explorer"
+  ]
+}

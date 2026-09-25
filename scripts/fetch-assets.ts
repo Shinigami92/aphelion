@@ -23,113 +23,118 @@
  *   - IAU Minor Planet Center MPCORB / Distant.txt orbit catalogues
  */
 
-import { createGunzip, deflateSync, gunzipSync, inflateRawSync } from 'node:zlib'
-import { createReadStream } from 'node:fs'
-import { createInterface } from 'node:readline'
-import { execFile as execFileCb } from 'node:child_process'
-import { promisify } from 'node:util'
-import fs from 'node:fs/promises'
-import path from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { execFile as execFileCb } from 'node:child_process';
+import { createReadStream } from 'node:fs';
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import { createInterface } from 'node:readline';
+import { promisify } from 'node:util';
+import { createGunzip, deflateSync, gunzipSync, inflateRawSync } from 'node:zlib';
 
 /**
  * ImageMagick is already a hard requirement of `pnpm assets` through
  * scripts/convert-textures.sh; this uses it only as a rasteriser and decoder,
  * because a scanned map sheet arrives as PDF and nothing here can decode one.
  */
-const execFile = promisify(execFileCb)
+const execFile = promisify(execFileCb);
 
-const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
-const CACHE = path.join(ROOT, '.cache')
-const TEXTURES = path.join(ROOT, 'public', 'textures')
-const SHAPES = path.join(ROOT, 'public', 'shapes')
-const SKY = path.join(ROOT, 'public', 'sky')
-const GENERATED = path.join(ROOT, 'src', 'data', 'generated')
-const QUEUE = path.join(CACHE, 'convert-queue.tsv')
+const ROOT = path.resolve(import.meta.dirname, '..');
+const CACHE = path.join(ROOT, '.cache');
+const TEXTURES = path.join(ROOT, 'public', 'textures');
+const SHAPES = path.join(ROOT, 'public', 'shapes');
+const SKY = path.join(ROOT, 'public', 'sky');
+const GENERATED = path.join(ROOT, 'src', 'data', 'generated');
+const QUEUE = path.join(CACHE, 'convert-queue.tsv');
 
-const UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Aphelion/1.0'
+const UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Aphelion/1.0';
 
 // ---------------------------------------------------------------------------
 // CLI
 // ---------------------------------------------------------------------------
 
-const argv = process.argv.slice(2)
+const argv = process.argv.slice(2);
 const flag = (name: string): string | null => {
-  const hit = argv.find((a) => a === `--${name}` || a.startsWith(`--${name}=`))
-  if (!hit) return null
-  const eq = hit.indexOf('=')
-  return eq === -1 ? '' : hit.slice(eq + 1)
-}
-const only = flag('only')
-const tier = (flag('tier') ?? 'max') as 'max' | 'high' | 'lean'
-const skipUsgs = flag('skip-usgs') !== null
-const doTextures = only === null || only === 'textures'
-const doData = only === null || only === 'data'
-const doRelief = only === null || only === 'relief'
-const manifestOnly = only === 'manifest'
+  const hit = argv.find((a) => a === `--${name}` || a.startsWith(`--${name}=`));
+  if (!hit) {
+    return null;
+  }
+  const eq = hit.indexOf('=');
+  return eq === -1 ? '' : hit.slice(eq + 1);
+};
+const only = flag('only');
+const tier = (flag('tier') ?? 'max') as 'max' | 'high' | 'lean';
+const skipUsgs = flag('skip-usgs') !== null;
+const doTextures = only === null || only === 'textures';
+const doData = only === null || only === 'data';
+const doRelief = only === null || only === 'relief';
+const manifestOnly = only === 'manifest';
 
 // ---------------------------------------------------------------------------
 // Small utilities
 // ---------------------------------------------------------------------------
 
 const C = {
-  dim: (s: string) => `\x1b[2m${s}\x1b[0m`,
-  bold: (s: string) => `\x1b[1m${s}\x1b[0m`,
-  green: (s: string) => `\x1b[32m${s}\x1b[0m`,
-  yellow: (s: string) => `\x1b[33m${s}\x1b[0m`,
-  red: (s: string) => `\x1b[31m${s}\x1b[0m`,
-  cyan: (s: string) => `\x1b[36m${s}\x1b[0m`,
-}
+  dim: (s: string) => `\u001B[2m${s}\u001B[0m`,
+  bold: (s: string) => `\u001B[1m${s}\u001B[0m`,
+  green: (s: string) => `\u001B[32m${s}\u001B[0m`,
+  yellow: (s: string) => `\u001B[33m${s}\u001B[0m`,
+  red: (s: string) => `\u001B[31m${s}\u001B[0m`,
+  cyan: (s: string) => `\u001B[36m${s}\u001B[0m`,
+};
 
-const step = (msg: string): void => console.log(`\n${C.bold(`> ${msg}`)}`)
-const mb = (n: number) => `${(n / 1_048_576).toFixed(1)} MB`
+const step = (msg: string): void => {
+  console.log(`\n${C.bold(`> ${msg}`)}`);
+};
+const mb = (n: number) => `${(n / 1_048_576).toFixed(1)} MB`;
 
 async function exists(p: string): Promise<boolean> {
   try {
-    await fs.access(p)
-    return true
+    await fs.access(p);
+    return true;
   } catch {
-    return false
+    return false;
   }
 }
 
 /** Download to a cache path, skipping the request if it is already there. */
 async function download(url: string, dest: string, label: string): Promise<boolean> {
   if (await exists(dest)) {
-    const st = await fs.stat(dest)
+    const st = await fs.stat(dest);
     if (st.size > 0) {
-      console.log(`  ${C.dim('cached ')} ${label} ${C.dim(mb(st.size))}`)
-      return true
+      console.log(`  ${C.dim('cached ')} ${label} ${C.dim(mb(st.size))}`);
+      return true;
     }
   }
-  await fs.mkdir(path.dirname(dest), { recursive: true })
-  process.stdout.write(`  ${C.cyan('fetch  ')} ${label} ... `)
+  await fs.mkdir(path.dirname(dest), { recursive: true });
+  process.stdout.write(`  ${C.cyan('fetch  ')} ${label} ... `);
   try {
-    const res = await fetch(url, { headers: { 'User-Agent': UA } })
+    const res = await fetch(url, { headers: { 'User-Agent': UA } });
     if (!res.ok) {
-      console.log(C.red(`HTTP ${res.status}`))
-      return false
+      console.log(C.red(`HTTP ${res.status}`));
+      return false;
     }
-    const ct = res.headers.get('content-type') ?? ''
-    const buf = Buffer.from(await res.arrayBuffer())
+    const ct = res.headers.get('content-type') ?? '';
+    const buf = Buffer.from(await res.arrayBuffer());
     // Solar System Scope answers unknown filenames with a 200 HTML page.
     if (/text\/html/i.test(ct)) {
-      console.log(C.red('got HTML, not an asset'))
-      return false
+      console.log(C.red('got HTML, not an asset'));
+      return false;
     }
-    await fs.writeFile(dest, buf)
-    console.log(C.green(mb(buf.length)))
-    return true
+    await fs.writeFile(dest, buf);
+    console.log(C.green(mb(buf.length)));
+    return true;
   } catch (err) {
-    console.log(C.red(`failed: ${(err as Error).message}`))
-    return false
+    console.log(C.red(`failed: ${(err as Error).message}`));
+    return false;
   }
 }
 
 async function fetchText(url: string, cacheName: string, label: string): Promise<string | null> {
-  const dest = path.join(CACHE, cacheName)
-  if (!(await download(url, dest, label))) return null
-  return fs.readFile(dest, 'utf8')
+  const dest = path.join(CACHE, cacheName);
+  if (!(await download(url, dest, label))) {
+    return null;
+  }
+  return fs.readFile(dest, 'utf8');
 }
 
 /**
@@ -140,16 +145,16 @@ async function fetchText(url: string, cacheName: string, label: string): Promise
  * left). Both are applied at build time rather than in a shader, so every
  * equirectangular image in public/ shares one convention.
  */
-const convertQueue: string[] = []
+const convertQueue: string[] = [];
 function queueConvert(src: string, dest: string, maxDim: number, roll = '', flop = false): void {
   // Both go in one comma-separated field rather than a column each. `read`
   // treats tab as whitespace, and whitespace in IFS collapses runs of it into a
   // single separator -- so an empty `roll` column would silently shift `flop`
   // one place left and the image would come out un-mirrored, which is a thing
   // you can only detect by measuring the sky it produces.
-  const ops = [roll ? `roll:${roll}` : '', flop ? 'flop' : ''].filter(Boolean).join(',')
-  convertQueue.push(`${src}\t${dest}\t${maxDim}\t${ops}`)
-  console.log(`  ${C.dim('queued ')} ${path.basename(dest)} ${C.dim(`<= ${path.basename(src)}`)}`)
+  const ops = [roll ? `roll:${roll}` : '', flop ? 'flop' : ''].filter(Boolean).join(',');
+  convertQueue.push(`${src}\t${dest}\t${maxDim}\t${ops}`);
+  console.log(`  ${C.dim('queued ')} ${path.basename(dest)} ${C.dim(`<= ${path.basename(src)}`)}`);
 }
 
 // ---------------------------------------------------------------------------
@@ -157,20 +162,20 @@ function queueConvert(src: string, dest: string, maxDim: number, roll = '', flop
 // ---------------------------------------------------------------------------
 
 interface TextureSpec {
-  out: string
+  out: string;
   /** Candidate source filenames, best first. */
-  candidates: string[]
+  candidates: string[];
   /** Max dimension when the source needs conversion. */
-  convertTo?: number
+  convertTo?: number;
 }
 
-const SSS_BASE = 'https://www.solarsystemscope.com/textures/download/'
+const SSS_BASE = 'https://www.solarsystemscope.com/textures/download/';
 
 function sssTextures(): TextureSpec[] {
   // Solar System Scope only publishes certain bodies at certain sizes, so each
   // entry degrades gracefully from the requested tier downward.
-  const big = tier === 'lean' ? ['2k'] : tier === 'high' ? ['4k', '2k'] : ['8k', '4k', '2k']
-  const pick = (stem: string, sizes = big) => sizes.map((s) => `${s}_${stem}`)
+  const big = tier === 'lean' ? ['2k'] : tier === 'high' ? ['4k', '2k'] : ['8k', '4k', '2k'];
+  const pick = (stem: string, sizes = big) => sizes.map((s) => `${s}_${stem}`);
 
   return [
     { out: 'sun.jpg', candidates: pick('sun.jpg') },
@@ -193,7 +198,7 @@ function sssTextures(): TextureSpec[] {
     { out: 'eris.jpg', candidates: pick('eris_fictional.jpg', ['4k', '2k']) },
     { out: 'haumea.jpg', candidates: pick('haumea_fictional.jpg', ['4k', '2k']) },
     { out: 'makemake.jpg', candidates: pick('makemake_fictional.jpg', ['4k', '2k']) },
-  ]
+  ];
 }
 
 // ---------------------------------------------------------------------------
@@ -221,18 +226,18 @@ function sssTextures(): TextureSpec[] {
 //     looks like a plausible one.
 // ---------------------------------------------------------------------------
 
-const SVS_BASE = 'https://svs.gsfc.nasa.gov/vis/a000000/a004800/a004851/'
+const SVS_BASE = 'https://svs.gsfc.nasa.gov/vis/a000000/a004800/a004851/';
 
 interface SkySpec {
-  out: string
-  source: string
-  maxDim: number
-  note: string
+  out: string;
+  source: string;
+  maxDim: number;
+  note: string;
 }
 
 function skyTextures(): SkySpec[] {
-  const size = tier === 'lean' ? '4k' : '8k'
-  const maxDim = tier === 'lean' ? 4096 : 8192
+  const size = tier === 'lean' ? '4k' : '8k';
+  const maxDim = tier === 'lean' ? 4096 : 8192;
   return [
     {
       out: 'sky_milkyway.jpg',
@@ -240,7 +245,7 @@ function skyTextures(): SkySpec[] {
       maxDim,
       note: 'Gaia DR2 deep sky, Hipparcos/Tycho stars removed',
     },
-  ]
+  ];
 }
 
 // ---------------------------------------------------------------------------
@@ -248,16 +253,16 @@ function skyTextures(): SkySpec[] {
 // ---------------------------------------------------------------------------
 
 interface UsgsSpec {
-  out: string
-  url: string
-  maxDim: number
+  out: string;
+  url: string;
+  maxDim: number;
   /**
    * Horizontal shift to apply, e.g. '50%'. The mosaics run -180..180 and need
    * none; the WMS basemaps are named `dd360` and start at the prime meridian,
    * so they need half a turn to sit in the same frame as everything else.
    */
-  roll?: string
-  note: string
+  roll?: string;
+  note: string;
 }
 
 const USGS: UsgsSpec[] = [
@@ -325,7 +330,7 @@ const USGS: UsgsSpec[] = [
     roll: '50%',
     note: 'Cassini ISS, 8 px/deg',
   },
-]
+];
 
 // ---------------------------------------------------------------------------
 // 2b. USGS Astropedia  (public domain)
@@ -338,26 +343,54 @@ const USGS: UsgsSpec[] = [
 // ---------------------------------------------------------------------------
 
 interface AstropediaSpec {
-  out: string
+  out: string;
   /** Astropedia item id, lowercase-with-underscores. */
-  id: string
-  note: string
+  id: string;
+  note: string;
 }
 
-const ASTROPEDIA_BASE = 'https://astrogeology.usgs.gov/search/map/'
+const ASTROPEDIA_BASE = 'https://astrogeology.usgs.gov/search/map/';
 
 const ASTROPEDIA: AstropediaSpec[] = [
-  { out: 'pluto.jpg', id: 'pluto_new_horizons_lorri_mvic_global_mosaic_300m', note: 'New Horizons LORRI+MVIC, 300 m/px' },
-  { out: 'charon.jpg', id: 'charon_new_horizons_lorri_mvic_global_mosaic_300m', note: 'New Horizons LORRI+MVIC, 300 m/px' },
-  { out: 'phobos.jpg', id: 'phobos_mars_express_src_global_mosaic_12m', note: 'Mars Express SRC + Viking, 12 m/px' },
-  { out: 'triton.jpg', id: 'triton_voyager_2_global_color_mosaic_600m', note: 'Voyager 2 colour, 600 m/px' },
-  { out: 'iapetus.jpg', id: 'iapetus_cassini_voyager_global_mosaic_803m', note: 'Cassini + Voyager, 803 m/px' },
-  { out: 'dione.jpg', id: 'dione_cassini_voyager_global_mosaic_154m', note: 'Cassini + Voyager, 154 m/px' },
-  { out: 'rhea.jpg', id: 'rhea_cassini_voyager_global_mosaic_417m', note: 'Cassini + Voyager, 417 m/px' },
+  {
+    out: 'pluto.jpg',
+    id: 'pluto_new_horizons_lorri_mvic_global_mosaic_300m',
+    note: 'New Horizons LORRI+MVIC, 300 m/px',
+  },
+  {
+    out: 'charon.jpg',
+    id: 'charon_new_horizons_lorri_mvic_global_mosaic_300m',
+    note: 'New Horizons LORRI+MVIC, 300 m/px',
+  },
+  {
+    out: 'phobos.jpg',
+    id: 'phobos_mars_express_src_global_mosaic_12m',
+    note: 'Mars Express SRC + Viking, 12 m/px',
+  },
+  {
+    out: 'triton.jpg',
+    id: 'triton_voyager_2_global_color_mosaic_600m',
+    note: 'Voyager 2 colour, 600 m/px',
+  },
+  {
+    out: 'iapetus.jpg',
+    id: 'iapetus_cassini_voyager_global_mosaic_803m',
+    note: 'Cassini + Voyager, 803 m/px',
+  },
+  {
+    out: 'dione.jpg',
+    id: 'dione_cassini_voyager_global_mosaic_154m',
+    note: 'Cassini + Voyager, 154 m/px',
+  },
+  {
+    out: 'rhea.jpg',
+    id: 'rhea_cassini_voyager_global_mosaic_417m',
+    note: 'Cassini + Voyager, 417 m/px',
+  },
   { out: 'tethys.jpg', id: 'tethys_cassini_global_mosaic_293m', note: 'Cassini ISS, 293 m/px' },
   { out: 'vesta.jpg', id: 'vesta_dawn_fc_hamo_global_mosaic_60m', note: 'Dawn FC HAMO, 60 m/px' },
   { out: 'eros.jpg', id: 'near_msi_albedo_mosaics', note: 'NEAR MSI albedo mosaic, 1024 px' },
-]
+];
 
 /**
  * Resolve an Astropedia item to a downloadable image.
@@ -373,16 +406,18 @@ async function astropediaImageUrl(spec: AstropediaSpec): Promise<string | null> 
     `${ASTROPEDIA_BASE}${spec.id}.xml`,
     `astropedia-${spec.id}.xml`,
     `metadata for ${spec.out}`,
-  )
-  if (!xml) return null
+  );
+  if (!xml) {
+    return null;
+  }
   if (/^\s*<!DOCTYPE html/i.test(xml)) {
-    console.log(`  ${C.yellow('missing')} Astropedia id not found: ${spec.id}`)
-    return null
+    console.log(`  ${C.yellow('missing')} Astropedia id not found: ${spec.id}`);
+    return null;
   }
   const urls = [
     ...xml.matchAll(/https:\/\/astrogeology\.usgs\.gov[^\s"'<>]+\/download\/[^\s"'<>]+/g),
-  ].map((m) => m[0])
-  return urls.find((u) => !/thumb/i.test(u) && /\.(jpe?g|png|tif)$/i.test(u)) ?? null
+  ].map((m) => m[0]);
+  return urls.find((u) => !/thumb/i.test(u) && /\.(jpe?g|png|tif)$/i.test(u)) ?? null;
 }
 
 // ---------------------------------------------------------------------------
@@ -399,44 +434,44 @@ async function astropediaImageUrl(spec: AstropediaSpec): Promise<string | null> 
 
 interface ReliefSpec {
   /** Body key, matching src/data/bodies.ts. */
-  body: string
-  out: string
-  url: string
-  width: number
-  height: number
+  body: string;
+  out: string;
+  url: string;
+  width: number;
+  height: number;
   /** Metres of elevation per stored raster unit. */
-  metresPerDn: number
+  metresPerDn: number;
   /**
    * Byte order of the 16-bit samples. Not a detail worth guessing: MOLA ships
    * MSB and LOLA ships LSB, and reading one as the other yields a full-range
    * grid of plausible-looking noise rather than an obvious failure.
    */
-  endian: 'msb' | 'lsb'
+  endian: 'msb' | 'lsb';
   /** East longitude of the source raster's left-hand column, degrees. */
-  originLonEast: number
+  originLonEast: number;
   /**
    * Name fragment of the entry to pull out, when the download is a zip. Only
    * stored/deflated entries without data descriptors, which is what these
    * archives use.
    */
-  zipEntry?: string
+  zipEntry?: string;
   /**
    * True when samples sit on cell *corners* rather than centres, so the grid
    * includes both poles and repeats the 180 degree meridian. ETOPO does this;
    * the PDS products do not.
    */
-  gridRegistered?: boolean
+  gridRegistered?: boolean;
   /** Output grid, when it should differ from the source. Block-averaged. */
-  outWidth?: number
-  outHeight?: number
+  outWidth?: number;
+  outHeight?: number;
   /**
    * Clamp elevations below this, in metres. Earth needs it at 0: the visible
    * surface over an ocean is the water, not the sea bed, and displacing
    * bathymetry would carve a trench through the blue.
    */
-  floorMetres?: number
-  credit: string
-  note: string
+  floorMetres?: number;
+  credit: string;
+  note: string;
 }
 
 /**
@@ -447,27 +482,33 @@ interface ReliefSpec {
  * shorter than taking on a dependency or shelling out to `unzip`.
  */
 function unzipEntry(buf: Buffer, nameFragment: string): Buffer | null {
-  let pos = 0
+  let pos = 0;
   while (pos + 30 <= buf.length && buf.readUInt32LE(pos) === 0x04034b50) {
-    const flags = buf.readUInt16LE(pos + 6)
-    const method = buf.readUInt16LE(pos + 8)
-    const csize = buf.readUInt32LE(pos + 18)
-    const nameLen = buf.readUInt16LE(pos + 26)
-    const extraLen = buf.readUInt16LE(pos + 28)
-    const name = buf.toString('ascii', pos + 30, pos + 30 + nameLen)
-    const start = pos + 30 + nameLen + extraLen
+    const flags = buf.readUInt16LE(pos + 6);
+    const method = buf.readUInt16LE(pos + 8);
+    const csize = buf.readUInt32LE(pos + 18);
+    const nameLen = buf.readUInt16LE(pos + 26);
+    const extraLen = buf.readUInt16LE(pos + 28);
+    const name = buf.toString('ascii', pos + 30, pos + 30 + nameLen);
+    const start = pos + 30 + nameLen + extraLen;
     // Bit 3 puts the sizes after the data instead, which would mean scanning for
     // the descriptor; these archives do not use it, so refuse rather than guess.
-    if (flags & 0x08) return null
-    if (name.includes(nameFragment)) {
-      const data = buf.subarray(start, start + csize)
-      if (method === 0) return Buffer.from(data)
-      if (method === 8) return inflateRawSync(data)
-      return null
+    if (flags & 0x08) {
+      return null;
     }
-    pos = start + csize
+    if (name.includes(nameFragment)) {
+      const data = buf.subarray(start, start + csize);
+      if (method === 0) {
+        return Buffer.from(data);
+      }
+      if (method === 8) {
+        return inflateRawSync(data);
+      }
+      return null;
+    }
+    pos = start + csize;
   }
-  return null
+  return null;
 }
 
 const RELIEF: ReliefSpec[] = [
@@ -520,16 +561,16 @@ const RELIEF: ReliefSpec[] = [
     credit: 'ETOPO2v2 — NOAA National Centers for Environmental Information',
     note: 'ETOPO2v2, 2 arc-min, land only',
   },
-]
+];
 
 interface ReliefResult {
-  body: string
-  out: string
-  width: number
-  height: number
-  minKm: number
-  maxKm: number
-  credit: string
+  body: string;
+  out: string;
+  width: number;
+  height: number;
+  minKm: number;
+  maxKm: number;
+  credit: string;
 }
 
 /**
@@ -540,24 +581,24 @@ interface ReliefResult {
  * vertices, not as a lat/lon grid.
  */
 interface ShapeModelSpec {
-  body: string
-  out: string
-  url: string
+  body: string;
+  out: string;
+  url: string;
   /**
    * How the model is laid out. `cube-quad` is Gaskell's six-face vertex cube;
    * `lat-lon-table` is Thomas's plain latitude/longitude/radius text, which is
    * already the shape this pipeline wants and needs only resampling.
    */
-  format: 'cube-quad' | 'lat-lon-table'
-  width: number
-  height: number
+  format: 'cube-quad' | 'lat-lon-table';
+  width: number;
+  height: number;
   /**
    * Radius the offsets are measured from, km. Must match the radius the app
    * gives this body, or the shape inflates or shrinks uniformly.
    */
-  referenceRadiusKm: number
-  credit: string
-  note: string
+  referenceRadiusKm: number;
+  credit: string;
+  note: string;
 }
 
 const SHAPE_MODELS: ShapeModelSpec[] = [
@@ -665,7 +706,7 @@ const SHAPE_MODELS: ShapeModelSpec[] = [
     credit: 'Thomas Deimos shape model (Viking) — PDS Small Bodies Node',
     note: 'Thomas Viking model, 5 deg grid',
   },
-]
+];
 
 // -- a minimal 8-bit RGB PNG writer -----------------------------------------
 //
@@ -676,53 +717,57 @@ const SHAPE_MODELS: ShapeModelSpec[] = [
 // than colours.
 
 const CRC_TABLE = (() => {
-  const table = new Int32Array(256)
+  const table = new Int32Array(256);
   for (let n = 0; n < 256; n++) {
-    let c = n
-    for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1
-    table[n] = c
+    let c = n;
+    for (let k = 0; k < 8; k++) {
+      c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+    }
+    table[n] = c;
   }
-  return table
-})()
+  return table;
+})();
 
 function crc32(buf: Buffer): number {
-  let c = 0xffffffff
-  for (let i = 0; i < buf.length; i++) c = CRC_TABLE[(c ^ buf[i]!) & 0xff]! ^ (c >>> 8)
-  return (c ^ 0xffffffff) >>> 0
+  let c = 0xffffffff;
+  for (const byte of buf) {
+    c = CRC_TABLE[(c ^ byte) & 0xff] ^ (c >>> 8);
+  }
+  return (c ^ 0xffffffff) >>> 0;
 }
 
 function pngChunk(type: string, data: Buffer): Buffer {
-  const head = Buffer.alloc(8)
-  head.writeUInt32BE(data.length, 0)
-  head.write(type, 4, 'ascii')
-  const crc = Buffer.alloc(4)
-  crc.writeUInt32BE(crc32(Buffer.concat([head.subarray(4), data])), 0)
-  return Buffer.concat([head, data, crc])
+  const head = Buffer.alloc(8);
+  head.writeUInt32BE(data.length, 0);
+  head.write(type, 4, 'ascii');
+  const crc = Buffer.alloc(4);
+  crc.writeUInt32BE(crc32(Buffer.concat([head.subarray(4), data])), 0);
+  return Buffer.concat([head, data, crc]);
 }
 
 function encodePng(width: number, height: number, rgb: Buffer, channels = 3): Buffer {
-  const ihdr = Buffer.alloc(13)
-  ihdr.writeUInt32BE(width, 0)
-  ihdr.writeUInt32BE(height, 4)
-  ihdr[8] = 8 // bit depth
-  ihdr[9] = channels === 1 ? 0 : 2 // colour type: 0 = greyscale, 2 = truecolour
-  ihdr[10] = 0 // deflate
-  ihdr[11] = 0 // adaptive filtering
-  ihdr[12] = 0 // no interlace
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(width, 0);
+  ihdr.writeUInt32BE(height, 4);
+  ihdr[8] = 8; // bit depth
+  ihdr[9] = channels === 1 ? 0 : 2; // colour type: 0 = greyscale, 2 = truecolour
+  ihdr[10] = 0; // deflate
+  ihdr[11] = 0; // adaptive filtering
+  ihdr[12] = 0; // no interlace
 
   // Filter type 1 (Sub) predicts each byte from the same channel one pixel to
   // the left. Elevation is smooth horizontally, so the high byte nearly
   // vanishes; the low byte is noise and will not compress, which is the price
   // of keeping 16 bits of precision.
-  const stride = width * channels
-  const raw = Buffer.alloc(height * (stride + 1))
+  const stride = width * channels;
+  const raw = Buffer.alloc(height * (stride + 1));
   for (let y = 0; y < height; y++) {
-    const src = y * stride
-    const dst = y * (stride + 1)
-    raw[dst] = 1
+    const src = y * stride;
+    const dst = y * (stride + 1);
+    raw[dst] = 1;
     for (let x = 0; x < stride; x++) {
-      const left = x >= channels ? rgb[src + x - channels]! : 0
-      raw[dst + 1 + x] = (rgb[src + x]! - left) & 0xff
+      const left = x >= channels ? rgb[src + x - channels] : 0;
+      raw[dst + 1 + x] = (rgb[src + x] - left) & 0xff;
     }
   }
 
@@ -731,7 +776,7 @@ function encodePng(width: number, height: number, rgb: Buffer, channels = 3): Bu
     pngChunk('IHDR', ihdr),
     pngChunk('IDAT', deflateSync(raw, { level: 9 })),
     pngChunk('IEND', Buffer.alloc(0)),
-  ])
+  ]);
 }
 
 /**
@@ -747,100 +792,114 @@ function encodePng(width: number, height: number, rgb: Buffer, channels = 3): Bu
  * a wrong altitude.
  */
 async function buildRelief(spec: ReliefSpec): Promise<ReliefResult | null> {
-  const outPath = path.join(SHAPES, spec.out)
-  const cachePath = path.join(CACHE, path.basename(spec.url))
-  if (!(await download(spec.url, cachePath, `${spec.out} ${C.dim(spec.note)}`))) return null
+  const outPath = path.join(SHAPES, spec.out);
+  const cachePath = path.join(CACHE, path.basename(spec.url));
+  if (!(await download(spec.url, cachePath, `${spec.out} ${C.dim(spec.note)}`))) {
+    return null;
+  }
 
   // Widened because inflateRawSync's buffer is not the same flavour readFile's
   // is, and the two have to share this variable.
-  let raw: Buffer<ArrayBufferLike> = await fs.readFile(cachePath)
+  let raw: Buffer = await fs.readFile(cachePath);
   if (spec.zipEntry) {
-    const entry = unzipEntry(raw, spec.zipEntry)
+    const entry = unzipEntry(raw, spec.zipEntry);
     if (!entry) {
-      console.log(`  ${C.red('bad    ')} ${spec.out}: no usable zip entry matching ${spec.zipEntry}`)
-      return null
+      console.log(
+        `  ${C.red('bad    ')} ${spec.out}: no usable zip entry matching ${spec.zipEntry}`,
+      );
+      return null;
     }
-    raw = entry
+    raw = entry;
   }
 
-  const srcCount = spec.width * spec.height
+  const srcCount = spec.width * spec.height;
   if (raw.length !== srcCount * 2) {
-    console.log(`  ${C.red('bad    ')} ${spec.out}: expected ${srcCount * 2} bytes, got ${raw.length}`)
-    return null
+    console.log(
+      `  ${C.red('bad    ')} ${spec.out}: expected ${srcCount * 2} bytes, got ${raw.length}`,
+    );
+    return null;
   }
 
-  const w = spec.outWidth ?? spec.width
-  const h = spec.outHeight ?? spec.height
+  const w = spec.outWidth ?? spec.width;
+  const h = spec.outHeight ?? spec.height;
 
   // Where each source sample actually sits. Corner-registered grids repeat the
   // 180 degree meridian and include both poles, so their spacing is one cell
   // wider than a centre-registered grid of the same column count.
   const lonOfCol = spec.gridRegistered
     ? (c: number) => spec.originLonEast + (c * 360) / (spec.width - 1)
-    : (c: number) => spec.originLonEast + ((c + 0.5) * 360) / spec.width
+    : (c: number) => spec.originLonEast + ((c + 0.5) * 360) / spec.width;
   const latOfRow = spec.gridRegistered
     ? (r: number) => 90 - (r * 180) / (spec.height - 1)
-    : (r: number) => 90 - ((r + 0.5) * 180) / spec.height
+    : (r: number) => 90 - ((r + 0.5) * 180) / spec.height;
 
   // Scatter every source sample into the output cell it falls in and average.
   // For a same-size grid this reduces to a pure roll — one sample per cell — so
   // the products that need no resampling are untouched by the machinery.
-  const sum = new Float64Array(w * h)
-  const hits = new Uint32Array(w * h)
+  const sum = new Float64Array(w * h);
+  const hits = new Uint32Array(w * h);
   for (let r = 0; r < spec.height; r++) {
-    const lat = latOfRow(r)
-    const y = Math.min(h - 1, Math.max(0, Math.floor(((90 - lat) / 180) * h)))
+    const lat = latOfRow(r);
+    const y = Math.min(h - 1, Math.max(0, Math.floor(((90 - lat) / 180) * h)));
     for (let c = 0; c < spec.width; c++) {
-      const i = r * spec.width + c
-      const dn = spec.endian === 'msb' ? raw.readInt16BE(i * 2) : raw.readInt16LE(i * 2)
-      if (dn === -32768) continue // NODATA
-      let v = dn * spec.metresPerDn
+      const i = r * spec.width + c;
+      const dn = spec.endian === 'msb' ? raw.readInt16BE(i * 2) : raw.readInt16LE(i * 2);
+      if (dn === -32768) {
+        continue; // NODATA
+      }
+      let v = dn * spec.metresPerDn;
       // Clamped before averaging, so a coastal cell blends land down to the
       // waterline rather than being dragged below it by the sea bed offshore.
-      if (spec.floorMetres !== undefined) v = Math.max(v, spec.floorMetres)
-      const lon = lonOfCol(c)
-      const u = ((((lon - 180) / 360) % 1) + 1) % 1
-      const x = Math.min(w - 1, Math.floor(u * w))
-      sum[y * w + x]! += v
-      hits[y * w + x]!++
+      if (spec.floorMetres !== undefined) {
+        v = Math.max(v, spec.floorMetres);
+      }
+      const lon = lonOfCol(c);
+      const u = ((((lon - 180) / 360) % 1) + 1) % 1;
+      const x = Math.min(w - 1, Math.floor(u * w));
+      sum[y * w + x] += v;
+      hits[y * w + x]++;
     }
   }
 
-  let empty = 0
-  let min = Infinity
-  let max = -Infinity
-  const metres = new Float64Array(w * h)
+  let empty = 0;
+  let min = Infinity;
+  let max = -Infinity;
+  const metres = new Float64Array(w * h);
   for (let i = 0; i < metres.length; i++) {
     if (hits[i] === 0) {
-      empty++
-      continue
+      empty++;
+      continue;
     }
-    const v = sum[i]! / hits[i]!
-    metres[i] = v
-    if (v < min) min = v
-    if (v > max) max = v
+    const v = sum[i] / hits[i];
+    metres[i] = v;
+    if (v < min) {
+      min = v;
+    }
+    if (v > max) {
+      max = v;
+    }
   }
   if (empty > 0) {
-    console.log(`  ${C.red('bad    ')} ${spec.out}: ${empty} output cells received no samples`)
-    return null
+    console.log(`  ${C.red('bad    ')} ${spec.out}: ${empty} output cells received no samples`);
+    return null;
   }
 
-  const span = max - min
-  const rgb = Buffer.alloc(w * h * 3)
+  const span = max - min;
+  const rgb = Buffer.alloc(w * h * 3);
   for (let i = 0; i < metres.length; i++) {
-    const t = Math.round(((metres[i]! - min) / span) * 65535)
-    rgb[i * 3] = (t >> 8) & 0xff
-    rgb[i * 3 + 1] = t & 0xff
+    const t = Math.round(((metres[i] - min) / span) * 65535);
+    rgb[i * 3] = (t >> 8) & 0xff;
+    rgb[i * 3 + 1] = t & 0xff;
   }
 
-  await fs.mkdir(SHAPES, { recursive: true })
-  const png = encodePng(w, h, rgb)
-  await fs.writeFile(outPath, png)
+  await fs.mkdir(SHAPES, { recursive: true });
+  const png = encodePng(w, h, rgb);
+  await fs.writeFile(outPath, png);
   console.log(
     `  ${C.green('wrote  ')} ${spec.out} ${C.dim(
       `${w}x${h}, ${(min / 1000).toFixed(2)}..${(max / 1000).toFixed(2)} km, ${mb(png.length)}`,
     )}`,
-  )
+  );
 
   return {
     body: spec.body,
@@ -850,7 +909,7 @@ async function buildRelief(spec: ReliefSpec): Promise<ReliefResult | null> {
     minKm: min / 1000,
     maxKm: max / 1000,
     credit: spec.credit,
-  }
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -872,14 +931,16 @@ async function buildRelief(spec: ReliefSpec): Promise<ReliefResult | null> {
 /** A single HTTP range request. Returns null unless the server honours it. */
 async function fetchRange(url: string, range: string): Promise<Buffer | null> {
   try {
-    const res = await fetch(url, { headers: { 'User-Agent': UA, Range: `bytes=${range}` } })
+    const res = await fetch(url, { headers: { 'User-Agent': UA, Range: `bytes=${range}` } });
     // 200 means the server ignored the range and is sending the whole file;
     // reading that as if it were the requested slice is how you get a plausible
     // but wrong parse, so refuse it and let the caller fall back.
-    if (res.status !== 206) return null
-    return Buffer.from(await res.arrayBuffer())
+    if (res.status !== 206) {
+      return null;
+    }
+    return Buffer.from(await res.arrayBuffer());
   } catch {
-    return null
+    return null;
   }
 }
 
@@ -892,82 +953,92 @@ async function fetchRange(url: string, range: string): Promise<Buffer | null> {
  * zip64 directory, a name that is not there — returns null, and the caller
  * falls back to fetching the archive in full.
  */
-async function fetchZipEntries(
-  url: string,
-  names: string[],
-): Promise<Map<string, Buffer> | null> {
-  const tail = await fetchRange(url, '-65536')
-  if (!tail) return null
+async function fetchZipEntries(url: string, names: string[]): Promise<Map<string, Buffer> | null> {
+  const tail = await fetchRange(url, '-65536');
+  if (!tail) {
+    return null;
+  }
 
-  const eocd = tail.lastIndexOf(Buffer.from([0x50, 0x4b, 0x05, 0x06]))
-  if (eocd < 0 || eocd + 22 > tail.length) return null
-  const cdSize = tail.readUInt32LE(eocd + 12)
-  const cdOffset = tail.readUInt32LE(eocd + 16)
+  const eocd = tail.lastIndexOf(Buffer.from([0x50, 0x4b, 0x05, 0x06]));
+  if (eocd < 0 || eocd + 22 > tail.length) {
+    return null;
+  }
+  const cdSize = tail.readUInt32LE(eocd + 12);
+  const cdOffset = tail.readUInt32LE(eocd + 16);
   // Zip64 parks 0xffffffff here and puts the real values in a separate record.
-  if (cdOffset === 0xffffffff || cdSize === 0xffffffff) return null
+  if (cdOffset === 0xffffffff || cdSize === 0xffffffff) {
+    return null;
+  }
 
-  const cd = await fetchRange(url, `${cdOffset}-${cdOffset + cdSize - 1}`)
-  if (!cd || cd.length !== cdSize) return null
+  const cd = await fetchRange(url, `${cdOffset}-${cdOffset + cdSize - 1}`);
+  if (!cd || cd.length !== cdSize) {
+    return null;
+  }
 
-  const found = new Map<string, Buffer>()
-  let pos = 0
+  const found = new Map<string, Buffer>();
+  let pos = 0;
   while (pos + 46 <= cd.length && cd.readUInt32LE(pos) === 0x02014b50) {
-    const csize = cd.readUInt32LE(pos + 20)
-    const nameLen = cd.readUInt16LE(pos + 28)
-    const extraLen = cd.readUInt16LE(pos + 30)
-    const commentLen = cd.readUInt16LE(pos + 32)
-    const localOffset = cd.readUInt32LE(pos + 42)
-    const name = cd.toString('ascii', pos + 46, pos + 46 + nameLen)
-    const wanted = names.find((n) => name.includes(n))
+    const csize = cd.readUInt32LE(pos + 20);
+    const nameLen = cd.readUInt16LE(pos + 28);
+    const extraLen = cd.readUInt16LE(pos + 30);
+    const commentLen = cd.readUInt16LE(pos + 32);
+    const localOffset = cd.readUInt32LE(pos + 42);
+    const name = cd.toString('ascii', pos + 46, pos + 46 + nameLen);
+    const wanted = names.find((n) => name.includes(n));
     if (wanted && !found.has(wanted)) {
       // The local header repeats the name and may carry a different extra field
       // than the central one, so over-fetch and let unzipEntry read the real
       // lengths out of the header it finds at byte 0.
-      const slack = 1024
-      const raw = await fetchRange(url, `${localOffset}-${localOffset + csize + slack - 1}`)
+      const slack = 1024;
+      const raw = await fetchRange(url, `${localOffset}-${localOffset + csize + slack - 1}`);
       // A range clipped at end-of-file would hand inflate a truncated stream,
       // which throws rather than returning null; either way, give up on ranges
       // and let the caller fetch the archive whole.
-      let entry: Buffer | null = null
+      let entry: Buffer | null = null;
       try {
-        entry = raw ? unzipEntry(raw, wanted) : null
+        entry = raw ? unzipEntry(raw, wanted) : null;
       } catch {
-        entry = null
+        entry = null;
       }
-      if (!entry) return null
-      found.set(wanted, entry)
-      console.log(`  ${C.dim('ranged ')} ${name} ${C.dim(mb(entry.length))}`)
+      if (!entry) {
+        return null;
+      }
+      found.set(wanted, entry);
+      console.log(`  ${C.dim('ranged ')} ${name} ${C.dim(mb(entry.length))}`);
     }
-    pos += 46 + nameLen + extraLen + commentLen
+    pos += 46 + nameLen + extraLen + commentLen;
   }
-  return found.size === names.length ? found : null
+  return found.size === names.length ? found : null;
 }
 
 /** Read a PDS3 keyword. Values carry units (`2.0<PIX/DEG>`), so parse loosely. */
 function pdsValue(label: string, key: string): string | null {
-  const m = label.match(new RegExp(`^\\s*${key}\\s*=\\s*(.+)$`, 'm'))
-  return m ? m[1]!.trim() : null
+  const m = label.match(new RegExp(`^\\s*${key}\\s*=\\s*(.+)$`, 'm'));
+  return m ? m[1].trim() : null;
 }
 
 function pdsNumber(label: string, key: string): number {
-  const raw = pdsValue(label, key)
-  const n = raw === null ? NaN : Number.parseFloat(raw)
-  if (!Number.isFinite(n)) throw new Error(`PDS label has no numeric ${key}`)
-  return n
+  const raw = pdsValue(label, key);
+  const n = raw === null ? NaN : Number.parseFloat(raw);
+  if (!Number.isFinite(n)) {
+    // oxlint-disable-next-line unicorn/prefer-type-error -- a malformed label, not a type error
+    throw new Error(`PDS label has no numeric ${key}`);
+  }
+  return n;
 }
 
 interface GriddedTopoSpec {
-  body: string
-  out: string
+  body: string;
+  out: string;
   /** Zip archive, on a host that serves range requests. */
-  url: string
+  url: string;
   /** Name fragments of the PDS3 images to merge; together they must tile the globe. */
-  entries: string[]
+  entries: string[];
   /** Output grid. */
-  width: number
-  height: number
-  credit: string
-  note: string
+  width: number;
+  height: number;
+  credit: string;
+  note: string;
 }
 
 const GRIDDED_TOPO: GriddedTopoSpec[] = [
@@ -988,7 +1059,7 @@ const GRIDDED_TOPO: GriddedTopoSpec[] = [
     credit: 'Cassini RADAR GTDR (Lorenz et al. 2013) — USGS Astrogeology',
     note: 'Cassini RADAR altimetry + SARTopo, 2 px/deg',
   },
-]
+];
 
 /**
  * Merge PDS3 equirectangular float grids into one elevation map.
@@ -1011,151 +1082,176 @@ const GRIDDED_TOPO: GriddedTopoSpec[] = [
  * independent JPL figure.
  */
 async function buildGriddedTopo(spec: GriddedTopoSpec): Promise<ReliefResult | null> {
-  const cachePath = path.join(CACHE, path.basename(spec.url))
-  let entries = (await exists(cachePath)) ? null : await fetchZipEntries(spec.url, spec.entries)
+  const cachePath = path.join(CACHE, path.basename(spec.url));
+  let entries = (await exists(cachePath)) ? null : await fetchZipEntries(spec.url, spec.entries);
   if (!entries) {
     // No ranges, or the archive is already cached in full from an earlier run.
-    console.log(`  ${C.dim('       ')} ${spec.out}: reading the whole archive`)
-    if (!(await download(spec.url, cachePath, `${spec.out} ${C.dim(spec.note)}`))) return null
-    const whole = await fs.readFile(cachePath)
-    entries = new Map()
+    console.log(`  ${C.dim('       ')} ${spec.out}: reading the whole archive`);
+    if (!(await download(spec.url, cachePath, `${spec.out} ${C.dim(spec.note)}`))) {
+      return null;
+    }
+    const whole = await fs.readFile(cachePath);
+    entries = new Map();
     for (const name of spec.entries) {
-      const entry = unzipEntry(whole, name)
+      const entry = unzipEntry(whole, name);
       if (!entry) {
-        console.log(`  ${C.red('bad    ')} ${spec.out}: no zip entry matching ${name}`)
-        return null
+        console.log(`  ${C.red('bad    ')} ${spec.out}: no zip entry matching ${name}`);
+        return null;
       }
-      entries.set(name, entry)
+      entries.set(name, entry);
     }
   }
 
-  const w = spec.width
-  const h = spec.height
-  const sum = new Float64Array(w * h)
-  const hits = new Uint32Array(w * h)
+  const w = spec.width;
+  const h = spec.height;
+  const sum = new Float64Array(w * h);
+  const hits = new Uint32Array(w * h);
 
   for (const name of spec.entries) {
     // The archive stores each image gzipped inside the zip.
-    const img = gunzipSync(entries.get(name)!)
-    const label = img.toString('latin1', 0, Math.min(img.length, 32768))
+    const img = gunzipSync(entries.get(name)!);
+    const label = img.toString('latin1', 0, Math.min(img.length, 32768));
 
-    const recordBytes = pdsNumber(label, 'RECORD_BYTES')
-    const labelRecords = pdsNumber(label, 'LABEL_RECORDS')
-    const lines = pdsNumber(label, 'LINES')
-    const samples = pdsNumber(label, 'LINE_SAMPLES')
-    const bits = pdsNumber(label, 'SAMPLE_BITS')
-    const type = pdsValue(label, 'SAMPLE_TYPE')
+    const recordBytes = pdsNumber(label, 'RECORD_BYTES');
+    const labelRecords = pdsNumber(label, 'LABEL_RECORDS');
+    const lines = pdsNumber(label, 'LINES');
+    const samples = pdsNumber(label, 'LINE_SAMPLES');
+    const bits = pdsNumber(label, 'SAMPLE_BITS');
+    const type = pdsValue(label, 'SAMPLE_TYPE');
     // PC_REAL is little-endian IEEE 754. Refuse anything else rather than
     // reading a different layout as if it were this one.
     if (type !== 'PC_REAL' || bits !== 32) {
-      console.log(`  ${C.red('bad    ')} ${spec.out}: ${name} is ${bits}-bit ${type}, expected 32-bit PC_REAL`)
-      return null
+      console.log(
+        `  ${C.red('bad    ')} ${spec.out}: ${name} is ${bits}-bit ${type}, expected 32-bit PC_REAL`,
+      );
+      return null;
     }
-    const dataStart = labelRecords * recordBytes
+    const dataStart = labelRecords * recordBytes;
     if (img.length < dataStart + lines * samples * 4) {
-      console.log(`  ${C.red('bad    ')} ${spec.out}: ${name} is ${img.length} bytes, too short for ${samples}x${lines}`)
-      return null
+      console.log(
+        `  ${C.red('bad    ')} ${spec.out}: ${name} is ${img.length} bytes, too short for ${samples}x${lines}`,
+      );
+      return null;
     }
 
-    const res = pdsNumber(label, 'MAP_RESOLUTION')
-    const centreLon = pdsNumber(label, 'CENTER_LONGITUDE')
-    const lineOffset = pdsNumber(label, 'LINE_PROJECTION_OFFSET')
-    const sampleOffset = pdsNumber(label, 'SAMPLE_PROJECTION_OFFSET')
-    const positive = pdsValue(label, 'POSITIVE_LONGITUDE_DIRECTION')
+    const res = pdsNumber(label, 'MAP_RESOLUTION');
+    const centreLon = pdsNumber(label, 'CENTER_LONGITUDE');
+    const lineOffset = pdsNumber(label, 'LINE_PROJECTION_OFFSET');
+    const sampleOffset = pdsNumber(label, 'SAMPLE_PROJECTION_OFFSET');
+    const positive = pdsValue(label, 'POSITIVE_LONGITUDE_DIRECTION');
     if (positive !== 'WEST' && positive !== 'EAST') {
-      console.log(`  ${C.red('bad    ')} ${spec.out}: ${name} has POSITIVE_LONGITUDE_DIRECTION ${positive}`)
-      return null
+      console.log(
+        `  ${C.red('bad    ')} ${spec.out}: ${name} has POSITIVE_LONGITUDE_DIRECTION ${positive}`,
+      );
+      return null;
     }
-    const sign = positive === 'WEST' ? -1 : 1
+    const sign = positive === 'WEST' ? -1 : 1;
 
     // Samples are 1-based in the PDS formulae. `lonOf` stays in the product's
     // own direction so it can be checked against the label; the conversion to
     // east longitude happens once, afterwards.
-    const latOf = (line: number) => (lineOffset + 1 - line) / res
-    const lonOf = (sample: number) => centreLon + (sign * (sample - sampleOffset - 1)) / res
-    const eastOf = (lon: number) => ((((positive === 'WEST' ? -lon : lon) % 360) + 360) % 360)
+    const latOf = (line: number) => (lineOffset + 1 - line) / res;
+    const lonOf = (sample: number) => centreLon + (sign * (sample - sampleOffset - 1)) / res;
+    const eastOf = (lon: number) => (((positive === 'WEST' ? -lon : lon) % 360) + 360) % 360;
 
     // The label states its extent independently of the offsets that produce it,
     // so the two have to agree. This is the only warning either file gives
     // before a silently mirrored world, and the two hemispheres disagree about
     // SAMPLE_PROJECTION_OFFSET by 360 pixels, which is exactly the kind of thing
     // one would otherwise get half right.
-    const halfCell = 0.5 / res
+    const halfCell = 0.5 / res;
     const spans = (a: number, b: number, lo: number, hi: number) =>
-      Math.abs(Math.min(a, b) - halfCell - lo) < 1e-3 && Math.abs(Math.max(a, b) + halfCell - hi) < 1e-3
-    if (!spans(latOf(1), latOf(lines), pdsNumber(label, 'MINIMUM_LATITUDE'), pdsNumber(label, 'MAXIMUM_LATITUDE'))) {
+      Math.abs(Math.min(a, b) - halfCell - lo) < 1e-3 &&
+      Math.abs(Math.max(a, b) + halfCell - hi) < 1e-3;
+    if (
+      !spans(
+        latOf(1),
+        latOf(lines),
+        pdsNumber(label, 'MINIMUM_LATITUDE'),
+        pdsNumber(label, 'MAXIMUM_LATITUDE'),
+      )
+    ) {
       console.log(
         `  ${C.red('bad    ')} ${spec.out}: ${name} spans ${latOf(lines).toFixed(2)}..${latOf(1).toFixed(2)}N,` +
           ` label declares ${pdsNumber(label, 'MINIMUM_LATITUDE')}..${pdsNumber(label, 'MAXIMUM_LATITUDE')}`,
-      )
-      return null
+      );
+      return null;
     }
     // A whole-globe product declares both bounds equal and the check says
     // nothing; these hemispheres declare real edges, which is the case worth
     // catching.
-    const lonLo = pdsNumber(label, 'EASTERNMOST_LONGITUDE')
-    const lonHi = pdsNumber(label, 'WESTERNMOST_LONGITUDE')
-    if (lonLo !== lonHi && !spans(lonOf(1), lonOf(samples), Math.min(lonLo, lonHi), Math.max(lonLo, lonHi))) {
+    const lonLo = pdsNumber(label, 'EASTERNMOST_LONGITUDE');
+    const lonHi = pdsNumber(label, 'WESTERNMOST_LONGITUDE');
+    if (
+      lonLo !== lonHi &&
+      !spans(lonOf(1), lonOf(samples), Math.min(lonLo, lonHi), Math.max(lonLo, lonHi))
+    ) {
       console.log(
         `  ${C.red('bad    ')} ${spec.out}: ${name} spans ${lonOf(1).toFixed(2)}..${lonOf(samples).toFixed(2)}` +
           ` ${positive}, label declares ${lonLo}..${lonHi}`,
-      )
-      return null
+      );
+      return null;
     }
 
     const missing = Number.parseInt(
-      (pdsValue(label, 'MISSING_CONSTANT') ?? '').replace(/^16#|#$/g, ''),
+      (pdsValue(label, 'MISSING_CONSTANT') ?? '').replaceAll(/^16#|#$/g, ''),
       16,
-    )
+    );
     for (let line = 1; line <= lines; line++) {
-      const lat = latOf(line)
-      const y = Math.min(h - 1, Math.max(0, Math.floor(((90 - lat) / 180) * h)))
+      const lat = latOf(line);
+      const y = Math.min(h - 1, Math.max(0, Math.floor(((90 - lat) / 180) * h)));
       for (let s = 1; s <= samples; s++) {
-        const at = dataStart + ((line - 1) * samples + (s - 1)) * 4
-        if (Number.isFinite(missing) && img.readUInt32LE(at) === missing) continue
-        const u = ((eastOf(lonOf(s)) - 180) / 360 + 1) % 1
-        const x = Math.min(w - 1, Math.floor(u * w))
-        sum[y * w + x]! += img.readFloatLE(at)
-        hits[y * w + x]!++
+        const at = dataStart + ((line - 1) * samples + (s - 1)) * 4;
+        if (Number.isFinite(missing) && img.readUInt32LE(at) === missing) {
+          continue;
+        }
+        const u = ((eastOf(lonOf(s)) - 180) / 360 + 1) % 1;
+        const x = Math.min(w - 1, Math.floor(u * w));
+        sum[y * w + x] += img.readFloatLE(at);
+        hits[y * w + x]++;
       }
     }
   }
 
-  let empty = 0
-  let min = Infinity
-  let max = -Infinity
-  const metres = new Float64Array(w * h)
+  let empty = 0;
+  let min = Infinity;
+  let max = -Infinity;
+  const metres = new Float64Array(w * h);
   for (let i = 0; i < metres.length; i++) {
     if (hits[i] === 0) {
-      empty++
-      continue
+      empty++;
+      continue;
     }
-    const v = sum[i]! / hits[i]!
-    metres[i] = v
-    if (v < min) min = v
-    if (v > max) max = v
+    const v = sum[i] / hits[i];
+    metres[i] = v;
+    if (v < min) {
+      min = v;
+    }
+    if (v > max) {
+      max = v;
+    }
   }
   if (empty > 0) {
-    console.log(`  ${C.red('bad    ')} ${spec.out}: ${empty} output cells received no samples`)
-    return null
+    console.log(`  ${C.red('bad    ')} ${spec.out}: ${empty} output cells received no samples`);
+    return null;
   }
 
-  const span = max - min
-  const rgb = Buffer.alloc(w * h * 3)
+  const span = max - min;
+  const rgb = Buffer.alloc(w * h * 3);
   for (let i = 0; i < metres.length; i++) {
-    const t = Math.round(((metres[i]! - min) / span) * 65535)
-    rgb[i * 3] = (t >> 8) & 0xff
-    rgb[i * 3 + 1] = t & 0xff
+    const t = Math.round(((metres[i] - min) / span) * 65535);
+    rgb[i * 3] = (t >> 8) & 0xff;
+    rgb[i * 3 + 1] = t & 0xff;
   }
 
-  await fs.mkdir(SHAPES, { recursive: true })
-  const png = encodePng(w, h, rgb)
-  await fs.writeFile(path.join(SHAPES, spec.out), png)
+  await fs.mkdir(SHAPES, { recursive: true });
+  const png = encodePng(w, h, rgb);
+  await fs.writeFile(path.join(SHAPES, spec.out), png);
   console.log(
     `  ${C.green('wrote  ')} ${spec.out} ${C.dim(
       `${w}x${h}, ${(min / 1000).toFixed(2)}..${(max / 1000).toFixed(2)} km, ${mb(png.length)}`,
     )}`,
-  )
+  );
 
   return {
     body: spec.body,
@@ -1165,7 +1261,7 @@ async function buildGriddedTopo(spec: GriddedTopoSpec): Promise<ReliefResult | n
     minKm: min / 1000,
     maxKm: max / 1000,
     credit: spec.credit,
-  }
+  };
 }
 
 /**
@@ -1185,16 +1281,20 @@ async function buildGriddedTopo(spec: GriddedTopoSpec): Promise<ReliefResult | n
  * other whatever the render frame does with the pair.
  */
 async function buildShapeModel(spec: ShapeModelSpec): Promise<ReliefResult | null> {
-  const cachePath = path.join(CACHE, path.basename(spec.url))
-  if (!(await download(spec.url, cachePath, `${spec.out} ${C.dim(spec.note)}`))) return null
+  const cachePath = path.join(CACHE, path.basename(spec.url));
+  if (!(await download(spec.url, cachePath, `${spec.out} ${C.dim(spec.note)}`))) {
+    return null;
+  }
 
-  const text = await fs.readFile(cachePath, 'utf8')
+  const text = await fs.readFile(cachePath, 'utf8');
   const radii =
     spec.format === 'lat-lon-table'
       ? sampleLatLonTable(spec, text)
-      : await rasteriseCubeQuad(spec, text)
-  if (!radii) return null
-  return finishShape(spec, radii)
+      : await rasteriseCubeQuad(spec, text);
+  if (!radii) {
+    return null;
+  }
+  return finishShape(spec, radii);
 }
 
 /**
@@ -1207,205 +1307,235 @@ async function buildShapeModel(spec: ShapeModelSpec): Promise<ReliefResult | nul
  * the target's own coordinates rather than the source's makes both fall out.
  */
 function sampleLatLonTable(spec: ShapeModelSpec, text: string): Float64Array | null {
-  const rows: [number, number, number][] = []
+  const rows: Array<[number, number, number]> = [];
   for (const line of text.split('\n')) {
-    const t = line.trim()
-    if (!t) continue
-    const p = t.split(/\s+/).map(Number)
-    if (p.length < 3 || p.some((v) => !Number.isFinite(v))) {
-      console.log(`  ${C.red('bad    ')} ${spec.out}: unparseable row "${t.slice(0, 40)}"`)
-      return null
+    const t = line.trim();
+    if (!t) {
+      continue;
     }
-    rows.push([p[0]!, p[1]!, p[2]!])
+    const p = t.split(/\s+/).map(Number);
+    if (p.length < 3 || p.some((v) => !Number.isFinite(v))) {
+      console.log(`  ${C.red('bad    ')} ${spec.out}: unparseable row "${t.slice(0, 40)}"`);
+      return null;
+    }
+    rows.push([p[0], p[1], p[2]]);
   }
 
-  const lats = [...new Set(rows.map((r) => r[0]))].sort((a, b) => a - b)
-  const lons = [...new Set(rows.map((r) => r[1]))].sort((a, b) => a - b)
+  const lats = [...new Set(rows.map((r) => r[0]))].sort((a, b) => a - b);
+  const lons = [...new Set(rows.map((r) => r[1]))].sort((a, b) => a - b);
   if (lats.length * lons.length !== rows.length) {
     console.log(
       `  ${C.red('bad    ')} ${spec.out}: ${rows.length} rows is not ${lats.length} x ${lons.length}`,
-    )
-    return null
+    );
+    return null;
   }
 
-  const latIx = new Map(lats.map((v, i) => [v, i]))
-  const lonIx = new Map(lons.map((v, i) => [v, i]))
-  const grid = new Float64Array(lats.length * lons.length)
-  for (const [la, lo, r] of rows) grid[latIx.get(la)! * lons.length + lonIx.get(lo)!] = r
+  const latIx = new Map(lats.map((v, i) => [v, i]));
+  const lonIx = new Map(lons.map((v, i) => [v, i]));
+  const grid = new Float64Array(lats.length * lons.length);
+  for (const [la, lo, r] of rows) {
+    grid[latIx.get(la)! * lons.length + lonIx.get(lo)!] = r;
+  }
 
-  const latMin = lats[0]!
-  const latStep = (lats[lats.length - 1]! - latMin) / (lats.length - 1)
-  const lonMin = lons[0]!
-  const lonStep = (lons[lons.length - 1]! - lonMin) / (lons.length - 1)
+  const latMin = lats[0];
+  const latStep = (lats.at(-1)! - latMin) / (lats.length - 1);
+  const lonMin = lons[0];
+  const lonStep = (lons.at(-1)! - lonMin) / (lons.length - 1);
 
   const sample = (lat: number, lon: number): number => {
-    const fy = Math.min(lats.length - 1.0001, Math.max(0, (lat - latMin) / latStep))
-    const fx = Math.min(lons.length - 1.0001, Math.max(0, (lon - lonMin) / lonStep))
-    const y0 = Math.floor(fy)
-    const x0 = Math.floor(fx)
-    const ty = fy - y0
-    const tx = fx - x0
-    const g = (y: number, x: number) => grid[y * lons.length + x]!
+    const fy = Math.min(lats.length - 1.0001, Math.max(0, (lat - latMin) / latStep));
+    const fx = Math.min(lons.length - 1.0001, Math.max(0, (lon - lonMin) / lonStep));
+    const y0 = Math.floor(fy);
+    const x0 = Math.floor(fx);
+    const ty = fy - y0;
+    const tx = fx - x0;
+    const g = (y: number, x: number) => grid[y * lons.length + x];
     return (
       g(y0, x0) * (1 - tx) * (1 - ty) +
       g(y0, x0 + 1) * tx * (1 - ty) +
       g(y0 + 1, x0) * (1 - tx) * ty +
       g(y0 + 1, x0 + 1) * tx * ty
-    )
-  }
+    );
+  };
 
-  const out = new Float64Array(spec.width * spec.height)
+  const out = new Float64Array(spec.width * spec.height);
   for (let y = 0; y < spec.height; y++) {
-    const lat = 90 - ((y + 0.5) * 180) / spec.height
+    const lat = 90 - ((y + 0.5) * 180) / spec.height;
     for (let x = 0; x < spec.width; x++) {
-      const lon = (180 + ((x + 0.5) * 360) / spec.width) % 360
-      out[y * spec.width + x] = sample(lat, lon)
+      const lon = (180 + ((x + 0.5) * 360) / spec.width) % 360;
+      out[y * spec.width + x] = sample(lat, lon);
     }
   }
-  return out
+  return out;
 }
 
-async function rasteriseCubeQuad(
-  spec: ShapeModelSpec,
-  text: string,
-): Promise<Float64Array | null> {
-  const lines = text.split('\n').filter((l) => l.trim().length > 0)
-  const n = Number(lines[0]!.trim())
-  const side = n + 1
-  const perFace = side * side
+async function rasteriseCubeQuad(spec: ShapeModelSpec, text: string): Promise<Float64Array | null> {
+  const lines = text.split('\n').filter((l) => l.trim().length > 0);
+  const n = Number(lines[0].trim());
+  const side = n + 1;
+  const perFace = side * side;
   if (!Number.isFinite(n) || lines.length - 1 !== 6 * perFace) {
     console.log(
       `  ${C.red('bad    ')} ${spec.out}: header says ${n}, expected ${6 * perFace} vertices, got ${lines.length - 1}`,
-    )
-    return null
+    );
+    return null;
   }
 
-  const vx = new Float64Array(6 * perFace)
-  const vy = new Float64Array(6 * perFace)
-  const vz = new Float64Array(6 * perFace)
+  const vx = new Float64Array(6 * perFace);
+  const vy = new Float64Array(6 * perFace);
+  const vz = new Float64Array(6 * perFace);
   for (let i = 0; i < 6 * perFace; i++) {
-    const parts = lines[i + 1]!.trim().split(/\s+/)
-    vx[i] = Number(parts[0])
-    vy[i] = Number(parts[1])
-    vz[i] = Number(parts[2])
+    const parts = lines[i + 1].trim().split(/\s+/);
+    vx[i] = Number(parts[0]);
+    vy[i] = Number(parts[1]);
+    vz[i] = Number(parts[2]);
   }
 
   // Guard the layout assumption: on a regular grid, stepping one column is a
   // short hop. A shuffled ordering would jump across the body instead.
-  let longest = 0
+  let longest = 0;
   for (let f = 0; f < 6; f++) {
     for (let j = 0; j < side; j++) {
       for (let i = 0; i + 1 < side; i++) {
-        const k = f * perFace + j * side + i
-        longest = Math.max(longest, Math.hypot(vx[k]! - vx[k + 1]!, vy[k]! - vy[k + 1]!, vz[k]! - vz[k + 1]!))
+        const k = f * perFace + j * side + i;
+        longest = Math.max(
+          longest,
+          Math.hypot(vx[k] - vx[k + 1], vy[k] - vy[k + 1], vz[k] - vz[k + 1]),
+        );
       }
     }
   }
   if (longest > spec.referenceRadiusKm * 0.25) {
-    console.log(`  ${C.red('bad    ')} ${spec.out}: grid neighbours up to ${longest.toFixed(2)} km apart`)
-    return null
+    console.log(
+      `  ${C.red('bad    ')} ${spec.out}: grid neighbours up to ${longest.toFixed(2)} km apart`,
+    );
+    return null;
   }
 
-  const w = spec.width
-  const h = spec.height
-  const radii = new Float64Array(w * h)
-  const filled = new Uint8Array(w * h)
+  const w = spec.width;
+  const h = spec.height;
+  const radii = new Float64Array(w * h);
+  const filled = new Uint8Array(w * h);
 
   const lonOf = (i: number) => {
-    const d = (Math.atan2(vy[i]!, vx[i]!) * 180) / Math.PI
-    return d < 0 ? d + 360 : d
-  }
+    const d = (Math.atan2(vy[i], vx[i]) * 180) / Math.PI;
+    return d < 0 ? d + 360 : d;
+  };
   const latOf = (i: number) => {
-    const r = Math.hypot(vx[i]!, vy[i]!, vz[i]!)
-    return (Math.asin(vz[i]! / r) * 180) / Math.PI
-  }
-  const radOf = (i: number) => Math.hypot(vx[i]!, vy[i]!, vz[i]!)
+    const r = Math.hypot(vx[i], vy[i], vz[i]);
+    return (Math.asin(vz[i] / r) * 180) / Math.PI;
+  };
+  const radOf = (i: number) => Math.hypot(vx[i], vy[i], vz[i]);
 
   const rasterise = (a: number, b: number, c: number): void => {
-    let l0 = lonOf(a)
-    let l1 = lonOf(b)
-    let l2 = lonOf(c)
+    let l0 = lonOf(a);
+    let l1 = lonOf(b);
+    let l2 = lonOf(c);
     // A triangle straddling the 0/360 seam looks 350 degrees wide; put all three
     // on one branch so it is a degree wide again.
     if (Math.max(l0, l1, l2) - Math.min(l0, l1, l2) > 180) {
-      if (l0 < 180) l0 += 360
-      if (l1 < 180) l1 += 360
-      if (l2 < 180) l2 += 360
-    }
-    const t0 = latOf(a)
-    const t1 = latOf(b)
-    const t2 = latOf(c)
-    const r0 = radOf(a)
-    const r1 = radOf(b)
-    const r2 = radOf(c)
-
-    const det = (l1 - l0) * (t2 - t0) - (l2 - l0) * (t1 - t0)
-    if (Math.abs(det) < 1e-12) return
-
-    const x0 = Math.floor(((Math.min(l0, l1, l2) - 180) / 360) * w - 0.5)
-    const x1 = Math.ceil(((Math.max(l0, l1, l2) - 180) / 360) * w - 0.5)
-    const y0 = Math.max(0, Math.floor(((90 - Math.max(t0, t1, t2)) / 180) * h - 0.5))
-    const y1 = Math.min(h - 1, Math.ceil(((90 - Math.min(t0, t1, t2)) / 180) * h - 0.5))
-
-    for (let y = y0; y <= y1; y++) {
-      const lat = 90 - ((y + 0.5) * 180) / h
-      for (let x = x0; x <= x1; x++) {
-        const lon = 180 + ((x + 0.5) * 360) / w
-        const u = ((l1 - lon) * (t2 - lat) - (l2 - lon) * (t1 - lat)) / det
-        const v = ((l2 - lon) * (t0 - lat) - (l0 - lon) * (t2 - lat)) / det
-        const t = 1 - u - v
-        if (u < -1e-9 || v < -1e-9 || t < -1e-9) continue
-        const col = ((x % w) + w) % w
-        radii[y * w + col] = u * r0 + v * r1 + t * r2
-        filled[y * w + col] = 1
+      if (l0 < 180) {
+        l0 += 360;
+      }
+      if (l1 < 180) {
+        l1 += 360;
+      }
+      if (l2 < 180) {
+        l2 += 360;
       }
     }
-  }
+    const t0 = latOf(a);
+    const t1 = latOf(b);
+    const t2 = latOf(c);
+    const r0 = radOf(a);
+    const r1 = radOf(b);
+    const r2 = radOf(c);
+
+    const det = (l1 - l0) * (t2 - t0) - (l2 - l0) * (t1 - t0);
+    if (Math.abs(det) < 1e-12) {
+      return;
+    }
+
+    const x0 = Math.floor(((Math.min(l0, l1, l2) - 180) / 360) * w - 0.5);
+    const x1 = Math.ceil(((Math.max(l0, l1, l2) - 180) / 360) * w - 0.5);
+    const y0 = Math.max(0, Math.floor(((90 - Math.max(t0, t1, t2)) / 180) * h - 0.5));
+    const y1 = Math.min(h - 1, Math.ceil(((90 - Math.min(t0, t1, t2)) / 180) * h - 0.5));
+
+    for (let y = y0; y <= y1; y++) {
+      const lat = 90 - ((y + 0.5) * 180) / h;
+      for (let x = x0; x <= x1; x++) {
+        const lon = 180 + ((x + 0.5) * 360) / w;
+        const u = ((l1 - lon) * (t2 - lat) - (l2 - lon) * (t1 - lat)) / det;
+        const v = ((l2 - lon) * (t0 - lat) - (l0 - lon) * (t2 - lat)) / det;
+        const t = 1 - u - v;
+        if (u < -1e-9 || v < -1e-9 || t < -1e-9) {
+          continue;
+        }
+        const col = ((x % w) + w) % w;
+        radii[y * w + col] = u * r0 + v * r1 + t * r2;
+        filled[y * w + col] = 1;
+      }
+    }
+  };
 
   for (let f = 0; f < 6; f++) {
     for (let j = 0; j + 1 < side; j++) {
       for (let i = 0; i + 1 < side; i++) {
-        const k = f * perFace + j * side + i
-        rasterise(k, k + 1, k + side)
-        rasterise(k + 1, k + side + 1, k + side)
+        const k = f * perFace + j * side + i;
+        rasterise(k, k + 1, k + side);
+        rasterise(k + 1, k + side + 1, k + side);
       }
     }
   }
 
   // The projection is singular at the poles, so a handful of pixels there can
   // fall outside every triangle. Fill them from their filled neighbours.
-  let holes = 0
+  let holes = 0;
   for (let pass = 0; pass < 8; pass++) {
-    holes = 0
+    holes = 0;
     for (let y = 0; y < h; y++) {
       for (let x = 0; x < w; x++) {
-        if (filled[y * w + x]) continue
-        let sum = 0
-        let count = 0
+        if (filled[y * w + x]) {
+          continue;
+        }
+        let sum = 0;
+        let count = 0;
         for (let dy = -1; dy <= 1; dy++) {
           for (let dx = -1; dx <= 1; dx++) {
-            const ny = y + dy
-            if (ny < 0 || ny >= h) continue
-            const nx = ((x + dx) % w + w) % w
-            if (!filled[ny * w + nx]) continue
-            sum += radii[ny * w + nx]!
-            count++
+            const ny = y + dy;
+            if (ny < 0 || ny >= h) {
+              continue;
+            }
+            const nx = (((x + dx) % w) + w) % w;
+            if (!filled[ny * w + nx]) {
+              continue;
+            }
+            sum += radii[ny * w + nx];
+            count++;
           }
         }
         if (count > 0) {
-          radii[y * w + x] = sum / count
-          filled[y * w + x] = 2
-        } else holes++
+          radii[y * w + x] = sum / count;
+          filled[y * w + x] = 2;
+        } else {
+          holes++;
+        }
       }
     }
-    for (let i = 0; i < filled.length; i++) if (filled[i] === 2) filled[i] = 1
-    if (holes === 0) break
+    for (let i = 0; i < filled.length; i++) {
+      if (filled[i] === 2) {
+        filled[i] = 1;
+      }
+    }
+    if (holes === 0) {
+      break;
+    }
   }
   if (holes > 0) {
-    console.log(`  ${C.red('bad    ')} ${spec.out}: ${holes} pixels never covered`)
-    return null
+    console.log(`  ${C.red('bad    ')} ${spec.out}: ${holes} pixels never covered`);
+    return null;
   }
-  return radii
+  return radii;
 }
 
 /**
@@ -1420,34 +1550,38 @@ async function finishShape(
   spec: ShapeModelSpec,
   radii: Float64Array,
 ): Promise<ReliefResult | null> {
-  const w = spec.width
-  const h = spec.height
+  const w = spec.width;
+  const h = spec.height;
 
-  let min = Infinity
-  let max = -Infinity
+  let min = Infinity;
+  let max = -Infinity;
   for (let i = 0; i < radii.length; i++) {
-    const v = radii[i]! - spec.referenceRadiusKm
-    radii[i] = v
-    if (v < min) min = v
-    if (v > max) max = v
+    const v = radii[i] - spec.referenceRadiusKm;
+    radii[i] = v;
+    if (v < min) {
+      min = v;
+    }
+    if (v > max) {
+      max = v;
+    }
   }
 
-  const span = max - min
-  const rgb = Buffer.alloc(w * h * 3)
+  const span = max - min;
+  const rgb = Buffer.alloc(w * h * 3);
   for (let i = 0; i < radii.length; i++) {
-    const t = Math.round(((radii[i]! - min) / span) * 65535)
-    rgb[i * 3] = (t >> 8) & 0xff
-    rgb[i * 3 + 1] = t & 0xff
+    const t = Math.round(((radii[i] - min) / span) * 65535);
+    rgb[i * 3] = (t >> 8) & 0xff;
+    rgb[i * 3 + 1] = t & 0xff;
   }
 
-  await fs.mkdir(SHAPES, { recursive: true })
-  const png = encodePng(w, h, rgb)
-  await fs.writeFile(path.join(SHAPES, spec.out), png)
+  await fs.mkdir(SHAPES, { recursive: true });
+  const png = encodePng(w, h, rgb);
+  await fs.writeFile(path.join(SHAPES, spec.out), png);
   console.log(
     `  ${C.green('wrote  ')} ${spec.out} ${C.dim(
       `${w}x${h}, ${min.toFixed(2)}..${max.toFixed(2)} km about r=${spec.referenceRadiusKm}, ${mb(png.length)}`,
     )}`,
-  )
+  );
 
   return {
     body: spec.body,
@@ -1457,7 +1591,7 @@ async function finishShape(
     minKm: min,
     maxKm: max,
     credit: spec.credit,
-  }
+  };
 }
 
 async function writeReliefModule(results: ReliefResult[]): Promise<void> {
@@ -1471,10 +1605,10 @@ async function writeReliefModule(results: ReliefResult[]): Promise<void> {
     height: ${r.height},
     minKm: ${r.minKm.toFixed(4)},
     maxKm: ${r.maxKm.toFixed(4)},
-    credit: '${r.credit.replace(/'/g, "\\'")}',
+    credit: '${r.credit.replaceAll("'", "\\'")}',
   },`,
     )
-    .join('\n')
+    .join('\n');
 
   const src = `/**
  * GENERATED by scripts/fetch-assets.ts -- do not edit by hand.
@@ -1508,12 +1642,12 @@ ${entries}
 }
 
 export const reliefFor = (key: string): ReliefMap | null => RELIEF_MAPS[key] ?? null
-`
-  await fs.mkdir(GENERATED, { recursive: true })
-  await fs.writeFile(path.join(GENERATED, 'relief.ts'), src)
+`;
+  await fs.mkdir(GENERATED, { recursive: true });
+  await fs.writeFile(path.join(GENERATED, 'relief.ts'), src);
   console.log(
     `  ${C.green('wrote  ')} src/data/generated/relief.ts ${C.dim(`(${results.length} maps)`)}`,
-  )
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -1527,16 +1661,16 @@ export const reliefFor = (key: string): ReliefMap | null => RELIEF_MAPS[key] ?? 
 // ---------------------------------------------------------------------------
 
 interface FitsMosaicSpec {
-  out: string
-  url: string
+  out: string;
+  url: string;
   /** East longitude of the array's left-hand column, degrees. */
-  originLonEast: number
+  originLonEast: number;
   /** True when row 0 is the southernmost, as FITS and IDL conventionally store. */
-  bottomUp: boolean
+  bottomUp: boolean;
   /** Pixels equal to this are unimaged and get flattened to the image mean. */
-  blankValue?: number
-  credit: string
-  note: string
+  blankValue?: number;
+  credit: string;
+  note: string;
 }
 
 const FITS_MOSAICS: FitsMosaicSpec[] = [
@@ -1554,77 +1688,87 @@ const FITS_MOSAICS: FitsMosaicSpec[] = [
     credit: 'Thomas Deimos mosaic (Viking) — PDS Small Bodies Node',
     note: 'Viking mosaic, high-pass filtered',
   },
-]
+];
 
 async function buildFitsMosaic(spec: FitsMosaicSpec): Promise<boolean> {
-  const cachePath = path.join(CACHE, path.basename(spec.url))
-  if (!(await download(spec.url, cachePath, `${spec.out} ${C.dim(spec.note)}`))) return false
+  const cachePath = path.join(CACHE, path.basename(spec.url));
+  if (!(await download(spec.url, cachePath, `${spec.out} ${C.dim(spec.note)}`))) {
+    return false;
+  }
 
-  const buf = await fs.readFile(cachePath)
+  const buf = await fs.readFile(cachePath);
   // Header is whole 2880-byte blocks of 80-character cards, ending at END.
   const card = (name: string): string | null => {
     for (let off = 0; off + 80 <= buf.length; off += 80) {
-      const text = buf.toString('ascii', off, off + 80)
-      if (text.startsWith('END ') || text.trimEnd() === 'END') return null
-      if (text.startsWith(name.padEnd(8))) return text.slice(10).split('/')[0]!.trim()
+      const text = buf.toString('ascii', off, off + 80);
+      if (text.startsWith('END ') || text.trimEnd() === 'END') {
+        return null;
+      }
+      if (text.startsWith(name.padEnd(8))) {
+        return text.slice(10).split('/')[0].trim();
+      }
     }
-    return null
-  }
-  const bitpix = Number(card('BITPIX'))
-  const w = Number(card('NAXIS1'))
-  const h = Number(card('NAXIS2'))
+    return null;
+  };
+  const bitpix = Number(card('BITPIX'));
+  const w = Number(card('NAXIS1'));
+  const h = Number(card('NAXIS2'));
   if (bitpix !== 8 || !w || !h) {
-    console.log(`  ${C.red('bad    ')} ${spec.out}: expected 8-bit 2D FITS, got BITPIX ${bitpix} ${w}x${h}`)
-    return false
+    console.log(
+      `  ${C.red('bad    ')} ${spec.out}: expected 8-bit 2D FITS, got BITPIX ${bitpix} ${w}x${h}`,
+    );
+    return false;
   }
 
-  let headerEnd = 0
+  let headerEnd = 0;
   for (let off = 0; off + 80 <= buf.length; off += 80) {
-    const text = buf.toString('ascii', off, off + 80)
+    const text = buf.toString('ascii', off, off + 80);
     if (text.startsWith('END ') || text.trimEnd() === 'END') {
-      headerEnd = Math.ceil((off + 80) / 2880) * 2880
-      break
+      headerEnd = Math.ceil((off + 80) / 2880) * 2880;
+      break;
     }
   }
-  const data = buf.subarray(headerEnd, headerEnd + w * h)
+  const data = buf.subarray(headerEnd, headerEnd + w * h);
   if (data.length !== w * h) {
-    console.log(`  ${C.red('bad    ')} ${spec.out}: expected ${w * h} pixels, got ${data.length}`)
-    return false
+    console.log(`  ${C.red('bad    ')} ${spec.out}: expected ${w * h} pixels, got ${data.length}`);
+    return false;
   }
 
   // Mean of the imaged pixels, used to flatten the gaps.
-  let sum = 0
-  let count = 0
-  for (let i = 0; i < data.length; i++) {
-    if (spec.blankValue !== undefined && data[i] === spec.blankValue) continue
-    sum += data[i]!
-    count++
+  let sum = 0;
+  let count = 0;
+  for (const value of data) {
+    if (spec.blankValue !== undefined && value === spec.blankValue) {
+      continue;
+    }
+    sum += value;
+    count++;
   }
-  const fill = count ? Math.round(sum / count) : 128
-  const blanks = data.length - count
+  const fill = count ? Math.round(sum / count) : 128;
+  const blanks = data.length - count;
 
-  const shift = Math.round((w * (180 - spec.originLonEast)) / 360)
-  const out = Buffer.alloc(w * h)
+  const shift = Math.round((w * (180 - spec.originLonEast)) / 360);
+  const out = Buffer.alloc(w * h);
   for (let y = 0; y < h; y++) {
-    const src = spec.bottomUp ? h - 1 - y : y
+    const src = spec.bottomUp ? h - 1 - y : y;
     for (let x = 0; x < w; x++) {
-      const v = data[src * w + ((x + shift) % w)]!
+      const v = data[src * w + ((x + shift) % w)];
       // Unimaged terrain is flattened rather than smeared: a flat patch reads as
       // "nothing was seen here", where dilating the neighbours would invent
       // surface that no spacecraft ever resolved.
-      out[y * w + x] = spec.blankValue !== undefined && v === spec.blankValue ? fill : v
+      out[y * w + x] = spec.blankValue !== undefined && v === spec.blankValue ? fill : v;
     }
   }
 
-  await fs.mkdir(TEXTURES, { recursive: true })
-  const png = encodePng(w, h, out, 1)
-  await fs.writeFile(path.join(TEXTURES, spec.out), png)
+  await fs.mkdir(TEXTURES, { recursive: true });
+  const png = encodePng(w, h, out, 1);
+  await fs.writeFile(path.join(TEXTURES, spec.out), png);
   console.log(
     `  ${C.green('wrote  ')} ${spec.out} ${C.dim(
       `${w}x${h} grey, ${((blanks / data.length) * 100).toFixed(1)}% unimaged filled, ${mb(png.length)}`,
     )}`,
-  )
-  return true
+  );
+  return true;
 }
 
 // ---------------------------------------------------------------------------
@@ -1643,10 +1787,10 @@ async function buildFitsMosaic(spec: FitsMosaicSpec): Promise<boolean> {
 // ---------------------------------------------------------------------------
 
 interface LithoMosaicSpec {
-  out: string
+  out: string;
   /** Body key, for the log line only. */
-  body: string
-  url: string
+  body: string;
+  url: string;
   /**
    * Centre and latitude-0 radius of the controlled photomosaic on the page, in
    * pixels at LITHO_DPI. Fitted once, against the three printed latitude circles
@@ -1658,17 +1802,17 @@ interface LithoMosaicSpec {
    * `pnpm validate` re-checks the result against the IAU Gazetteer rather than
    * trusting these numbers.
    */
-  centreX: number
-  centreY: number
-  radius: number
-  credit: string
-  note: string
+  centreX: number;
+  centreY: number;
+  radius: number;
+  credit: string;
+  note: string;
 }
 
 /** The sheets are scanned at a resolution well above this; 300 dpi is plenty. */
-const LITHO_DPI = 300
+const LITHO_DPI = 300;
 /** Grey level at or above which paper is bare, once thin ink has been removed. */
-const LITHO_PAPER = 240
+const LITHO_PAPER = 240;
 
 const LITHO_MOSAICS: LithoMosaicSpec[] = [
   {
@@ -1721,7 +1865,7 @@ const LITHO_MOSAICS: LithoMosaicSpec[] = [
     credit: 'USGS I-1920 sheet 3 (Voyager 2) — U.S. Geological Survey',
     note: 'Voyager 2 controlled photomosaic, 1:10,000,000',
   },
-]
+];
 
 /**
  * Rasterise one page of a PDF into raw 8-bit grey.
@@ -1749,7 +1893,7 @@ async function rasterise(
     '-depth',
     '8',
     `gray:${dest}`,
-  ])
+  ]);
 }
 
 async function pageSize(src: string): Promise<[number, number]> {
@@ -1760,148 +1904,170 @@ async function pageSize(src: string): Promise<[number, number]> {
     '-format',
     '%w %h',
     `${src}[0]`,
-  ])
-  const [w, h] = stdout.trim().split(/\s+/).map(Number)
-  return [w!, h!]
+  ]);
+  const [w, h] = stdout.trim().split(/\s+/).map(Number);
+  return [w, h];
 }
 
 async function buildLithoMosaic(spec: LithoMosaicSpec): Promise<boolean> {
-  const cachePath = path.join(CACHE, path.basename(spec.url))
-  if (!(await download(spec.url, cachePath, `${spec.out} ${C.dim(spec.note)}`))) return false
+  const cachePath = path.join(CACHE, path.basename(spec.url));
+  if (!(await download(spec.url, cachePath, `${spec.out} ${C.dim(spec.note)}`))) {
+    return false;
+  }
 
-  const [pageW, pageH] = await pageSize(cachePath)
-  const pad = Math.round(spec.radius * 1.24)
-  const rx = Math.max(0, Math.round(spec.centreX) - pad)
-  const ry = Math.max(0, Math.round(spec.centreY) - pad)
-  const w = Math.min(pageW - rx, pad * 2)
-  const h = Math.min(pageH - ry, pad * 2)
-  const crop = { x: rx, y: ry, w, h }
+  const [pageW, pageH] = await pageSize(cachePath);
+  const pad = Math.round(spec.radius * 1.24);
+  const rx = Math.max(0, Math.round(spec.centreX) - pad);
+  const ry = Math.max(0, Math.round(spec.centreY) - pad);
+  const w = Math.min(pageW - rx, pad * 2);
+  const h = Math.min(pageH - ry, pad * 2);
+  const crop = { x: rx, y: ry, w, h };
 
-  const rawPath = path.join(CACHE, `litho-${spec.body}.gray`)
-  const medPath = path.join(CACHE, `litho-${spec.body}-median.gray`)
-  await rasterise(cachePath, crop, [], rawPath)
+  const rawPath = path.join(CACHE, `litho-${spec.body}.gray`);
+  const medPath = path.join(CACHE, `litho-${spec.body}-median.gray`);
+  await rasterise(cachePath, crop, [], rawPath);
   // A second copy with thin ink removed, used only to tell paper from imagery.
   // The graticule is a closed curve, so on the raw scan it walls the unimaged
   // paper *inside* the latitude-0 circle off from the paper outside it, and a
   // flood fill never reaches it. The window has to beat the widest line on the
   // sheet: at 5 px the outer circle survived and sealed off wedges of blank
   // paper between the meridians, which came through as white blocks.
-  await rasterise(cachePath, crop, ['-statistic', 'Median', '13x13'], medPath)
+  await rasterise(cachePath, crop, ['-statistic', 'Median', '13x13'], medPath);
 
-  const px = await fs.readFile(rawPath)
-  const med = await fs.readFile(medPath)
+  const px = await fs.readFile(rawPath);
+  const med = await fs.readFile(medPath);
   if (px.length !== w * h || med.length !== w * h) {
-    console.log(`  ${C.red('bad    ')} ${spec.out}: expected ${w * h} px, got ${px.length}/${med.length}`)
-    return false
+    console.log(
+      `  ${C.red('bad    ')} ${spec.out}: expected ${w * h} px, got ${px.length}/${med.length}`,
+    );
+    return false;
   }
-  const cx = spec.centreX - rx
-  const cy = spec.centreY - ry
+  const cx = spec.centreX - rx;
+  const cy = spec.centreY - ry;
 
   // Bare paper: near-white and reachable from the edge of the crop. Bright
   // terrain inside the mosaic is just as white but is not connected to it.
-  const paper = new Uint8Array(w * h)
-  const stack: number[] = []
+  const paper = new Uint8Array(w * h);
+  const stack: number[] = [];
   const push = (x: number, y: number): void => {
-    if (x < 0 || y < 0 || x >= w || y >= h) return
-    const i = y * w + x
-    if (paper[i] || med[i]! < LITHO_PAPER) return
-    paper[i] = 1
-    stack.push(i)
-  }
+    if (x < 0 || y < 0 || x >= w || y >= h) {
+      return;
+    }
+    const i = y * w + x;
+    if (paper[i] || med[i] < LITHO_PAPER) {
+      return;
+    }
+    paper[i] = 1;
+    stack.push(i);
+  };
   for (let x = 0; x < w; x++) {
-    push(x, 0)
-    push(x, h - 1)
+    push(x, 0);
+    push(x, h - 1);
   }
   for (let y = 0; y < h; y++) {
-    push(0, y)
-    push(w - 1, y)
+    push(0, y);
+    push(w - 1, y);
   }
-  while (stack.length) {
-    const i = stack.pop()!
-    const x = i % w
-    const y = (i - x) / w
-    push(x + 1, y)
-    push(x - 1, y)
-    push(x, y + 1)
-    push(x, y - 1)
+  while (stack.length > 0) {
+    const i = stack.pop()!;
+    const x = i % w;
+    const y = (i - x) / w;
+    push(x + 1, y);
+    push(x - 1, y);
+    push(x, y + 1);
+    push(x, y - 1);
   }
 
   // Take the graticule back off, in source space, by pulling each line's pixels
   // from just beyond it at right angles. Masking the lines during resampling
   // instead leaves a tapered wedge along every meridian, because the masked band
   // subtends more and more longitude as it approaches the pole.
-  const src = Uint8Array.from(px)
+  const src = Uint8Array.from(px);
   const get = (x: number, y: number): number => {
-    const xi = Math.round(x)
-    const yi = Math.round(y)
-    if (xi < 0 || yi < 0 || xi >= w || yi >= h) return -1
-    return px[yi * w + xi]!
-  }
+    const xi = Math.round(x);
+    const yi = Math.round(y);
+    if (xi < 0 || yi < 0 || xi >= w || yi >= h) {
+      return -1;
+    }
+    return px[yi * w + xi];
+  };
   const put = (x: number, y: number, v: number): void => {
-    const xi = Math.round(x)
-    const yi = Math.round(y)
-    if (xi < 0 || yi < 0 || xi >= w || yi >= h || v < 0) return
-    src[yi * w + xi] = v
-  }
+    const xi = Math.round(x);
+    const yi = Math.round(y);
+    if (xi < 0 || yi < 0 || xi >= w || yi >= h || v < 0) {
+      return;
+    }
+    src[yi * w + xi] = v;
+  };
   // Measure how far the ink actually reaches rather than assuming a width: the
   // sheet letters its graticule ("-30", "-60") right against the lines, and a
   // fixed-width repair leaves the digits printed across the terrain. The gap
   // tolerance is what carries the repair over the whitespace around a glyph.
   const measure = (sample: (d: number) => number, cap: number): [number, number] => {
-    const far = (sample(cap) + sample(-cap)) / 2
+    const far = (sample(cap) + sample(-cap)) / 2;
     const run = (dir: number): number => {
-      let edge = 0
-      let gap = 0
+      let edge = 0;
+      let gap = 0;
       for (let d = 1; d <= cap; d++) {
-        const v = sample(dir * d)
+        const v = sample(dir * d);
         if (v >= 0 && v < far - 16) {
-          edge = d
-          gap = 0
-        } else if (++gap > 5) break
+          edge = d;
+          gap = 0;
+        } else if (++gap > 5) {
+          break;
+        }
       }
-      return edge
-    }
-    return [-run(-1) - 1.5, run(1) + 1.5]
-  }
+      return edge;
+    };
+    return [-run(-1) - 1.5, run(1) + 1.5];
+  };
   const bridge = (
     sample: (d: number) => number,
     write: (d: number, v: number) => void,
     cap: number,
     stepSize: number,
   ): void => {
-    const [lo, hi] = measure(sample, cap)
-    const a = sample(lo - 2)
-    const b = sample(hi + 2)
-    if (a < 0 || b < 0) return
-    for (let d = lo; d <= hi; d += stepSize) {
-      const f = (d - lo) / Math.max(hi - lo, 0.5)
-      write(d, Math.round(a * (1 - f) + b * f))
+    const [lo, hi] = measure(sample, cap);
+    const a = sample(lo - 2);
+    const b = sample(hi + 2);
+    if (a < 0 || b < 0) {
+      return;
     }
-  }
-  const latRadii = [0, -30, -60].map((lat) => spec.radius * Math.tan((((90 + lat) / 2) * Math.PI) / 180))
+    for (let d = lo; d <= hi; d += stepSize) {
+      const f = (d - lo) / Math.max(hi - lo, 0.5);
+      write(d, Math.round(a * (1 - f) + b * f));
+    }
+  };
+  const latRadii = [0, -30, -60].map(
+    (lat) => spec.radius * Math.tan((((90 + lat) / 2) * Math.PI) / 180),
+  );
   for (const r of latRadii) {
-    const steps = Math.ceil(2 * Math.PI * r * 2)
+    const steps = Math.ceil(2 * Math.PI * r * 2);
     for (let i = 0; i < steps; i++) {
-      const t = (i / steps) * 2 * Math.PI
-      const ct = Math.cos(t)
-      const st = Math.sin(t)
+      const t = (i / steps) * 2 * Math.PI;
+      const ct = Math.cos(t);
+      const st = Math.sin(t);
       bridge(
         (d) => get(cx + (r + d) * st, cy - (r + d) * ct),
-        (d, v) => put(cx + (r + d) * st, cy - (r + d) * ct, v),
+        (d, v) => {
+          put(cx + (r + d) * st, cy - (r + d) * ct, v);
+        },
         26,
         0.5,
-      )
+      );
     }
   }
   for (let k = 0; k < 12; k++) {
-    const t = ((k * 30) * Math.PI) / 180
+    const t = (k * 30 * Math.PI) / 180;
     for (let r = 4; r <= spec.radius * 1.02; r += 0.5) {
       bridge(
         (d) => get(cx + r * Math.sin(t + d / r), cy - r * Math.cos(t + d / r)),
-        (d, v) => put(cx + r * Math.sin(t + d / r), cy - r * Math.cos(t + d / r), v),
+        (d, v) => {
+          put(cx + r * Math.sin(t + d / r), cy - r * Math.cos(t + d / r), v);
+        },
         Math.min(26, r * 0.5),
         0.4,
-      )
+      );
     }
   }
 
@@ -1912,49 +2078,57 @@ async function buildLithoMosaic(spec: LithoMosaicSpec): Promise<boolean> {
   // circles fall at 0.260 and 0.573 of the outer one, against tan-law
   // predictions of 0.268 and 0.577, where an equidistant projection would put
   // them at 0.333 and 0.667.
-  const outW = 2048
-  const outH = 1024
-  const grid = 6
-  const out = new Uint8Array(outW * outH)
-  const known = new Uint8Array(outW * outH)
-  let sum = 0
-  let count = 0
+  const outW = 2048;
+  const outH = 1024;
+  const grid = 6;
+  const out = new Uint8Array(outW * outH);
+  const known = new Uint8Array(outW * outH);
+  let sum = 0;
+  let count = 0;
   for (let oy = 0; oy < outH; oy++) {
-    const lat = 90 - ((oy + 0.5) / outH) * 180
+    const lat = 90 - ((oy + 0.5) / outH) * 180;
     // Stop at the equator. A few of the mosaics overrun it slightly, but past
     // the latitude-0 circle the sheet carries its own furniture, and its
     // "CONTROLLED PHOTOMOSAIC OF ..." caption sits due south of the disc, so
     // reaching beyond the circle prints the sheet's own words along the edges
     // of the map.
-    if (lat > 0) continue
-    const theta = ((90 + lat) * Math.PI) / 180
-    const rho = spec.radius * Math.tan(theta / 2)
-    const dRho = Math.abs(spec.radius * Math.tan((theta + Math.PI / outH) / 2) - rho) + 1
+    if (lat > 0) {
+      continue;
+    }
+    const theta = ((90 + lat) * Math.PI) / 180;
+    const rho = spec.radius * Math.tan(theta / 2);
+    const dRho = Math.abs(spec.radius * Math.tan((theta + Math.PI / outH) / 2) - rho) + 1;
     for (let ox = 0; ox < outW; ox++) {
-      const a = ((-180 + ((ox + 0.5) / outW) * 360) * Math.PI) / 180
-      const dLon = ((2 * Math.PI) / outW) * rho
-      let acc = 0
-      let n = 0
+      const a = ((-180 + ((ox + 0.5) / outW) * 360) * Math.PI) / 180;
+      const dLon = ((2 * Math.PI) / outW) * rho;
+      let acc = 0;
+      let n = 0;
       for (let i = 0; i < grid; i++) {
         for (let j = 0; j < grid; j++) {
-          const r2 = rho + ((i + 0.5) / grid - 0.5) * dRho
-          const t2 = a + (((j + 0.5) / grid - 0.5) * dLon) / Math.max(rho, 1)
-          const xi = Math.round(cx + r2 * Math.sin(t2))
-          const yi = Math.round(cy - r2 * Math.cos(t2))
-          if (xi < 0 || yi < 0 || xi >= w || yi >= h) continue
-          const k = yi * w + xi
-          if (paper[k]) continue
-          acc += src[k]!
-          n++
+          const r2 = rho + ((i + 0.5) / grid - 0.5) * dRho;
+          const t2 = a + (((j + 0.5) / grid - 0.5) * dLon) / Math.max(rho, 1);
+          const xi = Math.round(cx + r2 * Math.sin(t2));
+          const yi = Math.round(cy - r2 * Math.cos(t2));
+          if (xi < 0 || yi < 0 || xi >= w || yi >= h) {
+            continue;
+          }
+          const k = yi * w + xi;
+          if (paper[k]) {
+            continue;
+          }
+          acc += src[k];
+          n++;
         }
       }
-      if (!n) continue
-      const v = Math.round(acc / n)
-      const oi = oy * outW + ox
-      out[oi] = v
-      known[oi] = 1
-      sum += v
-      count++
+      if (!n) {
+        continue;
+      }
+      const v = Math.round(acc / n);
+      const oi = oy * outW + ox;
+      out[oi] = v;
+      known[oi] = 1;
+      sum += v;
+      count++;
     }
   }
 
@@ -1963,18 +2137,22 @@ async function buildLithoMosaic(spec: LithoMosaicSpec): Promise<boolean> {
   // would invent surface. For these bodies that is half the world -- Voyager 2
   // arrived at southern summer solstice and the northern hemispheres were in
   // polar night.
-  const fill = count ? Math.round(sum / count) : 128
-  for (let i = 0; i < out.length; i++) if (!known[i]) out[i] = fill
+  const fill = count ? Math.round(sum / count) : 128;
+  for (let i = 0; i < out.length; i++) {
+    if (!known[i]) {
+      out[i] = fill;
+    }
+  }
 
-  await fs.mkdir(TEXTURES, { recursive: true })
-  const png = encodePng(outW, outH, Buffer.from(out), 1)
-  await fs.writeFile(path.join(TEXTURES, spec.out), png)
+  await fs.mkdir(TEXTURES, { recursive: true });
+  const png = encodePng(outW, outH, Buffer.from(out), 1);
+  await fs.writeFile(path.join(TEXTURES, spec.out), png);
   console.log(
     `  ${C.green('wrote  ')} ${spec.out} ${C.dim(
       `${outW}x${outH} grey, ${((count / out.length) * 100).toFixed(1)}% imaged, ${mb(png.length)}`,
     )}`,
-  )
-  return true
+  );
+  return true;
 }
 
 // ---------------------------------------------------------------------------
@@ -1983,50 +2161,60 @@ async function buildLithoMosaic(spec: LithoMosaicSpec): Promise<boolean> {
 
 const stripTags = (s: string) =>
   s
-    .replace(/<[^>]+>/g, ' ')
-    .replace(/&nbsp;/g, ' ')
-    .replace(/&amp;/g, '&')
-    .replace(/&deg;/g, '')
-    .replace(/\s+/g, ' ')
-    .trim()
+    .replaceAll(/<[^>]+>/g, ' ')
+    .replaceAll('&nbsp;', ' ')
+    .replaceAll('&amp;', '&')
+    .replaceAll('&deg;', '')
+    .replaceAll(/\s+/g, ' ')
+    .trim();
 
 function tableRows(html: string, tableId: string): string[][] {
-  const table = new RegExp(`<table[^>]*id="${tableId}"[^>]*>([\\s\\S]*?)</table>`).exec(html)
-  if (!table) return []
-  const out: string[][] = []
-  for (const tr of table[1]!.matchAll(/<tr>([\s\S]*?)<\/tr>/g)) {
-    const cells = [...tr[1]!.matchAll(/<td[^>]*>([\s\S]*?)<\/td>/g)].map((m) => stripTags(m[1]!))
-    if (cells.length) out.push(cells)
+  const table = new RegExp(`<table[^>]*id="${tableId}"[^>]*>([\\s\\S]*?)</table>`).exec(html);
+  if (!table) {
+    return [];
   }
-  return out
+  const out: string[][] = [];
+  for (const tr of table[1].matchAll(/<tr>([\s\S]*?)<\/tr>/g)) {
+    const cells = [...tr[1].matchAll(/<td[^>]*>([\s\S]*?)<\/td>/g)].map((m) => stripTags(m[1]));
+    if (cells.length > 0) {
+      out.push(cells);
+    }
+  }
+  return out;
 }
 
 const num = (s: string | undefined): number | null => {
-  if (!s) return null
-  const t = s.trim()
-  if (!t || t === '-' || t === 'n/a') return null
-  const v = Number.parseFloat(t)
-  return Number.isFinite(v) ? v : null
-}
+  if (!s) {
+    return null;
+  }
+  const t = s.trim();
+  if (!t || t === '-' || t === 'n/a') {
+    return null;
+  }
+  const v = Number.parseFloat(t);
+  return Number.isFinite(v) ? v : null;
+};
 
 function gregorianToJd(year: number, month: number, day: number): number {
-  let y = year
-  let mo = month
+  let y = year;
+  let mo = month;
   if (mo <= 2) {
-    y -= 1
-    mo += 12
+    y -= 1;
+    mo += 12;
   }
-  const A = Math.floor(y / 100)
-  const B = 2 - A + Math.floor(A / 4)
-  return Math.floor(365.25 * (y + 4716)) + Math.floor(30.6001 * (mo + 1)) + day + B - 1524.5
+  const A = Math.floor(y / 100);
+  const B = 2 - A + Math.floor(A / 4);
+  return Math.floor(365.25 * (y + 4716)) + Math.floor(30.6001 * (mo + 1)) + day + B - 1524.5;
 }
 
 /** `2000-01-01.5` -> Julian Date (TDB). */
 function epochStringToJd(s: string): number {
-  const m = /^(\d{4})-(\d{2})-(\d{2})(?:\.(\d+))?$/.exec(s.trim())
-  if (!m) return 2451545.0
-  const frac = m[4] ? Number(`0.${m[4]}`) : 0
-  return gregorianToJd(Number(m[1]), Number(m[2]), Number(m[3]) + frac)
+  const m = /^(\d{4})-(\d{2})-(\d{2})(?:\.(\d+))?$/.exec(s.trim());
+  if (!m) {
+    return 2451545.0;
+  }
+  const frac = m[4] ? Number(`0.${m[4]}`) : 0;
+  return gregorianToJd(Number(m[1]), Number(m[2]), Number(m[3]) + frac);
 }
 
 /**
@@ -2037,35 +2225,125 @@ function epochStringToJd(s: string): number {
  */
 const KNOWN_RADII: Record<string, number> = {
   // Jupiter: inner group + Himalia/Ananke/Carme/Pasiphae families
-  Metis: 21.5, Adrastea: 8.2, Amalthea: 83.5, Thebe: 49.3,
-  Himalia: 69.8, Elara: 43, Lysithea: 18, Leda: 10, Dia: 2,
-  Ananke: 14, Praxidike: 3.4, Harpalyke: 2.2, Iocaste: 2.6, Thyone: 2,
-  Carme: 23, Taygete: 2.5, Chaldene: 1.9, Kalyke: 2.6, Isonoe: 1.9, Erinome: 1.6,
-  Pasiphae: 30, Sinope: 19, Callirrhoe: 4.8, Megaclite: 2.7, Autonoe: 2,
-  Themisto: 4, Carpo: 1.5, Valetudo: 0.5, Eupheme: 1,
+  Metis: 21.5,
+  Adrastea: 8.2,
+  Amalthea: 83.5,
+  Thebe: 49.3,
+  Himalia: 69.8,
+  Elara: 43,
+  Lysithea: 18,
+  Leda: 10,
+  Dia: 2,
+  Ananke: 14,
+  Praxidike: 3.4,
+  Harpalyke: 2.2,
+  Iocaste: 2.6,
+  Thyone: 2,
+  Carme: 23,
+  Taygete: 2.5,
+  Chaldene: 1.9,
+  Kalyke: 2.6,
+  Isonoe: 1.9,
+  Erinome: 1.6,
+  Pasiphae: 30,
+  Sinope: 19,
+  Callirrhoe: 4.8,
+  Megaclite: 2.7,
+  Autonoe: 2,
+  Themisto: 4,
+  Carpo: 1.5,
+  Valetudo: 0.5,
+  Eupheme: 1,
   // Saturn: ring shepherds, co-orbitals, Trojans, Phoebe/Norse group
-  Pan: 14.1, Daphnis: 3.8, Atlas: 15.1, Prometheus: 43.1, Pandora: 40.6,
-  Epimetheus: 58.1, Janus: 89.5, Aegaeon: 0.33, Methone: 1.6, Anthe: 0.5,
-  Pallene: 2.2, Telesto: 12.4, Calypso: 10.7, Polydeuces: 1.3, Helene: 17.6,
-  Hyperion: 135, Phoebe: 106.5, Kiviuq: 8, Ijiraq: 6, Paaliaq: 11,
-  Siarnaq: 20, Tarvos: 7.5, Albiorix: 14.3, Erriapus: 5, Ymir: 9,
-  Skathi: 4, Mundilfari: 3.5, Suttungr: 3.5, Thrymr: 3.5, Narvi: 3.5,
-  Bebhionn: 3, Bergelmir: 3, Bestla: 3.5, Farbauti: 2.5, Fenrir: 2,
-  Fornjot: 3, Hati: 3, Hyrrokkin: 3.5, Kari: 3.5, Loge: 3,
-  Skoll: 3, Surtur: 3, Jarnsaxa: 3, Greip: 3, Tarqeq: 3.5, Aegir: 3,
+  Pan: 14.1,
+  Daphnis: 3.8,
+  Atlas: 15.1,
+  Prometheus: 43.1,
+  Pandora: 40.6,
+  Epimetheus: 58.1,
+  Janus: 89.5,
+  Aegaeon: 0.33,
+  Methone: 1.6,
+  Anthe: 0.5,
+  Pallene: 2.2,
+  Telesto: 12.4,
+  Calypso: 10.7,
+  Polydeuces: 1.3,
+  Helene: 17.6,
+  Hyperion: 135,
+  Phoebe: 106.5,
+  Kiviuq: 8,
+  Ijiraq: 6,
+  Paaliaq: 11,
+  Siarnaq: 20,
+  Tarvos: 7.5,
+  Albiorix: 14.3,
+  Erriapus: 5,
+  Ymir: 9,
+  Skathi: 4,
+  Mundilfari: 3.5,
+  Suttungr: 3.5,
+  Thrymr: 3.5,
+  Narvi: 3.5,
+  Bebhionn: 3,
+  Bergelmir: 3,
+  Bestla: 3.5,
+  Farbauti: 2.5,
+  Fenrir: 2,
+  Fornjot: 3,
+  Hati: 3,
+  Hyrrokkin: 3.5,
+  Kari: 3.5,
+  Loge: 3,
+  Skoll: 3,
+  Surtur: 3,
+  Jarnsaxa: 3,
+  Greip: 3,
+  Tarqeq: 3.5,
+  Aegir: 3,
   // Uranus
-  Cordelia: 20.1, Ophelia: 21.4, Bianca: 25.7, Cressida: 39.8, Desdemona: 32,
-  Juliet: 46.8, Portia: 67.6, Rosalind: 36, Cupid: 9, Belinda: 40.3,
-  Perdita: 15, Puck: 81, Mab: 12,
-  Caliban: 36, Sycorax: 75, Prospero: 25, Setebos: 24, Stephano: 16,
-  Trinculo: 9, Francisco: 11, Margaret: 10, Ferdinand: 10,
+  Cordelia: 20.1,
+  Ophelia: 21.4,
+  Bianca: 25.7,
+  Cressida: 39.8,
+  Desdemona: 32,
+  Juliet: 46.8,
+  Portia: 67.6,
+  Rosalind: 36,
+  Cupid: 9,
+  Belinda: 40.3,
+  Perdita: 15,
+  Puck: 81,
+  Mab: 12,
+  Caliban: 36,
+  Sycorax: 75,
+  Prospero: 25,
+  Setebos: 24,
+  Stephano: 16,
+  Trinculo: 9,
+  Francisco: 11,
+  Margaret: 10,
+  Ferdinand: 10,
   // Neptune
-  Naiad: 33, Thalassa: 41, Despina: 75, Galatea: 88, Larissa: 97,
-  Hippocamp: 17.4, Proteus: 210, Nereid: 170, Halimede: 31, Sao: 22,
-  Laomedeia: 21, Psamathe: 20, Neso: 30,
+  Naiad: 33,
+  Thalassa: 41,
+  Despina: 75,
+  Galatea: 88,
+  Larissa: 97,
+  Hippocamp: 17.4,
+  Proteus: 210,
+  Nereid: 170,
+  Halimede: 31,
+  Sao: 22,
+  Laomedeia: 21,
+  Psamathe: 20,
+  Neso: 30,
   // Pluto
-  Nix: 24.8, Hydra: 30.2, Kerberos: 6, Styx: 5.2,
-}
+  Nix: 24.8,
+  Hydra: 30.2,
+  Kerberos: 6,
+  Styx: 5.2,
+};
 
 /** Nominal radius for undocumented satellites, by parent. */
 const NOMINAL_RADIUS: Record<string, number> = {
@@ -2076,29 +2354,29 @@ const NOMINAL_RADIUS: Record<string, number> = {
   Pluto: 5.0,
   Mars: 6.0,
   Earth: 1000,
-}
+};
 
 interface SatelliteRecord {
-  name: string
-  code: number
-  planet: string
-  frame: 'ecliptic' | 'equatorial' | 'laplace'
-  epoch: number
-  a: number
-  e: number
-  argPeri: number
-  m0: number
-  inc: number
-  node: number
-  period: number
-  apsisPeriod: number | null
-  nodePeriod: number | null
-  poleRa: number | null
-  poleDec: number | null
-  radius: number
-  radiusEstimated: boolean
-  gm: number | null
-  density: number | null
+  name: string;
+  code: number;
+  planet: string;
+  frame: 'ecliptic' | 'equatorial' | 'laplace';
+  epoch: number;
+  a: number;
+  e: number;
+  argPeri: number;
+  m0: number;
+  inc: number;
+  node: number;
+  period: number;
+  apsisPeriod: number | null;
+  nodePeriod: number | null;
+  poleRa: number | null;
+  poleDec: number | null;
+  radius: number;
+  radiusEstimated: boolean;
+  gm: number | null;
+  density: number | null;
 }
 
 async function buildSatelliteData(): Promise<SatelliteRecord[] | null> {
@@ -2106,53 +2384,68 @@ async function buildSatelliteData(): Promise<SatelliteRecord[] | null> {
     'https://ssd.jpl.nasa.gov/sats/elem/',
     'sats_elem.html',
     'JPL satellite mean elements',
-  )
+  );
   const physHtml = await fetchText(
     'https://ssd.jpl.nasa.gov/sats/phys_par/',
     'sats_phys.html',
     'JPL satellite physical parameters',
-  )
-  if (!elemHtml) return null
+  );
+  if (!elemHtml) {
+    return null;
+  }
 
   // Physical parameters keyed by NAIF code. Each measurement cell reads
   // "value sigma reference", so the first token is the number we want.
-  const phys = new Map<number, { gm: number | null; radius: number | null; density: number | null }>()
+  const phys = new Map<
+    number,
+    { gm: number | null; radius: number | null; density: number | null }
+  >();
   if (physHtml) {
-    const firstToken = (s: string | undefined) => num(s?.trim().split(/\s+/)[0])
+    const firstToken = (s: string | undefined) => num(s?.trim().split(/\s+/)[0]);
     for (const row of tableRows(physHtml, 'sat_phys_par')) {
-      const code = num(row[2])
-      if (code === null) continue
-      phys.set(code, { gm: firstToken(row[3]), radius: firstToken(row[4]), density: firstToken(row[5]) })
+      const code = num(row[2]);
+      if (code === null) {
+        continue;
+      }
+      phys.set(code, {
+        gm: firstToken(row[3]),
+        radius: firstToken(row[4]),
+        density: firstToken(row[5]),
+      });
     }
   }
 
-  const records: SatelliteRecord[] = []
-  const seen = new Set<number>()
+  const records: SatelliteRecord[] = [];
+  const seen = new Set<number>();
 
   for (const row of tableRows(elemHtml, 'sat_elem')) {
     // ID Planet Satellite Code Ephemeris Frame Epoch a e w M i node P Papsis Pnode RA Dec Tilt Ref
-    const planet = row[1] ?? ''
-    const name = row[2] ?? ''
-    const code = num(row[3])
-    const frameRaw = (row[5] ?? '').toLowerCase()
-    const a = num(row[7])
-    const e = num(row[8])
-    const period = num(row[13])
+    const planet = row[1] ?? '';
+    const name = row[2] ?? '';
+    const code = num(row[3]);
+    const frameRaw = (row[5] ?? '').toLowerCase();
+    const a = num(row[7]);
+    const e = num(row[8]);
+    const period = num(row[13]);
 
-    if (code === null || !name || a === null || e === null || period === null) continue
+    if (code === null || !name || a === null || e === null || period === null) {
+      continue;
+    }
     // The table lists several ephemeris solutions per moon; JPL orders them
     // best-first, so keep the first and drop duplicates.
-    if (seen.has(code)) continue
-    seen.add(code)
+    if (seen.has(code)) {
+      continue;
+    }
+    seen.add(code);
 
     const frame: SatelliteRecord['frame'] = frameRaw.includes('laplace')
       ? 'laplace'
       : frameRaw.includes('equator')
         ? 'equatorial'
-        : 'ecliptic'
+        : 'ecliptic';
 
-    const p = phys.get(code)
-    const published = p?.radius ?? KNOWN_RADII[name] ?? null
+    const p = phys.get(code);
+    const published = p?.radius ?? KNOWN_RADII[name] ?? null;
 
     records.push({
       name,
@@ -2175,40 +2468,44 @@ async function buildSatelliteData(): Promise<SatelliteRecord[] | null> {
       radiusEstimated: published === null,
       gm: p?.gm ?? null,
       density: p?.density ?? null,
-    })
+    });
   }
-  return records
+  return records;
 }
 
 // ---------------------------------------------------------------------------
 // 4. Minor Planet Center orbit catalogues
 // ---------------------------------------------------------------------------
 
-const PACK_CHARS = '0123456789ABCDEFGHIJKLMNOPQRSTUV'
+const PACK_CHARS = '0123456789ABCDEFGHIJKLMNOPQRSTUV';
 
 /** MPC packed epoch, e.g. `K2669` -> Julian Date. */
 function unpackEpoch(packed: string): number {
-  if (packed.length < 5) return 2451545.0
-  const c = packed[0]!
-  const century = c === 'I' ? 18 : c === 'J' ? 19 : 20
-  const year = century * 100 + Number(packed.slice(1, 3))
-  const month = PACK_CHARS.indexOf(packed[3]!)
-  const day = PACK_CHARS.indexOf(packed[4]!)
-  if (month < 1 || day < 1 || !Number.isFinite(year)) return 2451545.0
-  return gregorianToJd(year, month, day)
+  if (packed.length < 5) {
+    return 2451545.0;
+  }
+  const c = packed[0];
+  const century = c === 'I' ? 18 : c === 'J' ? 19 : 20;
+  const year = century * 100 + Number(packed.slice(1, 3));
+  const month = PACK_CHARS.indexOf(packed[3]);
+  const day = PACK_CHARS.indexOf(packed[4]);
+  if (month < 1 || day < 1 || !Number.isFinite(year)) {
+    return 2451545.0;
+  }
+  return gregorianToJd(year, month, day);
 }
 
 interface SmallBody {
-  name: string
-  h: number
-  a: number
-  e: number
-  inc: number
-  node: number
-  argPeri: number
-  m0: number
-  epoch: number
-  group: string
+  name: string;
+  h: number;
+  a: number;
+  e: number;
+  inc: number;
+  node: number;
+  argPeri: number;
+  m0: number;
+  epoch: number;
+  group: string;
 }
 
 /**
@@ -2217,40 +2514,72 @@ interface SmallBody {
  * catalogued bodies and the background swarms by them.
  */
 function classify(a: number, e: number): string {
-  const q = a * (1 - e)
-  if (a < 2.0) return q < 1.3 ? 'near-earth' : 'inner-belt'
-  if (a < 2.5) return 'inner-belt'
-  if (a < 2.82) return 'mid-belt'
-  if (a < 3.28) return 'outer-belt'
-  if (a < 3.7) return 'cybele'
-  if (a < 4.6) return 'hilda'
-  if (a < 5.5) return 'jupiter-trojan'
-  if (a < 30.1) return 'centaur'
-  if (a < 39.4) return 'plutino'
-  if (a < 48) return e > 0.24 ? 'scattered' : 'classical-kbo'
-  if (a < 100) return 'scattered'
-  return 'detached'
+  const q = a * (1 - e);
+  if (a < 2.0) {
+    return q < 1.3 ? 'near-earth' : 'inner-belt';
+  }
+  if (a < 2.5) {
+    return 'inner-belt';
+  }
+  if (a < 2.82) {
+    return 'mid-belt';
+  }
+  if (a < 3.28) {
+    return 'outer-belt';
+  }
+  if (a < 3.7) {
+    return 'cybele';
+  }
+  if (a < 4.6) {
+    return 'hilda';
+  }
+  if (a < 5.5) {
+    return 'jupiter-trojan';
+  }
+  if (a < 30.1) {
+    return 'centaur';
+  }
+  if (a < 39.4) {
+    return 'plutino';
+  }
+  if (a < 48) {
+    return e > 0.24 ? 'scattered' : 'classical-kbo';
+  }
+  if (a < 100) {
+    return 'scattered';
+  }
+  return 'detached';
 }
 
 function parseMpcLine(line: string): SmallBody | null {
-  if (line.length < 103) return null
-  const h = Number.parseFloat(line.slice(8, 13))
-  const m0 = Number.parseFloat(line.slice(26, 35))
-  const argPeri = Number.parseFloat(line.slice(37, 46))
-  const node = Number.parseFloat(line.slice(48, 57))
-  const inc = Number.parseFloat(line.slice(59, 68))
-  const e = Number.parseFloat(line.slice(69, 79))
-  const a = Number.parseFloat(line.slice(92, 103))
+  if (line.length < 103) {
+    return null;
+  }
+  const h = Number.parseFloat(line.slice(8, 13));
+  const m0 = Number.parseFloat(line.slice(26, 35));
+  const argPeri = Number.parseFloat(line.slice(37, 46));
+  const node = Number.parseFloat(line.slice(48, 57));
+  const inc = Number.parseFloat(line.slice(59, 68));
+  const e = Number.parseFloat(line.slice(69, 79));
+  const a = Number.parseFloat(line.slice(92, 103));
 
-  if (![m0, argPeri, node, inc, e, a].every(Number.isFinite)) return null
-  if (a <= 0 || e < 0 || e >= 1) return null
+  if (![m0, argPeri, node, inc, e, a].every(Number.isFinite)) {
+    return null;
+  }
+  if (a <= 0 || e < 0 || e >= 1) {
+    return null;
+  }
 
   // Readable designation sits in a fixed field near the end of the record.
-  let name = line.slice(166, 194).trim()
-  if (!name) name = line.slice(0, 7).trim()
+  let name = line.slice(166, 194).trim();
+  if (!name) {
+    name = line.slice(0, 7).trim();
+  }
   // "(1) Ceres" -> "Ceres"; bare provisional designations keep their form.
-  const paren = /^\((\d+)\)\s*(.*)$/.exec(name)
-  if (paren) name = paren[2]!.trim() || `(${paren[1]})`
+  const paren = /^\((\d+)\)\s*(.*)$/.exec(name);
+  if (paren) {
+    name = paren[2].trim() || `(${paren[1]})`;
+  }
 
   return {
     name,
@@ -2263,75 +2592,88 @@ function parseMpcLine(line: string): SmallBody | null {
     m0,
     epoch: unpackEpoch(line.slice(20, 25)),
     group: classify(a, e),
-  }
+  };
 }
 
 /** Keep the brightest (hence largest) N per dynamical family. */
 function topPerGroup(bodies: SmallBody[], quotas: Record<string, number>): SmallBody[] {
-  const byGroup = new Map<string, SmallBody[]>()
+  const byGroup = new Map<string, SmallBody[]>();
   for (const b of bodies) {
-    const list = byGroup.get(b.group)
-    if (list) list.push(b)
-    else byGroup.set(b.group, [b])
+    const list = byGroup.get(b.group);
+    if (list) {
+      list.push(b);
+    } else {
+      byGroup.set(b.group, [b]);
+    }
   }
-  const out: SmallBody[] = []
+  const out: SmallBody[] = [];
   for (const [group, list] of byGroup) {
-    const quota = quotas[group] ?? 0
-    if (quota <= 0) continue
-    list.sort((x, y) => x.h - y.h)
-    out.push(...list.slice(0, quota))
+    const quota = quotas[group] ?? 0;
+    if (quota <= 0) {
+      continue;
+    }
+    list.sort((x, y) => x.h - y.h);
+    out.push(...list.slice(0, quota));
   }
-  out.sort((x, y) => x.h - y.h)
-  return out
+  out.sort((x, y) => x.h - y.h);
+  return out;
 }
 
 async function buildSmallBodyData(): Promise<SmallBody[] | null> {
-  const distantPath = path.join(CACHE, 'Distant.txt')
-  const mpcorbPath = path.join(CACHE, 'MPCORB.DAT.gz')
+  const distantPath = path.join(CACHE, 'Distant.txt');
+  const mpcorbPath = path.join(CACHE, 'MPCORB.DAT.gz');
 
   const gotDistant = await download(
     'https://www.minorplanetcenter.net/iau/MPCORB/Distant.txt',
     distantPath,
     'MPC Distant.txt (TNOs, Centaurs)',
-  )
+  );
   const gotMpcorb = await download(
     'https://www.minorplanetcenter.net/iau/MPCORB/MPCORB.DAT.gz',
     mpcorbPath,
     'MPC MPCORB.DAT.gz (main belt)',
-  )
-  if (!gotDistant && !gotMpcorb) return null
+  );
+  if (!gotDistant && !gotMpcorb) {
+    return null;
+  }
 
-  const all: SmallBody[] = []
+  const all: SmallBody[] = [];
 
   if (gotDistant) {
-    const text = await fs.readFile(distantPath, 'utf8')
+    const text = await fs.readFile(distantPath, 'utf8');
     for (const line of text.split('\n')) {
-      const b = parseMpcLine(line)
-      if (b) all.push(b)
+      const b = parseMpcLine(line);
+      if (b) {
+        all.push(b);
+      }
     }
-    console.log(`  ${C.dim('parsed ')} ${all.length} distant objects`)
+    console.log(`  ${C.dim('parsed ')} ${all.length} distant objects`);
   }
 
   if (gotMpcorb) {
-    const before = all.length
+    const before = all.length;
     // ~315 MB decompressed, 1.5 M records: stream it and keep only the bright
     // end, which is all we render individually.
     const rl = createInterface({
       input: createReadStream(mpcorbPath).pipe(createGunzip()),
       crlfDelay: Infinity,
-    })
+    });
     for await (const line of rl) {
-      const b = parseMpcLine(line)
-      if (b && b.h <= 11.5) all.push(b)
+      const b = parseMpcLine(line);
+      if (b && b.h <= 11.5) {
+        all.push(b);
+      }
     }
-    console.log(`  ${C.dim('parsed ')} ${all.length - before} bright MPCORB objects`)
+    console.log(`  ${C.dim('parsed ')} ${all.length - before} bright MPCORB objects`);
   }
 
   // Distant.txt and MPCORB overlap on the TNOs; keep the brighter entry.
-  const byName = new Map<string, SmallBody>()
+  const byName = new Map<string, SmallBody>();
   for (const b of all) {
-    const prev = byName.get(b.name)
-    if (!prev || b.h < prev.h) byName.set(b.name, b)
+    const prev = byName.get(b.name);
+    if (!prev || b.h < prev.h) {
+      byName.set(b.name, b);
+    }
   }
 
   return topPerGroup([...byName.values()], {
@@ -2347,7 +2689,7 @@ async function buildSmallBodyData(): Promise<SmallBody[] | null> {
     'classical-kbo': 26,
     scattered: 22,
     detached: 10,
-  })
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -2365,7 +2707,7 @@ async function buildSmallBodyData(): Promise<SmallBody[] | null> {
 // binary is caught by a mismatch rather than by a garbled sky.
 // ---------------------------------------------------------------------------
 
-const HIPPARCOS_URL = 'https://cdsarc.cds.unistra.fr/ftp/I/239/hip_main.dat'
+const HIPPARCOS_URL = 'https://cdsarc.cds.unistra.fr/ftp/I/239/hip_main.dat';
 
 /**
  * Faintest star to store.
@@ -2377,23 +2719,23 @@ const HIPPARCOS_URL = 'https://cdsarc.cds.unistra.fr/ftp/I/239/hip_main.dat'
  * switched from Hipparcos to Tycho when building that texture, so the two
  * layers meet where the source data does.
  */
-const STAR_MAG_LIMIT = 8.0
+const STAR_MAG_LIMIT = 8.0;
 
 /** Catalogue epoch of the Hipparcos astrometry; positions are propagated to J2000. */
-const HIPPARCOS_EPOCH = 1991.25
+const HIPPARCOS_EPOCH = 1991.25;
 
-const STAR_FILE = 'stars.bin'
-const STAR_MAGIC = 0x52545341 // 'ASTR' little-endian
+const STAR_FILE = 'stars.bin';
+const STAR_MAGIC = 0x52545341; // 'ASTR' little-endian
 
 interface Star {
   /** Right ascension and declination at J2000.0, radians. */
-  ra: number
-  dec: number
+  ra: number;
+  dec: number;
   /** Proper motion, mas/yr; pmRA already carries the cos(dec) factor. */
-  pmRA: number
-  pmDec: number
-  vmag: number
-  rgb: [number, number, number]
+  pmRA: number;
+  pmDec: number;
+  vmag: number;
+  rgb: [number, number, number];
 }
 
 /**
@@ -2405,8 +2747,8 @@ interface Star {
  * unphysical.
  */
 function temperatureFromBV(bv: number): number {
-  const c = Math.max(-0.4, Math.min(2.0, bv))
-  return 4600 * (1 / (0.92 * c + 1.7) + 1 / (0.92 * c + 0.62))
+  const c = Math.max(-0.4, Math.min(2.0, bv));
+  return 4600 * (1 / (0.92 * c + 1.7) + 1 / (0.92 * c + 0.62));
 }
 
 /**
@@ -2420,114 +2762,122 @@ function temperatureFromBV(bv: number): number {
  */
 function colourFromTemperature(kelvin: number): [number, number, number] {
   const lobe = (x: number, mu: number, s1: number, s2: number): number => {
-    const t = (x - mu) / (x < mu ? s1 : s2)
-    return Math.exp(-0.5 * t * t)
-  }
-  let X = 0
-  let Y = 0
-  let Z = 0
+    const t = (x - mu) / (x < mu ? s1 : s2);
+    return Math.exp(-0.5 * t * t);
+  };
+  let X = 0;
+  let Y = 0;
+  let Z = 0;
   for (let nm = 360; nm <= 830; nm += 2) {
-    const l = nm * 1e-9
+    const l = nm * 1e-9;
     // Planck's law, spectral radiance per wavelength. The leading constants
     // cancel in the normalisation below, but are kept so the units are real.
-    const planck = 3.7417718e-16 / (l ** 5 * (Math.exp(1.4387769e-2 / (l * kelvin)) - 1))
+    const planck = 3.7417718e-16 / (l ** 5 * (Math.exp(1.4387769e-2 / (l * kelvin)) - 1));
     X +=
       planck *
       (1.056 * lobe(nm, 599.8, 37.9, 31.0) +
         0.362 * lobe(nm, 442.0, 16.0, 26.7) -
-        0.065 * lobe(nm, 501.1, 20.4, 26.2))
-    Y += planck * (0.821 * lobe(nm, 568.8, 46.9, 40.5) + 0.286 * lobe(nm, 530.9, 16.3, 31.1))
-    Z += planck * (1.217 * lobe(nm, 437.0, 11.8, 36.0) + 0.681 * lobe(nm, 459.0, 26.0, 13.8))
+        0.065 * lobe(nm, 501.1, 20.4, 26.2));
+    Y += planck * (0.821 * lobe(nm, 568.8, 46.9, 40.5) + 0.286 * lobe(nm, 530.9, 16.3, 31.1));
+    Z += planck * (1.217 * lobe(nm, 437.0, 11.8, 36.0) + 0.681 * lobe(nm, 459.0, 26.0, 13.8));
   }
-  const sum = X + Y + Z || 1
-  X /= sum
-  Y /= sum
-  Z /= sum
+  const sum = X + Y + Z || 1;
+  X /= sum;
+  Y /= sum;
+  Z /= sum;
 
   // XYZ -> linear sRGB (IEC 61966-2-1, D65).
   const linear = [
     3.2404542 * X - 1.5371385 * Y - 0.4985314 * Z,
     -0.969266 * X + 1.8760108 * Y + 0.041556 * Z,
     0.0556434 * X - 0.2040259 * Y + 1.0572252 * Z,
-  ].map((c) => Math.max(0, c))
+  ].map((c) => Math.max(0, c));
 
   // Store chromaticity only, normalised so the strongest channel is full. How
   // *bright* the star is comes from its magnitude, and the renderer divides
   // this colour by its own luminance so the two never fight.
-  const peak = Math.max(linear[0]!, linear[1]!, linear[2]!) || 1
+  const peak = Math.max(linear[0], linear[1], linear[2]) || 1;
   return linear.map((c) => {
-    const u = Math.max(0, Math.min(1, c / peak))
-    const encoded = u <= 0.0031308 ? 12.92 * u : 1.055 * Math.pow(u, 1 / 2.4) - 0.055
-    return Math.round(255 * encoded)
-  }) as [number, number, number]
+    const u = Math.max(0, Math.min(1, c / peak));
+    const encoded = u <= 0.0031308 ? 12.92 * u : 1.055 * Math.pow(u, 1 / 2.4) - 0.055;
+    return Math.round(255 * encoded);
+  }) as [number, number, number];
 }
 
 async function buildStarCatalogue(): Promise<Star[] | null> {
-  const dest = path.join(CACHE, 'hip_main.dat')
-  if (!(await download(HIPPARCOS_URL, dest, 'Hipparcos main catalogue (I/239)'))) return null
-  const text = await fs.readFile(dest, 'utf8')
+  const dest = path.join(CACHE, 'hip_main.dat');
+  if (!(await download(HIPPARCOS_URL, dest, 'Hipparcos main catalogue (I/239)'))) {
+    return null;
+  }
+  const text = await fs.readFile(dest, 'utf8');
 
-  const DEG = Math.PI / 180
-  const MAS = (1 / 3_600_000) * DEG
+  const DEG = Math.PI / 180;
+  const MAS = (1 / 3_600_000) * DEG;
   // Hipparcos positions are given for 1991.25; everything else in Aphelion is
   // J2000, so the astrometry is propagated forward once, here.
-  const toJ2000 = 2000.0 - HIPPARCOS_EPOCH
+  const toJ2000 = 2000.0 - HIPPARCOS_EPOCH;
 
-  const stars: Star[] = []
-  let skipped = 0
+  const stars: Star[] = [];
+  let skipped = 0;
   for (const line of text.split('\n')) {
     // Fixed columns, per the catalogue ReadMe: Vmag H5, RAdeg H8, DEdeg H9,
     // pmRA H12, pmDE H13, B-V H37.
-    if (line.length < 251) continue
-    const vmag = Number(line.slice(41, 46))
-    const raDeg = Number(line.slice(51, 63))
-    const decDeg = Number(line.slice(64, 76))
+    if (line.length < 251) {
+      continue;
+    }
+    const vmag = Number(line.slice(41, 46));
+    const raDeg = Number(line.slice(51, 63));
+    const decDeg = Number(line.slice(64, 76));
     if (!Number.isFinite(vmag) || !Number.isFinite(raDeg) || !Number.isFinite(decDeg)) {
-      skipped++
-      continue
+      skipped++;
+      continue;
     }
     if (line.slice(51, 63).trim() === '' || line.slice(41, 46).trim() === '') {
-      skipped++
-      continue
+      skipped++;
+      continue;
     }
-    if (vmag > STAR_MAG_LIMIT) continue
+    if (vmag > STAR_MAG_LIMIT) {
+      continue;
+    }
 
-    const pmRA = Number(line.slice(87, 95)) || 0
-    const pmDec = Number(line.slice(96, 104)) || 0
-    const bvRaw = line.slice(245, 251).trim()
+    const pmRA = Number(line.slice(87, 95)) || 0;
+    const pmDec = Number(line.slice(96, 104)) || 0;
+    const bvRaw = line.slice(245, 251).trim();
     // A star with no measured colour is almost always a faint one; A0 (B-V = 0)
     // is the least committal guess and reads as plain white.
-    const bv = bvRaw === '' ? 0 : Number(bvRaw)
+    const bv = bvRaw === '' ? 0 : Number(bvRaw);
 
     // Propagate as a vector rather than by adding to RA and dividing by cos(dec):
     // Polaris sits at dec 89.26, where that division amplifies its 44 mas/yr into
     // nonsense, and the vector form is singular nowhere.
-    const ra = raDeg * DEG
-    const dec = decDeg * DEG
-    const cd = Math.cos(dec)
-    const sd = Math.sin(dec)
-    const ca = Math.cos(ra)
-    const sa = Math.sin(ra)
+    const ra = raDeg * DEG;
+    const dec = decDeg * DEG;
+    const cd = Math.cos(dec);
+    const sd = Math.sin(dec);
+    const ca = Math.cos(ra);
+    const sa = Math.sin(ra);
     // East and north unit vectors at the star, in equatorial coordinates.
-    const east = [-sa, ca, 0]
-    const north = [-sd * ca, -sd * sa, cd]
+    const east = [-sa, ca, 0];
+    const north = [-sd * ca, -sd * sa, cd];
     const p = [cd * ca, cd * sa, sd].map(
-      (c, i) => c + (pmRA * east[i]! + pmDec * north[i]!) * MAS * toJ2000,
-    )
-    const len = Math.hypot(p[0]!, p[1]!, p[2]!) || 1
+      (c, i) => c + (pmRA * east[i] + pmDec * north[i]) * MAS * toJ2000,
+    );
+    const len = Math.hypot(p[0], p[1], p[2]) || 1;
 
     stars.push({
-      ra: Math.atan2(p[1]!, p[0]!),
-      dec: Math.asin(Math.max(-1, Math.min(1, p[2]! / len))),
+      ra: Math.atan2(p[1], p[0]),
+      dec: Math.asin(Math.max(-1, Math.min(1, p[2] / len))),
       pmRA,
       pmDec,
       vmag,
       rgb: colourFromTemperature(temperatureFromBV(Number.isFinite(bv) ? bv : 0)),
-    })
+    });
   }
 
-  if (skipped) console.log(`  ${C.dim('skip   ')} ${skipped} rows without usable astrometry`)
-  return stars.length ? stars : null
+  if (skipped) {
+    console.log(`  ${C.dim('skip   ')} ${skipped} rows without usable astrometry`);
+  }
+  return stars.length > 0 ? stars : null;
 }
 
 /**
@@ -2538,49 +2888,57 @@ async function buildStarCatalogue(): Promise<Star[] | null> {
  * keeps the 2-byte blocks aligned.
  */
 async function writeStarCatalogue(stars: Star[]): Promise<void> {
-  const n = stars.length
-  const HEADER = 16
-  const bytes = HEADER + n * 2 + n * 2 + n * 4 + n * 2 + n * 3
-  const buf = Buffer.alloc(bytes)
+  const n = stars.length;
+  const HEADER = 16;
+  const bytes = HEADER + n * 2 + n * 2 + n * 4 + n * 2 + n * 3;
+  const buf = Buffer.alloc(bytes);
 
-  buf.writeUInt32LE(STAR_MAGIC, 0)
-  buf.writeUInt32LE(1, 4) // format version
-  buf.writeUInt32LE(n, 8)
-  buf.writeFloatLE(STAR_MAG_LIMIT, 12)
+  buf.writeUInt32LE(STAR_MAGIC, 0);
+  buf.writeUInt32LE(1, 4); // format version
+  buf.writeUInt32LE(n, 8);
+  buf.writeFloatLE(STAR_MAG_LIMIT, 12);
 
-  let o = HEADER
-  const raAt = o
-  o += n * 2
-  const decAt = o
-  o += n * 2
-  const pmAt = o
-  o += n * 4
-  const magAt = o
-  o += n * 2
-  const rgbAt = o
+  let o = HEADER;
+  const raAt = o;
+  o += n * 2;
+  const decAt = o;
+  o += n * 2;
+  const pmAt = o;
+  o += n * 4;
+  const magAt = o;
+  o += n * 2;
+  const rgbAt = o;
 
-  const TWO_PI = Math.PI * 2
+  const TWO_PI = Math.PI * 2;
   for (let i = 0; i < n; i++) {
-    const s = stars[i]!
+    const s = stars[i];
     // RA spans a full turn, so it uses the whole unsigned range; dec spans half
     // a turn about zero, so it uses the signed one. Both quantise to under
     // 20 arcsec, a fifth of a pixel at this field of view.
-    buf.writeUInt16LE(Math.round((((s.ra % TWO_PI) + TWO_PI) % TWO_PI) / TWO_PI * 65536) % 65536, raAt + i * 2)
-    buf.writeInt16LE(Math.max(-32767, Math.min(32767, Math.round((s.dec / (Math.PI / 2)) * 32767))), decAt + i * 2)
-    const clampPm = (v: number) => Math.max(-32767, Math.min(32767, Math.round(v)))
-    buf.writeInt16LE(clampPm(s.pmRA), pmAt + i * 4)
-    buf.writeInt16LE(clampPm(s.pmDec), pmAt + i * 4 + 2)
-    buf.writeInt16LE(Math.max(-32767, Math.min(32767, Math.round(s.vmag * 1000))), magAt + i * 2)
-    buf[rgbAt + i * 3] = s.rgb[0]
-    buf[rgbAt + i * 3 + 1] = s.rgb[1]
-    buf[rgbAt + i * 3 + 2] = s.rgb[2]
+    buf.writeUInt16LE(
+      Math.round(((((s.ra % TWO_PI) + TWO_PI) % TWO_PI) / TWO_PI) * 65536) % 65536,
+      raAt + i * 2,
+    );
+    buf.writeInt16LE(
+      Math.max(-32767, Math.min(32767, Math.round((s.dec / (Math.PI / 2)) * 32767))),
+      decAt + i * 2,
+    );
+    const clampPm = (v: number) => Math.max(-32767, Math.min(32767, Math.round(v)));
+    buf.writeInt16LE(clampPm(s.pmRA), pmAt + i * 4);
+    buf.writeInt16LE(clampPm(s.pmDec), pmAt + i * 4 + 2);
+    buf.writeInt16LE(Math.max(-32767, Math.min(32767, Math.round(s.vmag * 1000))), magAt + i * 2);
+    buf[rgbAt + i * 3] = s.rgb[0];
+    buf[rgbAt + i * 3 + 1] = s.rgb[1];
+    buf[rgbAt + i * 3 + 2] = s.rgb[2];
   }
 
-  await fs.mkdir(SKY, { recursive: true })
-  await fs.writeFile(path.join(SKY, STAR_FILE), buf)
-  console.log(`  ${C.green('wrote  ')} public/sky/${STAR_FILE} ${C.dim(`(${n} stars, ${mb(bytes)})`)}`)
+  await fs.mkdir(SKY, { recursive: true });
+  await fs.writeFile(path.join(SKY, STAR_FILE), buf);
+  console.log(
+    `  ${C.green('wrote  ')} public/sky/${STAR_FILE} ${C.dim(`(${n} stars, ${mb(bytes)})`)}`,
+  );
 
-  const brightest = [...stars].sort((a, b) => a.vmag - b.vmag)[0]!
+  const brightest = [...stars].sort((a, b) => a.vmag - b.vmag)[0];
   const src = `/**
  * GENERATED by scripts/fetch-assets.ts -- do not edit by hand.
  *
@@ -2617,12 +2975,12 @@ export const STAR_CATALOGUE = {
   magic: ${STAR_MAGIC},
   version: 1,
 } as const
-`
-  await fs.mkdir(GENERATED, { recursive: true })
-  await fs.writeFile(path.join(GENERATED, 'stars.ts'), src)
+`;
+  await fs.mkdir(GENERATED, { recursive: true });
+  await fs.writeFile(path.join(GENERATED, 'stars.ts'), src);
   console.log(
     `  ${C.green('wrote  ')} src/data/generated/stars.ts ${C.dim(`(brightest V ${brightest.vmag.toFixed(2)})`)}`,
-  )
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -2630,16 +2988,18 @@ export const STAR_CATALOGUE = {
 // ---------------------------------------------------------------------------
 
 const r6 = (n: number): string => {
-  const v = Number(n.toFixed(6))
-  return Object.is(v, -0) ? '0' : String(v)
-}
-const orNull = (n: number | null): string => (n === null ? 'null' : r6(n))
+  const v = Number(n.toFixed(6));
+  return Object.is(v, -0) ? '0' : String(v);
+};
+const orNull = (n: number | null): string => (n === null ? 'null' : r6(n));
 
 async function writeSatelliteModule(records: SatelliteRecord[]): Promise<void> {
-  const byPlanet = new Map<string, number>()
-  for (const r of records) byPlanet.set(r.planet, (byPlanet.get(r.planet) ?? 0) + 1)
-  const summary = [...byPlanet.entries()].map(([p, n]) => `${p} ${n}`).join(', ')
-  const estimated = records.filter((r) => r.radiusEstimated).length
+  const byPlanet = new Map<string, number>();
+  for (const r of records) {
+    byPlanet.set(r.planet, (byPlanet.get(r.planet) ?? 0) + 1);
+  }
+  const summary = [...byPlanet.entries()].map(([p, n]) => `${p} ${n}`).join(', ');
+  const estimated = records.filter((r) => r.radiusEstimated).length;
 
   const lines = records.map((r) => {
     const fields = [
@@ -2663,9 +3023,9 @@ async function writeSatelliteModule(records: SatelliteRecord[]): Promise<void> {
       `radiusEstimated: ${r.radiusEstimated}`,
       `gm: ${orNull(r.gm)}`,
       `density: ${orNull(r.density)}`,
-    ]
-    return `  { ${fields.join(', ')} },`
-  })
+    ];
+    return `  { ${fields.join(', ')} },`;
+  });
 
   const src = `/**
  * GENERATED by scripts/fetch-assets.ts -- do not edit by hand.
@@ -2724,21 +3084,23 @@ export interface SatelliteData {
 export const SATELLITES: readonly SatelliteData[] = [
 ${lines.join('\n')}
 ]
-`
-  await fs.mkdir(GENERATED, { recursive: true })
-  await fs.writeFile(path.join(GENERATED, 'satellites.ts'), src)
+`;
+  await fs.mkdir(GENERATED, { recursive: true });
+  await fs.writeFile(path.join(GENERATED, 'satellites.ts'), src);
   console.log(
     `  ${C.green('wrote  ')} src/data/generated/satellites.ts ${C.dim(`(${records.length} moons, ${estimated} estimated radii)`)}`,
-  )
+  );
 }
 
 async function writeSmallBodyModule(bodies: SmallBody[]): Promise<void> {
-  const byGroup = new Map<string, number>()
-  for (const b of bodies) byGroup.set(b.group, (byGroup.get(b.group) ?? 0) + 1)
+  const byGroup = new Map<string, number>();
+  for (const b of bodies) {
+    byGroup.set(b.group, (byGroup.get(b.group) ?? 0) + 1);
+  }
   const summary = [...byGroup.entries()]
     .sort((a, b) => b[1] - a[1])
     .map(([g, n]) => `${g} ${n}`)
-    .join(', ')
+    .join(', ');
 
   const lines = bodies.map(
     (b) =>
@@ -2747,7 +3109,7 @@ async function writeSmallBodyModule(bodies: SmallBody[]): Promise<void> {
       )}, node: ${r6(b.node)}, argPeri: ${r6(b.argPeri)}, m0: ${r6(b.m0)}, epoch: ${r6(
         b.epoch,
       )}, group: ${JSON.stringify(b.group)} },`,
-  )
+  );
 
   const src = `/**
  * GENERATED by scripts/fetch-assets.ts -- do not edit by hand.
@@ -2787,21 +3149,21 @@ export interface SmallBodyData {
 export const SMALL_BODIES: readonly SmallBodyData[] = [
 ${lines.join('\n')}
 ]
-`
-  await fs.mkdir(GENERATED, { recursive: true })
-  await fs.writeFile(path.join(GENERATED, 'smallbodies.ts'), src)
+`;
+  await fs.mkdir(GENERATED, { recursive: true });
+  await fs.writeFile(path.join(GENERATED, 'smallbodies.ts'), src);
   console.log(
     `  ${C.green('wrote  ')} src/data/generated/smallbodies.ts ${C.dim(`(${bodies.length} bodies)`)}`,
-  )
+  );
 }
 
 /** Lets the app know which textures actually made it onto disk. */
 async function writeManifest(): Promise<void> {
-  let names: string[] = []
+  let names: string[] = [];
   try {
-    names = (await fs.readdir(TEXTURES)).filter((f) => /\.(jpg|png|webp)$/i.test(f)).sort()
+    names = (await fs.readdir(TEXTURES)).filter((f) => /\.(jpg|png|webp)$/i.test(f)).sort();
   } catch {
-    names = []
+    names = [];
   }
   const src = `/**
  * GENERATED by scripts/fetch-assets.ts -- do not edit by hand.
@@ -2814,10 +3176,12 @@ async function writeManifest(): Promise<void> {
 export const AVAILABLE_TEXTURES: ReadonlySet<string> = new Set(${JSON.stringify(names, null, 2)})
 
 export const hasTexture = (file: string): boolean => AVAILABLE_TEXTURES.has(file)
-`
-  await fs.mkdir(GENERATED, { recursive: true })
-  await fs.writeFile(path.join(GENERATED, 'textures.ts'), src)
-  console.log(`  ${C.green('wrote  ')} src/data/generated/textures.ts ${C.dim(`(${names.length} textures)`)}`)
+`;
+  await fs.mkdir(GENERATED, { recursive: true });
+  await fs.writeFile(path.join(GENERATED, 'textures.ts'), src);
+  console.log(
+    `  ${C.green('wrote  ')} src/data/generated/textures.ts ${C.dim(`(${names.length} textures)`)}`,
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -2825,195 +3189,217 @@ export const hasTexture = (file: string): boolean => AVAILABLE_TEXTURES.has(file
 // ---------------------------------------------------------------------------
 
 async function main(): Promise<void> {
-  console.log(C.bold('\nAphelion asset pipeline'))
+  console.log(C.bold('\nAphelion asset pipeline'));
 
-  await fs.mkdir(CACHE, { recursive: true })
-  await fs.mkdir(TEXTURES, { recursive: true })
+  await fs.mkdir(CACHE, { recursive: true });
+  await fs.mkdir(TEXTURES, { recursive: true });
 
   if (manifestOnly) {
-    step('Texture manifest')
-    await writeManifest()
-    console.log('')
-    return
+    step('Texture manifest');
+    await writeManifest();
+    console.log('');
+    return;
   }
 
-  console.log(C.dim(`tier=${tier}  usgs=${skipUsgs ? 'skipped' : 'on'}`))
-  const failures: string[] = []
+  console.log(C.dim(`tier=${tier}  usgs=${skipUsgs ? 'skipped' : 'on'}`));
+  const failures: string[] = [];
 
   if (doTextures) {
-    step('Solar System Scope planetary maps (CC BY 4.0)')
+    step('Solar System Scope planetary maps (CC BY 4.0)');
     for (const spec of sssTextures()) {
-      const outPath = path.join(TEXTURES, spec.out)
+      const outPath = path.join(TEXTURES, spec.out);
       if (await exists(outPath)) {
-        console.log(`  ${C.dim('have   ')} ${spec.out}`)
-        continue
+        console.log(`  ${C.dim('have   ')} ${spec.out}`);
+        continue;
       }
-      let done = false
+      let done = false;
       for (const cand of spec.candidates) {
-        const cachePath = path.join(CACHE, cand)
-        if (!(await download(SSS_BASE + cand, cachePath, cand))) continue
-        if (/\.tif$/i.test(cand)) {
-          queueConvert(cachePath, outPath, spec.convertTo ?? 4096)
-        } else {
-          await fs.copyFile(cachePath, outPath)
+        const cachePath = path.join(CACHE, cand);
+        if (!(await download(SSS_BASE + cand, cachePath, cand))) {
+          continue;
         }
-        done = true
-        break
+        if (/\.tif$/i.test(cand)) {
+          queueConvert(cachePath, outPath, spec.convertTo ?? 4096);
+        } else {
+          await fs.copyFile(cachePath, outPath);
+        }
+        done = true;
+        break;
       }
-      if (!done) failures.push(spec.out)
+      if (!done) {
+        failures.push(spec.out);
+      }
     }
 
-    step('NASA SVS Deep Star Maps 2020 (public domain)')
+    step('NASA SVS Deep Star Maps 2020 (public domain)');
     for (const spec of skyTextures()) {
-      const outPath = path.join(TEXTURES, spec.out)
+      const outPath = path.join(TEXTURES, spec.out);
       if (await exists(outPath)) {
-        console.log(`  ${C.dim('have   ')} ${spec.out}`)
-        continue
+        console.log(`  ${C.dim('have   ')} ${spec.out}`);
+        continue;
       }
-      const cachePath = path.join(CACHE, spec.source)
+      const cachePath = path.join(CACHE, spec.source);
       if (!(await download(SVS_BASE + spec.source, cachePath, `${spec.out} ${C.dim(spec.note)}`))) {
-        failures.push(spec.out)
-        continue
+        failures.push(spec.out);
+        continue;
       }
       // Mirrored, because right ascension runs the other way on this product.
-      queueConvert(cachePath, outPath, spec.maxDim, '', true)
+      queueConvert(cachePath, outPath, spec.maxDim, '', true);
     }
 
-    if (!skipUsgs) {
-      step('USGS Astrogeology global mosaics (public domain)')
-      console.log(C.dim('  large source GeoTIFFs, downsampled to 4k during conversion'))
-      for (const spec of USGS) {
-        const outPath = path.join(TEXTURES, spec.out)
-        if (await exists(outPath)) {
-          console.log(`  ${C.dim('have   ')} ${spec.out}`)
-          continue
-        }
-        const cachePath = path.join(CACHE, path.basename(spec.url))
-        if (!(await download(spec.url, cachePath, `${spec.out} ${C.dim(spec.note)}`))) {
-          failures.push(spec.out)
-          continue
-        }
-        queueConvert(cachePath, outPath, spec.maxDim, spec.roll)
-      }
+    if (skipUsgs) {
+      step('USGS mosaics -- skipped (--skip-usgs)');
     } else {
-      step('USGS mosaics -- skipped (--skip-usgs)')
+      step('USGS Astrogeology global mosaics (public domain)');
+      console.log(C.dim('  large source GeoTIFFs, downsampled to 4k during conversion'));
+      for (const spec of USGS) {
+        const outPath = path.join(TEXTURES, spec.out);
+        if (await exists(outPath)) {
+          console.log(`  ${C.dim('have   ')} ${spec.out}`);
+          continue;
+        }
+        const cachePath = path.join(CACHE, path.basename(spec.url));
+        if (!(await download(spec.url, cachePath, `${spec.out} ${C.dim(spec.note)}`))) {
+          failures.push(spec.out);
+          continue;
+        }
+        queueConvert(cachePath, outPath, spec.maxDim, spec.roll);
+      }
     }
 
-    step('USGS Astropedia mosaics (public domain)')
+    step('USGS Astropedia mosaics (public domain)');
     for (const spec of ASTROPEDIA) {
-      const outPath = path.join(TEXTURES, spec.out)
+      const outPath = path.join(TEXTURES, spec.out);
       if (await exists(outPath)) {
-        console.log(`  ${C.dim('have   ')} ${spec.out}`)
-        continue
+        console.log(`  ${C.dim('have   ')} ${spec.out}`);
+        continue;
       }
-      const url = await astropediaImageUrl(spec)
+      const url = await astropediaImageUrl(spec);
       if (!url) {
-        failures.push(spec.out)
-        continue
+        failures.push(spec.out);
+        continue;
       }
-      const cachePath = path.join(CACHE, `astropedia-${spec.out}`)
+      const cachePath = path.join(CACHE, `astropedia-${spec.out}`);
       if (!(await download(url, cachePath, `${spec.out} ${C.dim(spec.note)}`))) {
-        failures.push(spec.out)
-        continue
+        failures.push(spec.out);
+        continue;
       }
       // These arrive as browse JPEGs at sane sizes, so no conversion is needed.
-      await fs.copyFile(cachePath, outPath)
+      await fs.copyFile(cachePath, outPath);
     }
 
-    step('PDS FITS mosaics (public domain)')
+    step('PDS FITS mosaics (public domain)');
     for (const spec of FITS_MOSAICS) {
-      const outPath = path.join(TEXTURES, spec.out)
+      const outPath = path.join(TEXTURES, spec.out);
       if (await exists(outPath)) {
-        console.log(`  ${C.dim('have   ')} ${spec.out}`)
-        continue
+        console.log(`  ${C.dim('have   ')} ${spec.out}`);
+        continue;
       }
-      if (!(await buildFitsMosaic(spec))) failures.push(spec.out)
+      if (!(await buildFitsMosaic(spec))) {
+        failures.push(spec.out);
+      }
     }
 
-    step('USGS lithographed photomosaics (public domain)')
+    step('USGS lithographed photomosaics (public domain)');
     for (const spec of LITHO_MOSAICS) {
-      const outPath = path.join(TEXTURES, spec.out)
+      const outPath = path.join(TEXTURES, spec.out);
       if (await exists(outPath)) {
-        console.log(`  ${C.dim('have   ')} ${spec.out}`)
-        continue
+        console.log(`  ${C.dim('have   ')} ${spec.out}`);
+        continue;
       }
-      if (!(await buildLithoMosaic(spec))) failures.push(spec.out)
+      if (!(await buildLithoMosaic(spec))) {
+        failures.push(spec.out);
+      }
     }
   }
 
   if (doRelief) {
-    step('Global topography (public domain)')
-    const relief: ReliefResult[] = []
+    step('Global topography (public domain)');
+    const relief: ReliefResult[] = [];
     for (const spec of RELIEF) {
-      const result = await buildRelief(spec)
-      if (result) relief.push(result)
-      else failures.push(spec.out)
+      const result = await buildRelief(spec);
+      if (result) {
+        relief.push(result);
+      } else {
+        failures.push(spec.out);
+      }
     }
     for (const spec of GRIDDED_TOPO) {
-      const result = await buildGriddedTopo(spec)
-      if (result) relief.push(result)
-      else failures.push(spec.out)
+      const result = await buildGriddedTopo(spec);
+      if (result) {
+        relief.push(result);
+      } else {
+        failures.push(spec.out);
+      }
     }
     for (const spec of SHAPE_MODELS) {
-      const result = await buildShapeModel(spec)
-      if (result) relief.push(result)
-      else failures.push(spec.out)
+      const result = await buildShapeModel(spec);
+      if (result) {
+        relief.push(result);
+      } else {
+        failures.push(spec.out);
+      }
     }
     // Rewrite only on a complete run: the module mirrors the tables exactly, so
     // publishing a partial set would silently drop maps that are still on disk.
-    if (relief.length === RELIEF.length + GRIDDED_TOPO.length + SHAPE_MODELS.length)
-      await writeReliefModule(relief)
-    else console.log(C.yellow('  incomplete; existing relief module left in place'))
+    if (relief.length === RELIEF.length + GRIDDED_TOPO.length + SHAPE_MODELS.length) {
+      await writeReliefModule(relief);
+    } else {
+      console.log(C.yellow('  incomplete; existing relief module left in place'));
+    }
   }
 
   if (doData) {
-    step('JPL satellite ephemerides')
-    const sats = await buildSatelliteData()
-    if (sats && sats.length) await writeSatelliteModule(sats)
-    else {
-      console.log(C.yellow('  could not build satellite data; existing module left in place'))
-      failures.push('satellites.ts')
+    step('JPL satellite ephemerides');
+    const sats = await buildSatelliteData();
+    if (sats && sats.length > 0) {
+      await writeSatelliteModule(sats);
+    } else {
+      console.log(C.yellow('  could not build satellite data; existing module left in place'));
+      failures.push('satellites.ts');
     }
 
-    step('Minor Planet Center orbit catalogues')
-    const bodies = await buildSmallBodyData()
-    if (bodies && bodies.length) await writeSmallBodyModule(bodies)
-    else {
-      console.log(C.yellow('  could not build small-body data; existing module left in place'))
-      failures.push('smallbodies.ts')
+    step('Minor Planet Center orbit catalogues');
+    const bodies = await buildSmallBodyData();
+    if (bodies && bodies.length > 0) {
+      await writeSmallBodyModule(bodies);
+    } else {
+      console.log(C.yellow('  could not build small-body data; existing module left in place'));
+      failures.push('smallbodies.ts');
     }
 
-    step('Hipparcos star catalogue (ESA 1997)')
-    const stars = await buildStarCatalogue()
-    if (stars) await writeStarCatalogue(stars)
-    else {
-      console.log(C.yellow('  could not build the star catalogue; existing files left in place'))
-      failures.push('stars.bin')
+    step('Hipparcos star catalogue (ESA 1997)');
+    const stars = await buildStarCatalogue();
+    if (stars) {
+      await writeStarCatalogue(stars);
+    } else {
+      console.log(C.yellow('  could not build the star catalogue; existing files left in place'));
+      failures.push('stars.bin');
     }
   }
 
-  await fs.writeFile(QUEUE, convertQueue.length ? `${convertQueue.join('\n')}\n` : '')
+  await fs.writeFile(QUEUE, convertQueue.length > 0 ? `${convertQueue.join('\n')}\n` : '');
 
-  step('Texture manifest')
-  await writeManifest()
+  step('Texture manifest');
+  await writeManifest();
 
-  console.log('')
-  if (convertQueue.length) {
+  console.log('');
+  if (convertQueue.length > 0) {
     console.log(
       C.yellow(`${convertQueue.length} image(s) need conversion — run scripts/convert-textures.sh`),
-    )
-    console.log(C.dim('(`pnpm assets` does this for you; re-run the manifest step afterwards)'))
+    );
+    console.log(C.dim('(`pnpm assets` does this for you; re-run the manifest step afterwards)'));
   }
-  if (failures.length) {
-    console.log(C.yellow(`Missing asset(s): ${failures.join(', ')}`))
-    console.log(C.dim('Missing textures fall back to procedural generation at runtime.'))
-  } else if (!convertQueue.length) {
-    console.log(C.green('All assets present.'))
+  if (failures.length > 0) {
+    console.log(C.yellow(`Missing asset(s): ${failures.join(', ')}`));
+    console.log(C.dim('Missing textures fall back to procedural generation at runtime.'));
+  } else if (convertQueue.length === 0) {
+    console.log(C.green('All assets present.'));
   }
-  console.log('')
+  console.log('');
 }
 
 main().catch((err) => {
-  console.error(C.red(`\nfetch-assets failed: ${(err as Error).stack ?? err}`))
-  process.exit(1)
-})
+  console.error(C.red(`\nfetch-assets failed: ${(err as Error).stack ?? err}`));
+  process.exit(1);
+});

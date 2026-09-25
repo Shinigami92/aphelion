@@ -1,0 +1,37 @@
+{
+  "$schema": "./node_modules/oxfmt/configuration_schema.json",
+  "ignorePatterns": [
+    ".cache/**",
+    ".claude/**",
+    ".playwright-mcp/**",
+    "coverage/**",
+    "dist/**",
+    "pnpm-lock.yaml",
+    "src/data/generated/**"
+  ],
+  "singleQuote": true,
+  "semi": true,
+  "printWidth": 100,
+  "sortPackageJson": false,
+  "sortImports": {
+    "groups": [
+      "type",
+      ["builtin", "external", "internal"],
+      { "newlinesBetween": false },
+      ["parent", "sibling", "index"]
+    ],
+    "newlinesBetween": false,
+    "order": "asc",
+    "ignoreCase": true
+  },
+  "overrides": [
+    {
+      "files": ["*.json5"],
+      "options": {
+        "quoteProps": "preserve",
+        "singleQuote": false,
+        "trailingComma": "none"
+      }
+    }
+  ]
+}

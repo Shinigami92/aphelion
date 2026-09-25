@@ -8,8 +8,12 @@
  * script from its own HTTP cache.
  */
 export function registerServiceWorker(): void {
-  if (!import.meta.env.PROD) return
-  if (!('serviceWorker' in navigator)) return
+  if (!import.meta.env.PROD) {
+    return;
+  }
+  if (!('serviceWorker' in navigator)) {
+    return;
+  }
 
   window.addEventListener('load', () => {
     void navigator.serviceWorker
@@ -18,7 +22,7 @@ export function registerServiceWorker(): void {
         updateViaCache: 'none',
       })
       .catch((error) => {
-        console.warn('Service worker registration failed; the app still runs online.', error)
-      })
-  })
+        console.warn('Service worker registration failed; the app still runs online.', error);
+      });
+  });
 }

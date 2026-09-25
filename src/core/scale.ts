@@ -18,19 +18,19 @@
  * from the Sun than B, it still is after remapping.
  */
 
-import { AU_KM, SCENE_UNIT_KM } from './constants.ts'
+import { AU_KM, SCENE_UNIT_KM } from './constants.ts';
 
-export type ScaleMode = 'true' | 'explore'
+export type ScaleMode = 'true' | 'explore';
 
 export interface ScaleParams {
   /** Uniform multiplier on every body radius in explore mode. */
-  bodyScale: number
+  bodyScale: number;
   /** Exponent for heliocentric distance compression (1 = no compression). */
-  heliocentricExponent: number
+  heliocentricExponent: number;
   /** Exponent for satellite distance compression, in parent radii. */
-  satelliteExponent: number
+  satelliteExponent: number;
   /** Parent radii below which satellite distances are left proportional. */
-  satelliteKnee: number
+  satelliteKnee: number;
 }
 
 export const DEFAULT_PARAMS: ScaleParams = {
@@ -38,7 +38,7 @@ export const DEFAULT_PARAMS: ScaleParams = {
   heliocentricExponent: 0.6,
   satelliteExponent: 0.62,
   satelliteKnee: 3,
-}
+};
 
 /**
  * Below the knee the satellite remap is the identity: distances within a few
@@ -55,70 +55,72 @@ export const DEFAULT_PARAMS: ScaleParams = {
  * it is continuous at the knee; only the slope steps, which nothing can see.
  */
 function shapeSatellite(inParentRadii: number, exponent: number, knee: number): number {
-  if (inParentRadii <= knee) return inParentRadii
-  return knee * Math.pow(inParentRadii / knee, exponent)
+  if (inParentRadii <= knee) {
+    return inParentRadii;
+  }
+  return knee * Math.pow(inParentRadii / knee, exponent);
 }
 
 export class ScaleModel {
-  mode: ScaleMode = 'explore'
-  params: ScaleParams = { ...DEFAULT_PARAMS }
+  mode: ScaleMode = 'explore';
+  params: ScaleParams = { ...DEFAULT_PARAMS };
 
   /** Interpolation weight, 0 = true, 1 = explore. Animated on mode changes. */
-  private blend = 1
+  private blend = 1;
 
   /** Where the blend is heading. */
-  private target = 1
+  private target = 1;
 
   get isExplore(): boolean {
-    return this.target === 1
+    return this.target === 1;
   }
 
   get blendAmount(): number {
-    return this.blend
+    return this.blend;
   }
 
   /** True while a scale transition is still animating. */
   get isTransitioning(): boolean {
-    return Math.abs(this.blend - this.target) > 1e-4
+    return Math.abs(this.blend - this.target) > 1e-4;
   }
 
   setMode(mode: ScaleMode): void {
-    this.mode = mode
-    this.target = mode === 'explore' ? 1 : 0
+    this.mode = mode;
+    this.target = mode === 'explore' ? 1 : 0;
   }
 
   toggle(): ScaleMode {
-    this.setMode(this.mode === 'explore' ? 'true' : 'explore')
-    return this.mode
+    this.setMode(this.mode === 'explore' ? 'true' : 'explore');
+    return this.mode;
   }
 
   /** Ease the blend toward its target. Call once per frame. */
   update(dtSeconds: number): void {
     if (!this.isTransitioning) {
-      this.blend = this.target
-      return
+      this.blend = this.target;
+      return;
     }
     // Exponential approach, ~0.6 s to settle.
-    const k = 1 - Math.exp(-dtSeconds / 0.18)
-    this.blend += (this.target - this.blend) * k
+    const k = 1 - Math.exp(-dtSeconds / 0.18);
+    this.blend += (this.target - this.blend) * k;
   }
 
   /** Snap to the target with no animation (used during setup). */
   snap(): void {
-    this.blend = this.target
+    this.blend = this.target;
   }
 
   // -- radii ---------------------------------------------------------------
 
   /** Render radius for a body, in scene units. */
   bodyRadius(radiusKm: number): number {
-    const scaled = radiusKm * this.params.bodyScale
-    return this.lerp(radiusKm, scaled) / SCENE_UNIT_KM
+    const scaled = radiusKm * this.params.bodyScale;
+    return this.lerp(radiusKm, scaled) / SCENE_UNIT_KM;
   }
 
   /** The same multiplier, unitless — handy for ring and atmosphere shells. */
   get radiusMultiplier(): number {
-    return this.lerp(1, this.params.bodyScale)
+    return this.lerp(1, this.params.bodyScale);
   }
 
   /**
@@ -131,7 +133,7 @@ export class ScaleModel {
    * info panel names the factor so it is never mistaken for real geometry.
    */
   reliefExaggeration(atExplore: number): number {
-    return this.lerp(1, atExplore)
+    return this.lerp(1, atExplore);
   }
 
   // -- distances -----------------------------------------------------------
@@ -143,8 +145,8 @@ export class ScaleModel {
    * keeps the transition from feeling like an arbitrary zoom.
    */
   heliocentricDistance(km: number): number {
-    const compressed = AU_KM * Math.pow(Math.max(km, 1) / AU_KM, this.params.heliocentricExponent)
-    return this.lerp(km, compressed) / SCENE_UNIT_KM
+    const compressed = AU_KM * Math.pow(Math.max(km, 1) / AU_KM, this.params.heliocentricExponent);
+    return this.lerp(km, compressed) / SCENE_UNIT_KM;
   }
 
   /**
@@ -160,14 +162,14 @@ export class ScaleModel {
    * shepherds from their gaps — see `GLSL_RING_SCALE_PARS` in render/materials.
    */
   satelliteDistance(km: number, parentRadiusKm: number): number {
-    const inParentRadii = Math.max(km, 1) / parentRadiusKm
+    const inParentRadii = Math.max(km, 1) / parentRadiusKm;
     const shaped = shapeSatellite(
       inParentRadii,
       this.params.satelliteExponent,
       this.params.satelliteKnee,
-    )
-    const compressed = parentRadiusKm * this.params.bodyScale * shaped
-    return this.lerp(km, compressed) / SCENE_UNIT_KM
+    );
+    const compressed = parentRadiusKm * this.params.bodyScale * shaped;
+    return this.lerp(km, compressed) / SCENE_UNIT_KM;
   }
 
   /**
@@ -175,17 +177,21 @@ export class ScaleModel {
    * remap a direction-preserving position without recomputing its length.
    */
   heliocentricFactor(km: number): number {
-    if (km < 1) return this.heliocentricDistance(1) / (1 / SCENE_UNIT_KM)
-    return (this.heliocentricDistance(km) * SCENE_UNIT_KM) / km
+    if (km < 1) {
+      return this.heliocentricDistance(1) / (1 / SCENE_UNIT_KM);
+    }
+    return (this.heliocentricDistance(km) * SCENE_UNIT_KM) / km;
   }
 
   /** Same, for a satellite position vector. */
   satelliteFactor(km: number, parentRadiusKm: number): number {
-    if (km < 1) return 1
-    return (this.satelliteDistance(km, parentRadiusKm) * SCENE_UNIT_KM) / km
+    if (km < 1) {
+      return 1;
+    }
+    return (this.satelliteDistance(km, parentRadiusKm) * SCENE_UNIT_KM) / km;
   }
 
   private lerp(atTrue: number, atExplore: number): number {
-    return atTrue + (atExplore - atTrue) * this.blend
+    return atTrue + (atExplore - atTrue) * this.blend;
   }
 }

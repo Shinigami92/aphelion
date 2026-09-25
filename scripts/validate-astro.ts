@@ -9,7 +9,14 @@
  * but wrong solar system.
  */
 
-import { AU_KM, DEG, RAD } from '../src/core/constants.ts'
+import type { PlanetKey } from '../src/astro/planets.ts';
+import type { SimBody } from '../src/core/system.ts';
+import { existsSync, readFileSync } from 'node:fs';
+import path from 'node:path';
+import { inflateSync } from 'node:zlib';
+import { solveEccentricAnomaly, wrap2pi } from '../src/astro/kepler.ts';
+import { moonSpherical } from '../src/astro/moon.ts';
+import { PLANET_KEYS, planetPosition } from '../src/astro/planets.ts';
 import {
   calendarToJd,
   formatUtc,
@@ -17,31 +24,25 @@ import {
   jdUtcToTt,
   parseUtc,
   taiMinusUtc,
-} from '../src/astro/timescales.ts'
-import { solveEccentricAnomaly, wrap2pi } from '../src/astro/kepler.ts'
-import { PLANET_KEYS, planetPosition, type PlanetKey } from '../src/astro/planets.ts'
-import { moonSpherical } from '../src/astro/moon.ts'
-import { SolarSystem, type SimBody } from '../src/core/system.ts'
-import { ScaleModel } from '../src/core/scale.ts'
-import { ALL_BODY_SPECS } from '../src/data/bodies.ts'
+} from '../src/astro/timescales.ts';
+import { AU_KM, DEG, RAD } from '../src/core/constants.ts';
+import { ScaleModel } from '../src/core/scale.ts';
+import { SolarSystem } from '../src/core/system.ts';
 import {
   DEFAULT_LABELS,
   DEFAULT_ORBITS,
   DEFAULT_TOGGLES,
   encodeView,
   parseView,
-} from '../src/core/url-state.ts'
-import { reliefFor } from '../src/data/generated/relief.ts'
-import { SATELLITES } from '../src/data/generated/satellites.ts'
-import { STAR_CATALOGUE } from '../src/data/generated/stars.ts'
-import { unpackStars } from '../src/data/stars.ts'
-import { existsSync, readFileSync } from 'node:fs'
-import path from 'node:path'
-import { fileURLToPath } from 'node:url'
-import { inflateSync } from 'node:zlib'
+} from '../src/core/url-state.ts';
+import { ALL_BODY_SPECS } from '../src/data/bodies.ts';
+import { reliefFor } from '../src/data/generated/relief.ts';
+import { SATELLITES } from '../src/data/generated/satellites.ts';
+import { STAR_CATALOGUE } from '../src/data/generated/stars.ts';
+import { unpackStars } from '../src/data/stars.ts';
 
-const PUBLIC_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'public')
-const SHAPES_DIR = path.join(PUBLIC_DIR, 'shapes')
+const PUBLIC_DIR = path.resolve(import.meta.dirname, '..', 'public');
+const SHAPES_DIR = path.join(PUBLIC_DIR, 'shapes');
 
 /**
  * Just enough PNG to read back what fetch-assets.ts writes: 8-bit truecolour,
@@ -49,80 +50,103 @@ const SHAPES_DIR = path.join(PUBLIC_DIR, 'shapes')
  * reported means this check covers the file that actually ships.
  */
 function decodePng(buf: Buffer): { width: number; height: number; channels: number; data: Buffer } {
-  let pos = 8 // skip signature
-  let width = 0
-  let height = 0
-  let channels = 3
-  const idat: Buffer[] = []
+  let pos = 8; // skip signature
+  let width = 0;
+  let height = 0;
+  let channels = 3;
+  const idat: Buffer[] = [];
   while (pos < buf.length) {
-    const len = buf.readUInt32BE(pos)
-    const type = buf.toString('ascii', pos + 4, pos + 8)
-    const data = buf.subarray(pos + 8, pos + 8 + len)
+    const len = buf.readUInt32BE(pos);
+    const type = buf.toString('ascii', pos + 4, pos + 8);
+    const data = buf.subarray(pos + 8, pos + 8 + len);
     if (type === 'IHDR') {
-      width = data.readUInt32BE(0)
-      height = data.readUInt32BE(4)
+      width = data.readUInt32BE(0);
+      height = data.readUInt32BE(4);
       // Colour type 2 is the relief maps' packed RGB; type 0 is the greyscale
       // the photomosaic builders write.
       if (data[8] !== 8 || (data[9] !== 2 && data[9] !== 0) || data[12] !== 0) {
-        throw new Error(`unexpected PNG format: depth ${data[8]}, colour ${data[9]}`)
+        throw new Error(`unexpected PNG format: depth ${data[8]}, colour ${data[9]}`);
       }
-      channels = data[9] === 2 ? 3 : 1
-    } else if (type === 'IDAT') idat.push(data)
-    else if (type === 'IEND') break
-    pos += 12 + len
+      channels = data[9] === 2 ? 3 : 1;
+    } else if (type === 'IDAT') {
+      idat.push(data);
+    } else if (type === 'IEND') {
+      break;
+    }
+    pos += 12 + len;
   }
 
-  const raw = inflateSync(Buffer.concat(idat))
-  const stride = width * channels
-  const out = Buffer.alloc(height * stride)
+  const raw = inflateSync(Buffer.concat(idat));
+  const stride = width * channels;
+  const out = Buffer.alloc(height * stride);
   for (let y = 0; y < height; y++) {
-    const filter = raw[y * (stride + 1)]!
-    const src = y * (stride + 1) + 1
-    const dst = y * stride
+    const filter = raw[y * (stride + 1)];
+    const src = y * (stride + 1) + 1;
+    const dst = y * stride;
     for (let x = 0; x < stride; x++) {
-      const cur = raw[src + x]!
-      const left = x >= channels ? out[dst + x - channels]! : 0
-      const up = y > 0 ? out[dst - stride + x]! : 0
-      if (filter === 0) out[dst + x] = cur
-      else if (filter === 1) out[dst + x] = (cur + left) & 0xff
-      else if (filter === 2) out[dst + x] = (cur + up) & 0xff
-      else throw new Error(`unsupported PNG filter ${filter}`)
+      const cur = raw[src + x];
+      const left = x >= channels ? out[dst + x - channels] : 0;
+      const up = y > 0 ? out[dst - stride + x] : 0;
+      if (filter === 0) {
+        out[dst + x] = cur;
+      } else if (filter === 1) {
+        out[dst + x] = (cur + left) & 0xff;
+      } else if (filter === 2) {
+        out[dst + x] = (cur + up) & 0xff;
+      } else {
+        throw new Error(`unsupported PNG filter ${filter}`);
+      }
     }
   }
-  return { width, height, channels, data: out }
+  return { width, height, channels, data: out };
 }
 
-let failures = 0
-let checks = 0
+let failures = 0;
+let checks = 0;
 
 function ok(name: string, condition: boolean, detail = ''): void {
-  checks++
+  checks++;
   if (condition) {
-    console.log(`  \x1b[32mPASS\x1b[0m ${name}${detail ? `  ${detail}` : ''}`)
+    console.log(`  \u001B[32mPASS\u001B[0m ${name}${detail ? `  ${detail}` : ''}`);
   } else {
-    failures++
-    console.log(`  \x1b[31mFAIL\x1b[0m ${name}${detail ? `  ${detail}` : ''}`)
+    failures++;
+    console.log(`  \u001B[31mFAIL\u001B[0m ${name}${detail ? `  ${detail}` : ''}`);
   }
 }
 
 function near(name: string, actual: number, expected: number, tol: number, unit = ''): void {
-  const d = Math.abs(actual - expected)
-  ok(name, d <= tol, `got ${actual.toFixed(6)}${unit}, expected ${expected}±${tol}${unit}`)
+  const d = Math.abs(actual - expected);
+  ok(name, d <= tol, `got ${actual.toFixed(6)}${unit}, expected ${expected}±${tol}${unit}`);
 }
 
 function section(title: string): void {
-  console.log(`\n\x1b[1m${title}\x1b[0m`)
+  console.log(`\n\u001B[1m${title}\u001B[0m`);
 }
 
 // ---------------------------------------------------------------------------
-section('Time scales')
+section('Time scales');
 
-near('J2000 epoch JD', calendarToJd({ year: 2000, month: 1, day: 1, hour: 12, minute: 0, second: 0, ms: 0 }), 2451545.0, 1e-9)
-near('Unix epoch JD', calendarToJd({ year: 1970, month: 1, day: 1, hour: 0, minute: 0, second: 0, ms: 0 }), 2440587.5, 1e-9)
-near('leap seconds 2026', taiMinusUtc(calendarToJd({ year: 2026, month: 8, day: 6, hour: 0, minute: 0, second: 0, ms: 0 })), 37, 0)
+near(
+  'J2000 epoch JD',
+  calendarToJd({ year: 2000, month: 1, day: 1, hour: 12, minute: 0, second: 0, ms: 0 }),
+  2451545.0,
+  1e-9,
+);
+near(
+  'Unix epoch JD',
+  calendarToJd({ year: 1970, month: 1, day: 1, hour: 0, minute: 0, second: 0, ms: 0 }),
+  2440587.5,
+  1e-9,
+);
+near(
+  'leap seconds 2026',
+  taiMinusUtc(calendarToJd({ year: 2026, month: 8, day: 6, hour: 0, minute: 0, second: 0, ms: 0 })),
+  37,
+  0,
+);
 // Tolerance is set by the f64 round-off of differencing two ~2.46e6 Julian
 // Dates and scaling by 86400, not by the accuracy of the leap-second table.
-near('TT-UTC 2026 (seconds)', (jdUtcToTt(2461000.5) - 2461000.5) * 86400, 69.184, 1e-4)
+near('TT-UTC 2026 (seconds)', (jdUtcToTt(2461000.5) - 2461000.5) * 86400, 69.184, 1e-4);
 
 {
   // Round-trip a spread of dates through the calendar conversions.
@@ -133,10 +157,10 @@ near('TT-UTC 2026 (seconds)', (jdUtcToTt(2461000.5) - 2461000.5) * 86400, 69.184
     // 2500 is a century year not divisible by 400, so February has 28 days.
     { year: 2500, month: 2, day: 28, hour: 6, minute: 0, second: 0, ms: 0 },
     { year: 2400, month: 2, day: 29, hour: 6, minute: 0, second: 0, ms: 0 },
-  ]
-  let allOk = true
+  ];
+  let allOk = true;
   for (const d of dates) {
-    const back = jdToCalendar(calendarToJd(d))
+    const back = jdToCalendar(calendarToJd(d));
     if (
       back.year !== d.year ||
       back.month !== d.month ||
@@ -145,41 +169,45 @@ near('TT-UTC 2026 (seconds)', (jdUtcToTt(2461000.5) - 2461000.5) * 86400, 69.184
       back.minute !== d.minute ||
       Math.abs(back.second - d.second) > 1
     ) {
-      allOk = false
-      console.log(`      mismatch: ${JSON.stringify(d)} -> ${JSON.stringify(back)}`)
+      allOk = false;
+      console.log(`      mismatch: ${JSON.stringify(d)} -> ${JSON.stringify(back)}`);
     }
   }
-  ok('calendar round-trip', allOk)
+  ok('calendar round-trip', allOk);
 }
 
-ok('parseUtc round-trip', formatUtc(parseUtc('2026-08-06 14:32:07')!) === '2026-08-06 14:32:07')
-ok('parseUtc rejects garbage', parseUtc('not a date') === null)
-ok('parseUtc rejects month 13', parseUtc('2026-13-01') === null)
+ok('parseUtc round-trip', formatUtc(parseUtc('2026-08-06 14:32:07')!) === '2026-08-06 14:32:07');
+ok('parseUtc rejects garbage', parseUtc('not a date') === null);
+ok('parseUtc rejects month 13', parseUtc('2026-13-01') === null);
 
 // ---------------------------------------------------------------------------
-section("Kepler's equation")
+section("Kepler's equation");
 
 {
-  let worst = 0
+  let worst = 0;
   for (const e of [0, 0.01, 0.2, 0.5, 0.8, 0.9, 0.95, 0.99]) {
     for (let k = 0; k < 64; k++) {
-      const M = (k / 64) * 2 * Math.PI
-      const E = solveEccentricAnomaly(M, e)
+      const M = (k / 64) * 2 * Math.PI;
+      const E = solveEccentricAnomaly(M, e);
       // Residual of Kepler's equation itself.
-      const residual = Math.abs(wrap2pi(E - e * Math.sin(E)) - wrap2pi(M))
-      worst = Math.max(worst, Math.min(residual, Math.abs(residual - 2 * Math.PI)))
+      const residual = Math.abs(wrap2pi(E - e * Math.sin(E)) - wrap2pi(M));
+      worst = Math.max(worst, Math.min(residual, Math.abs(residual - 2 * Math.PI)));
     }
   }
-  ok('Kepler residual < 1e-9 rad for e up to 0.99', worst < 1e-9, `worst ${worst.toExponential(2)}`)
+  ok(
+    'Kepler residual < 1e-9 rad for e up to 0.99',
+    worst < 1e-9,
+    `worst ${worst.toExponential(2)}`,
+  );
 }
 
 // ---------------------------------------------------------------------------
-section('Planetary positions — 2026-08-06 00:00 UTC')
+section('Planetary positions — 2026-08-06 00:00 UTC');
 
-const jdUtc = calendarToJd({ year: 2026, month: 8, day: 6, hour: 0, minute: 0, second: 0, ms: 0 })
-const jdTT = jdUtcToTt(jdUtc)
+const jdUtc = calendarToJd({ year: 2026, month: 8, day: 6, hour: 0, minute: 0, second: 0, ms: 0 });
+const jdTT = jdUtcToTt(jdUtc);
 
-const v = { x: 0, y: 0, z: 0 }
+const v = { x: 0, y: 0, z: 0 };
 
 /** Expected heliocentric distance ranges (perihelion..aphelion), AU. */
 const RANGES: Record<PlanetKey, [number, number]> = {
@@ -192,78 +220,80 @@ const RANGES: Record<PlanetKey, [number, number]> = {
   uranus: [18.28, 20.1],
   neptune: [29.8, 30.33],
   pluto: [29.6, 49.4],
-}
+};
 
 for (const key of PLANET_KEYS) {
-  planetPosition(key, jdTT, v)
-  const rAu = Math.hypot(v.x, v.y, v.z) / AU_KM
-  const [lo, hi] = RANGES[key]
-  const lon = wrap2pi(Math.atan2(v.y, v.x)) * RAD
-  const lat = Math.asin(v.z / (rAu * AU_KM)) * RAD
+  planetPosition(key, jdTT, v);
+  const rAu = Math.hypot(v.x, v.y, v.z) / AU_KM;
+  const [lo, hi] = RANGES[key];
+  const lon = wrap2pi(Math.atan2(v.y, v.x)) * RAD;
+  const lat = Math.asin(v.z / (rAu * AU_KM)) * RAD;
   ok(
     `${key.padEnd(8)} r in [${lo}, ${hi}] AU`,
     rAu >= lo && rAu <= hi,
     `r=${rAu.toFixed(4)} AU  lon=${lon.toFixed(2)}°  lat=${lat.toFixed(2)}°`,
-  )
+  );
 }
 
 // The Sun's geocentric longitude is the Earth's heliocentric longitude + 180.
 // On 6 August the Sun sits at roughly 13-14° of Leo, i.e. ecliptic longitude
 // ~133-134°, which is a value anyone can check against an almanac.
 {
-  planetPosition('earth', jdTT, v)
-  const sunLon = wrap2pi(Math.atan2(-v.y, -v.x)) * RAD
-  near('Sun geocentric longitude', sunLon, 133.6, 1.0, '°')
+  planetPosition('earth', jdTT, v);
+  const sunLon = wrap2pi(Math.atan2(-v.y, -v.x)) * RAD;
+  near('Sun geocentric longitude', sunLon, 133.6, 1.0, '°');
 
-  const rAu = Math.hypot(v.x, v.y, v.z) / AU_KM
-  near('Earth-Sun distance (early Aug)', rAu, 1.0146, 0.002, ' AU')
+  const rAu = Math.hypot(v.x, v.y, v.z) / AU_KM;
+  near('Earth-Sun distance (early Aug)', rAu, 1.0146, 0.002, ' AU');
 
   // Earth's orbit defines the ecliptic, so its latitude must be ~0.
-  const lat = Math.asin(v.z / (rAu * AU_KM)) * RAD
-  ok('Earth ecliptic latitude ~ 0', Math.abs(lat) < 0.01, `lat=${lat.toExponential(2)}°`)
+  const lat = Math.asin(v.z / (rAu * AU_KM)) * RAD;
+  ok('Earth ecliptic latitude ~ 0', Math.abs(lat) < 0.01, `lat=${lat.toExponential(2)}°`);
 }
 
 // ---------------------------------------------------------------------------
-section('Lunar theory')
+section('Lunar theory');
 
 {
-  const m = moonSpherical(jdTT)
+  const m = moonSpherical(jdTT);
   ok(
     'Moon distance within perigee/apogee bounds',
     m.distance > 356_000 && m.distance < 407_000,
     `${m.distance.toFixed(0)} km`,
-  )
+  );
   ok(
     'Moon ecliptic latitude within ±5.4°',
     Math.abs(m.latitude * RAD) <= 5.45,
     `${(m.latitude * RAD).toFixed(3)}°`,
-  )
+  );
 
   // Sample a synodic month: the Moon must sweep a full 360° of longitude and
   // its distance must vary by roughly the real perigee-apogee spread.
-  let minD = Infinity
-  let maxD = -Infinity
+  let minD = Infinity;
+  let maxD = -Infinity;
   for (let k = 0; k < 240; k++) {
-    const s = moonSpherical(jdTT + (k * 29.53) / 240)
-    minD = Math.min(minD, s.distance)
-    maxD = Math.max(maxD, s.distance)
+    const s = moonSpherical(jdTT + (k * 29.53) / 240);
+    minD = Math.min(minD, s.distance);
+    maxD = Math.max(maxD, s.distance);
   }
-  ok('perigee near 362-370k km', minD > 356_000 && minD < 372_000, `min ${minD.toFixed(0)} km`)
-  ok('apogee near 400-407k km', maxD > 398_000 && maxD < 407_500, `max ${maxD.toFixed(0)} km`)
+  ok('perigee near 362-370k km', minD > 356_000 && minD < 372_000, `min ${minD.toFixed(0)} km`);
+  ok('apogee near 400-407k km', maxD > 398_000 && maxD < 407_500, `max ${maxD.toFixed(0)} km`);
 
   // Draconic check: latitude must cross zero twice per 27.2 days.
-  let crossings = 0
-  let prev = Math.sign(moonSpherical(jdTT).latitude)
+  let crossings = 0;
+  let prev = Math.sign(moonSpherical(jdTT).latitude);
   for (let k = 1; k <= 400; k++) {
-    const s = Math.sign(moonSpherical(jdTT + (k * 27.212) / 400).latitude)
-    if (s !== prev) crossings++
-    prev = s
+    const s = Math.sign(moonSpherical(jdTT + (k * 27.212) / 400).latitude);
+    if (s !== prev) {
+      crossings++;
+    }
+    prev = s;
   }
-  ok('two nodal crossings per draconic month', crossings === 2, `${crossings} crossings`)
+  ok('two nodal crossings per draconic month', crossings === 2, `${crossings} crossings`);
 }
 
 // ---------------------------------------------------------------------------
-section('Orbital periods (from the mean-longitude rates)')
+section('Orbital periods (from the mean-longitude rates)');
 
 {
   // Recover each planet's sidereal period by timing a full 360° sweep of
@@ -278,36 +308,40 @@ section('Orbital periods (from the mean-longitude rates)')
     uranus: 84.02,
     neptune: 164.79,
     pluto: 247.94,
-  }
+  };
   for (const key of PLANET_KEYS) {
     // Mean longitude rate straight from the table, in degrees per century.
-    const p0 = { x: 0, y: 0, z: 0 }
-    const p1 = { x: 0, y: 0, z: 0 }
-    const dt = 1.0 // day
-    planetPosition(key, jdTT, p0)
-    planetPosition(key, jdTT + dt, p1)
-    const l0 = Math.atan2(p0.y, p0.x)
-    const l1 = Math.atan2(p1.y, p1.x)
-    let dl = l1 - l0
-    if (dl < -Math.PI) dl += 2 * Math.PI
-    if (dl > Math.PI) dl -= 2 * Math.PI
+    const p0 = { x: 0, y: 0, z: 0 };
+    const p1 = { x: 0, y: 0, z: 0 };
+    const dt = 1.0; // day
+    planetPosition(key, jdTT, p0);
+    planetPosition(key, jdTT + dt, p1);
+    const l0 = Math.atan2(p0.y, p0.x);
+    const l1 = Math.atan2(p1.y, p1.x);
+    let dl = l1 - l0;
+    if (dl < -Math.PI) {
+      dl += 2 * Math.PI;
+    }
+    if (dl > Math.PI) {
+      dl -= 2 * Math.PI;
+    }
     // Instantaneous angular rate -> period, corrected to a mean via the
     // vis-viva relation r^2 * dtheta/dt = const (angular momentum).
-    const r0 = Math.hypot(p0.x, p0.y, p0.z)
-    const el = EXPECTED_YEARS[key]
+    const r0 = Math.hypot(p0.x, p0.y, p0.z);
+    const el = EXPECTED_YEARS[key];
     // Compare instantaneous sweep against the expected mean within a factor
     // that eccentricity can explain (Pluto's e=0.25 gives ±~70%).
-    const instYears = (2 * Math.PI) / Math.abs(dl) / 365.25
+    const instYears = (2 * Math.PI) / Math.abs(dl) / 365.25;
     ok(
       `${key.padEnd(8)} period ~ ${el} yr`,
       instYears > el * 0.5 && instYears < el * 1.9,
       `instantaneous ${instYears.toFixed(3)} yr (r=${(r0 / AU_KM).toFixed(3)} AU)`,
-    )
+    );
   }
 }
 
 // ---------------------------------------------------------------------------
-section('Inclinations')
+section('Inclinations');
 
 {
   // Inclination to the ecliptic, recovered from the orbit normal.
@@ -321,23 +355,23 @@ section('Inclinations')
     uranus: 0.77,
     neptune: 1.77,
     pluto: 17.14,
-  }
+  };
   for (const key of PLANET_KEYS) {
-    const p0 = { x: 0, y: 0, z: 0 }
-    const p1 = { x: 0, y: 0, z: 0 }
-    planetPosition(key, jdTT, p0)
-    planetPosition(key, jdTT + 2, p1)
+    const p0 = { x: 0, y: 0, z: 0 };
+    const p1 = { x: 0, y: 0, z: 0 };
+    planetPosition(key, jdTT, p0);
+    planetPosition(key, jdTT + 2, p1);
     // Orbit normal from r x v.
-    const nx = p0.y * p1.z - p0.z * p1.y
-    const ny = p0.z * p1.x - p0.x * p1.z
-    const nz = p0.x * p1.y - p0.y * p1.x
-    const inc = Math.acos(nz / Math.hypot(nx, ny, nz)) * RAD
-    near(`${key.padEnd(8)} inclination`, inc, EXPECTED_INC[key], 0.1, '°')
+    const nx = p0.y * p1.z - p0.z * p1.y;
+    const ny = p0.z * p1.x - p0.x * p1.z;
+    const nz = p0.x * p1.y - p0.y * p1.x;
+    const inc = Math.acos(nz / Math.hypot(nx, ny, nz)) * RAD;
+    near(`${key.padEnd(8)} inclination`, inc, EXPECTED_INC[key], 0.1, '°');
   }
 }
 
 // ---------------------------------------------------------------------------
-section('Shared links round-trip')
+section('Shared links round-trip');
 
 {
   // A link is only shareable if what comes back is what went in. Free flight is
@@ -360,41 +394,44 @@ section('Shared links round-trip')
     orbits: DEFAULT_ORBITS,
     labels: DEFAULT_LABELS,
     toggles: { ...DEFAULT_TOGGLES },
-  }
-  const back = parseView(`?${encodeView(view)}`)
+  };
+  const back = parseView(`?${encodeView(view)}`);
 
-  ok('camera mode survives the round trip', back.cameraMode === 'free', String(back.cameraMode))
+  ok('camera mode survives the round trip', back.cameraMode === 'free', String(back.cameraMode));
   ok(
     'free position survives the round trip',
-    !!back.freePosition && back.freePosition.every((n, i) => Math.abs(n - view.freePosition[i]!) < 1e-6),
+    !!back.freePosition &&
+      back.freePosition.every((n, i) => Math.abs(n - view.freePosition[i]) < 1e-6),
     JSON.stringify(back.freePosition),
-  )
+  );
   ok(
     'free orientation survives the round trip',
     !!back.freeOrientation &&
-      back.freeOrientation.every((n, i) => Math.abs(n - view.freeOrientation[i]!) < 1e-5),
+      back.freeOrientation.every((n, i) => Math.abs(n - view.freeOrientation[i]) < 1e-5),
     JSON.stringify(back.freeOrientation),
-  )
-  ok('a colon in a body key stays legible', encodeView(view).includes('focus=moon:Enceladus'))
+  );
+  ok('a colon in a body key stays legible', encodeView(view).includes('focus=moon:Enceladus'));
 
   // Orbit mode must not carry free-flight baggage.
-  const orbit = parseView(`?${encodeView({ ...view, cameraMode: 'orbit' as const })}`)
+  const orbit = parseView(`?${encodeView({ ...view, cameraMode: 'orbit' as const })}`);
   ok(
     'orbit mode writes no camera parameters',
     orbit.cameraMode === undefined && orbit.freePosition === undefined,
     `cam=${orbit.cameraMode}`,
-  )
+  );
 
   // Malformed input is ignored rather than fatal, as everywhere else here.
-  const junk = parseView('?cam=free&fp=1,2&fq=0,0,0,0')
+  const junk = parseView('?cam=free&fp=1,2&fq=0,0,0,0');
   ok(
     'a truncated position and a zero quaternion are both ignored',
-    junk.cameraMode === 'free' && junk.freePosition === undefined && junk.freeOrientation === undefined,
-  )
+    junk.cameraMode === 'free' &&
+      junk.freePosition === undefined &&
+      junk.freeOrientation === undefined,
+  );
 }
 
 // ---------------------------------------------------------------------------
-section('Rings share the satellite scale remap')
+section('Rings share the satellite scale remap');
 
 {
   // A ring is a population of orbiting bodies. If it is remapped by a different
@@ -403,87 +440,99 @@ section('Rings share the satellite scale remap')
   // Pan ended up 209 scene units from the Encke gap it orbits inside.
   //
   // Radii from Cassini, in km from Saturn's centre.
-  const SATURN_R = 60_268
-  const ENCKE = 133_590
-  const KEELER = 136_505
-  const A_OUTER = 136_775
-  const F_RING = 140_180
+  const SATURN_R = 60_268;
+  const ENCKE = 133_590;
+  const KEELER = 136_505;
+  const A_OUTER = 136_775;
+  const F_RING = 140_180;
   // Orbital semi-major axes, JPL.
-  const PAN = 133_584
-  const DAPHNIS = 136_504
-  const PROMETHEUS = 139_380
-  const PANDORA = 141_720
-  const MIMAS = 185_540
+  const PAN = 133_584;
+  const DAPHNIS = 136_504;
+  const PROMETHEUS = 139_380;
+  const PANDORA = 141_720;
+  const MIMAS = 185_540;
 
-  const scale = new ScaleModel()
+  const scale = new ScaleModel();
 
   for (const mode of ['explore', 'true'] as const) {
-    scale.setMode(mode)
-    scale.snap()
-    const at = (km: number): number => scale.satelliteDistance(km, SATURN_R)
+    scale.setMode(mode);
+    scale.snap();
+    const at = (km: number): number => scale.satelliteDistance(km, SATURN_R);
 
     // The gap and the moonlet that clears it must be drawn together. Pan is
     // 20 km wide inside a 325 km gap, so the tolerance is a fraction of that.
-    const enckeErr = Math.abs(at(PAN) - at(ENCKE))
+    const enckeErr = Math.abs(at(PAN) - at(ENCKE));
     ok(
       `[${mode}] Pan is drawn inside the Encke gap`,
       enckeErr < at(A_OUTER) * 0.002,
       `${(enckeErr * 1000).toFixed(0)} km apart in scene terms`,
-    )
-    const keelerErr = Math.abs(at(DAPHNIS) - at(KEELER))
+    );
+    const keelerErr = Math.abs(at(DAPHNIS) - at(KEELER));
     ok(
       `[${mode}] Daphnis is drawn inside the Keeler gap`,
       keelerErr < at(A_OUTER) * 0.002,
       `${(keelerErr * 1000).toFixed(0)} km apart in scene terms`,
-    )
+    );
     ok(
       `[${mode}] Prometheus and Pandora straddle the F ring`,
       at(PROMETHEUS) < at(F_RING) && at(F_RING) < at(PANDORA),
       `${at(PROMETHEUS).toFixed(1)} < ${at(F_RING).toFixed(1)} < ${at(PANDORA).toFixed(1)} units`,
-    )
+    );
     ok(
       `[${mode}] Mimas orbits clear of the main rings`,
       at(MIMAS) > at(F_RING),
       `Mimas ${at(MIMAS).toFixed(1)} vs F ring ${at(F_RING).toFixed(1)} units`,
-    )
+    );
   }
 
   // Below the knee the remap is the identity, which is what keeps Saturn's
   // silhouette right: the rings span 1.24 to 2.33 planet radii in reality and
   // must still do so on screen. A pure power law drew them at 72% of that.
-  scale.setMode('explore')
-  scale.snap()
+  scale.setMode('explore');
+  scale.snap();
   const renderedRadii = (km: number): number =>
-    scale.satelliteDistance(km, SATURN_R) / scale.bodyRadius(SATURN_R)
-  near('[explore] C ring inner edge sits at its true 1.236 radii', renderedRadii(74_500), 1.236, 0.002)
-  near('[explore] A ring outer edge sits at its true 2.270 radii', renderedRadii(A_OUTER), 2.27, 0.002)
+    scale.satelliteDistance(km, SATURN_R) / scale.bodyRadius(SATURN_R);
+  near(
+    '[explore] C ring inner edge sits at its true 1.236 radii',
+    renderedRadii(74_500),
+    1.236,
+    0.002,
+  );
+  near(
+    '[explore] A ring outer edge sits at its true 2.270 radii',
+    renderedRadii(A_OUTER),
+    2.27,
+    0.002,
+  );
 
   // Monotone, or the model would reorder bodies — the one property the whole
   // scale scheme rests on. Sampled across the knee, where a kink lives.
   {
-    let monotone = true
-    let previous = -Infinity
+    let monotone = true;
+    let previous = -Infinity;
     for (let km = 10_000; km <= 13_000_000; km += 10_000) {
-      const d = scale.satelliteDistance(km, SATURN_R)
-      if (d <= previous) monotone = false
-      previous = d
+      const d = scale.satelliteDistance(km, SATURN_R);
+      if (d <= previous) {
+        monotone = false;
+      }
+      previous = d;
     }
-    ok('the satellite remap is monotone across the knee', monotone, '1,300 samples')
+    ok('the satellite remap is monotone across the knee', monotone, '1,300 samples');
   }
 
   // True scale must be exactly 1:1, knee or no knee.
-  scale.setMode('true')
-  scale.snap()
+  scale.setMode('true');
+  scale.snap();
   near(
     '[true] the remap is the identity',
     scale.satelliteDistance(A_OUTER, SATURN_R),
     A_OUTER / 1000,
     1e-6,
-  )
+  );
 }
 
 // ---------------------------------------------------------------------------
-section('Ring structure against the bodies that shape it')
+section('Ring structure against the bodies that shape it');
 
 {
   // The ring table is checked against the *satellite* table, which comes from
@@ -491,208 +540,220 @@ section('Ring structure against the bodies that shape it')
   // clears it are then two independent numbers that have to agree — so a typo
   // in a ring boundary cannot pass unnoticed, and no ring number is taken on
   // trust alone.
-  const system = new SolarSystem()
-  const scale = new ScaleModel()
-  system.update(jdTT, scale)
+  const system = new SolarSystem();
+  const scale = new ScaleModel();
+  system.update(jdTT, scale);
 
   const bandOf = (planet: string, name: string): { innerKm: number; outerKm: number } | null => {
-    const spec = ALL_BODY_SPECS.find((s) => s.key === planet)
+    const spec = ALL_BODY_SPECS.find((s) => s.key === planet);
     for (const ring of spec?.rings ?? []) {
-      const band = ring.bands?.find((b) => b.name === name)
-      if (band) return band
+      const band = ring.bands?.find((b) => b.name === name);
+      if (band) {
+        return band;
+      }
     }
-    return null
-  }
+    return null;
+  };
 
   /** Semi-major axis of a moon, km, from the loaded satellite elements. */
   const moonAxis = (planet: string, name: string): number | null => {
-    const parent = system.byKey.get(planet)
-    const moon = parent?.children.find((c) => c.name === name)
-    return moon?.elements ? moon.elements.a : null
-  }
+    const parent = system.byKey.get(planet);
+    const moon = parent?.children.find((c) => c.name === name);
+    return moon?.elements ? moon.elements.a : null;
+  };
 
   /** Where an m:n mean-motion resonance with a moon falls, by Kepler's third. */
   const resonance = (axisKm: number, inner: number, outer: number): number =>
-    axisKm * Math.pow(inner / outer, 2 / 3)
+    axisKm * Math.pow(inner / outer, 2 / 3);
 
   // -- gaps holding the moonlet that swept them -----------------------------
   for (const [gap, moon] of [
     ['Encke Gap', 'Pan'],
     ['Keeler Gap', 'Daphnis'],
   ] as const) {
-    const band = bandOf('saturn', gap)
-    const axis = moonAxis('saturn', moon)
+    const band = bandOf('saturn', gap);
+    const axis = moonAxis('saturn', moon);
     if (!band || axis === null) {
-      ok(`${moon} sits inside the ${gap}`, false, 'missing band or moon')
-      continue
+      ok(`${moon} sits inside the ${gap}`, false, 'missing band or moon');
+      continue;
     }
     ok(
       `${moon} orbits inside the ${gap}`,
       axis > band.innerKm && axis < band.outerKm,
       `${moon} at ${axis.toFixed(0)} km, gap ${band.innerKm}-${band.outerKm} km`,
-    )
+    );
   }
 
   // -- edges held by a resonance --------------------------------------------
   {
     // Mimas 2:1 is the classic: it holds the B ring's outer edge and is why the
     // Cassini Division is empty at all.
-    const mimas = moonAxis('saturn', 'Mimas')
-    const huygens = bandOf('saturn', 'Huygens Gap')
+    const mimas = moonAxis('saturn', 'Mimas');
+    const huygens = bandOf('saturn', 'Huygens Gap');
     if (mimas !== null && huygens) {
-      const at = resonance(mimas, 1, 2)
+      const at = resonance(mimas, 1, 2);
       ok(
         'the B ring edge sits at the Mimas 2:1 resonance',
         Math.abs(at - huygens.innerKm) < huygens.innerKm * 0.01,
         `resonance at ${at.toFixed(0)} km, B ring edge ${huygens.innerKm} km`,
-      )
+      );
     }
     // Janus/Epimetheus 7:6 holds the A ring's outer edge.
-    const janus = moonAxis('saturn', 'Janus')
-    const aEdge = bandOf('saturn', 'A ring (edge)')
+    const janus = moonAxis('saturn', 'Janus');
+    const aEdge = bandOf('saturn', 'A ring (edge)');
     if (janus !== null && aEdge) {
-      const at = resonance(janus, 6, 7)
+      const at = resonance(janus, 6, 7);
       ok(
         'the A ring edge sits at the Janus/Epimetheus 7:6 resonance',
         Math.abs(at - aEdge.outerKm) < aEdge.outerKm * 0.01,
         `resonance at ${at.toFixed(0)} km, A ring edge ${aEdge.outerKm} km`,
-      )
+      );
     }
   }
 
   // -- shepherded rings ------------------------------------------------------
   {
-    const f = bandOf('saturn', 'F ring')
-    const pro = moonAxis('saturn', 'Prometheus')
-    const pan = moonAxis('saturn', 'Pandora')
+    const f = bandOf('saturn', 'F ring');
+    const pro = moonAxis('saturn', 'Prometheus');
+    const pan = moonAxis('saturn', 'Pandora');
     if (f && pro !== null && pan !== null) {
       ok(
         'Prometheus and Pandora straddle the F ring band',
         pro < f.innerKm && pan > f.outerKm,
         `${pro.toFixed(0)} < ${f.innerKm}-${f.outerKm} < ${pan.toFixed(0)} km`,
-      )
+      );
     }
-    const eps = bandOf('uranus', 'Epsilon ring')
-    const cor = moonAxis('uranus', 'Cordelia')
-    const oph = moonAxis('uranus', 'Ophelia')
+    const eps = bandOf('uranus', 'Epsilon ring');
+    const cor = moonAxis('uranus', 'Cordelia');
+    const oph = moonAxis('uranus', 'Ophelia');
     if (eps && cor !== null && oph !== null) {
       ok(
         'Cordelia and Ophelia straddle the epsilon ring',
         cor < eps.innerKm && oph > eps.outerKm,
         `${cor.toFixed(0)} < ${eps.innerKm}-${eps.outerKm} < ${oph.toFixed(0)} km`,
-      )
+      );
     }
-    const mu = bandOf('uranus', 'Mu ring')
-    const mab = moonAxis('uranus', 'Mab')
+    const mu = bandOf('uranus', 'Mu ring');
+    const mab = moonAxis('uranus', 'Mab');
     if (mu && mab !== null) {
       ok(
         'Mab orbits inside the mu ring it feeds',
         mab > mu.innerKm && mab < mu.outerKm,
         `Mab at ${mab.toFixed(0)} km, ring ${mu.innerKm}-${mu.outerKm} km`,
-      )
+      );
     }
-    const adams = bandOf('neptune', 'Adams ring')
-    const galatea = moonAxis('neptune', 'Galatea')
+    const adams = bandOf('neptune', 'Adams ring');
+    const galatea = moonAxis('neptune', 'Galatea');
     if (adams && galatea !== null) {
       ok(
         'Galatea orbits just inside the Adams ring it confines',
         galatea < adams.innerKm && galatea > adams.innerKm - 2000,
         `Galatea at ${galatea.toFixed(0)} km, ring at ${adams.innerKm} km`,
-      )
+      );
     }
-    const enc = bandOf('saturn', 'E ring (peak)')
-    const enceladus = moonAxis('saturn', 'Enceladus')
+    const enc = bandOf('saturn', 'E ring (peak)');
+    const enceladus = moonAxis('saturn', 'Enceladus');
     if (enc && enceladus !== null) {
       ok(
         'the E ring peaks at the orbit of Enceladus, its source',
         enceladus > enc.innerKm && enceladus < enc.outerKm,
         `Enceladus at ${enceladus.toFixed(0)} km, peak ${enc.innerKm}-${enc.outerKm} km`,
-      )
+      );
     }
   }
 
   // -- the bands must tile their ring, in order and without overlap ---------
   {
-    let broken: string[] = []
+    let broken: string[] = [];
     for (const spec of ALL_BODY_SPECS) {
       for (const ring of spec.rings ?? []) {
-        if (!ring.bands) continue
-        let previous = -Infinity
+        if (!ring.bands) {
+          continue;
+        }
+        let previous = -Infinity;
         for (const band of ring.bands) {
           if (band.innerKm >= band.outerKm || band.innerKm < previous) {
-            broken.push(`${spec.key}:${band.name}`)
+            broken.push(`${spec.key}:${band.name}`);
           }
           if (band.innerKm < ring.innerKm - 1 || band.outerKm > ring.outerKm + 1) {
-            broken.push(`${spec.key}:${band.name} outside its ring`)
+            broken.push(`${spec.key}:${band.name} outside its ring`);
           }
-          previous = band.outerKm
+          previous = band.outerKm;
         }
       }
     }
     ok(
       'every ring band is ordered and inside its ring',
       broken.length === 0,
-      broken.length ? broken.join(', ') : 'all ring systems',
-    )
+      broken.length > 0 ? broken.join(', ') : 'all ring systems',
+    );
   }
 }
 
 // ---------------------------------------------------------------------------
-section('Renderable planetary orbits')
+section('Renderable planetary orbits');
 
 {
-  const system = new SolarSystem()
-  const scale = new ScaleModel()
-  system.update(jdTT, scale)
+  const system = new SolarSystem();
+  const scale = new ScaleModel();
+  system.update(jdTT, scale);
 
-  const missing: string[] = []
+  const missing: string[] = [];
   for (const key of PLANET_KEYS) {
-    const body = system.byKey.get(key)
-    const orbit = body ? system.orbitPolyline(body, scale, 128) : null
-    if (!body?.elements || !orbit || orbit.length !== (128 + 1) * 3) missing.push(key)
+    const body = system.byKey.get(key);
+    const orbit = body ? system.orbitPolyline(body, scale, 128) : null;
+    if (!body?.elements || !orbit || orbit.length !== (128 + 1) * 3) {
+      missing.push(key);
+    }
   }
   ok(
     'all planets and Pluto expose renderable orbit polylines',
     missing.length === 0,
-    missing.length ? `missing: ${missing.join(', ')}` : '',
-  )
+    missing.length > 0 ? `missing: ${missing.join(', ')}` : '',
+  );
 }
 
 // ---------------------------------------------------------------------------
-section('Lagrange points')
+section('Lagrange points');
 
 {
-  const system = new SolarSystem()
-  const scale = new ScaleModel()
-  scale.setMode('true')
-  scale.snap()
-  system.update(jdTT, scale)
+  const system = new SolarSystem();
+  const scale = new ScaleModel();
+  scale.setMode('true');
+  scale.snap();
+  system.update(jdTT, scale);
 
   ok(
     'every planet has five points, and no dwarf or minor body does',
     system.lagrange.length === 40,
     `${system.lagrange.length} points over ${new Set(system.lagrange.map((p) => p.lagrange!.secondary.key)).size} planets`,
-  )
+  );
   ok(
     'they stay out of the body catalogue',
     system.bodies.every((b) => b.type !== 'lagrange'),
     'nothing that loops over bodies has to special-case a massless marker',
-  )
+  );
 
-  const point = (planet: string, id: string): SimBody => system.byKey.get(`lagrange:${planet}:${id}`)!
-  const norm = (v: { x: number; y: number; z: number }): number => Math.hypot(v.x, v.y, v.z)
+  const point = (planet: string, id: string): SimBody =>
+    system.byKey.get(`lagrange:${planet}:${id}`)!;
+  const norm = (v: { x: number; y: number; z: number }): number => Math.hypot(v.x, v.y, v.z);
 
   for (const key of ['earth', 'jupiter', 'neptune'] as const) {
-    const planet = system.byKey.get(key)!
-    const R = norm(planet.helioKm)
+    const planet = system.byKey.get(key)!;
+    const R = norm(planet.helioKm);
 
     // L4 and L5 are the apexes of equilateral triangles on the Sun and the
     // planet. That is exact — no solver involved — so any deviation is a frame
     // error, and it is the cheapest possible check on the rotating basis.
     for (const id of ['L4', 'L5'] as const) {
-      const p = point(key, id)
-      near(`${key.padEnd(8)} ${id} is one orbit radius from the Sun`, norm(p.helioKm) / R, 1, 1e-9)
-      near(`${key.padEnd(8)} ${id} is one orbit radius from the planet`, norm(p.localKm) / R, 1, 1e-9)
+      const p = point(key, id);
+      near(`${key.padEnd(8)} ${id} is one orbit radius from the Sun`, norm(p.helioKm) / R, 1, 1e-9);
+      near(
+        `${key.padEnd(8)} ${id} is one orbit radius from the planet`,
+        norm(p.localKm) / R,
+        1,
+        1e-9,
+      );
     }
 
     // ...and L4 leads. Getting this backwards puts Jupiter's L4 marker in the
@@ -700,32 +761,42 @@ section('Lagrange points')
     // screen looks any different — so it is checked against the direction of
     // travel itself rather than against a longitude convention.
     const along = (p: SimBody): number =>
-      p.localKm.x * planet.velKm.x + p.localKm.y * planet.velKm.y + p.localKm.z * planet.velKm.z
-    ok(`${key.padEnd(8)} L4 leads the planet and L5 trails`, along(point(key, 'L4')) > 0 && along(point(key, 'L5')) < 0)
+      p.localKm.x * planet.velKm.x + p.localKm.y * planet.velKm.y + p.localKm.z * planet.velKm.z;
+    ok(
+      `${key.padEnd(8)} L4 leads the planet and L5 trails`,
+      along(point(key, 'L4')) > 0 && along(point(key, 'L5')) < 0,
+    );
 
     // The collinear three lie on the Sun-planet line: sunward, anti-sunward and
     // beyond the Sun. Measured as a direction cosine, so an out-of-plane slip
     // shows up as well as a radial one.
     const cosine = (p: SimBody): number => {
-      const d = norm(p.localKm)
-      return -(p.localKm.x * planet.helioKm.x + p.localKm.y * planet.helioKm.y + p.localKm.z * planet.helioKm.z) / (d * R)
-    }
-    near(`${key.padEnd(8)} L1 lies sunward of the planet`, cosine(point(key, 'L1')), 1, 1e-9)
-    near(`${key.padEnd(8)} L2 lies anti-sunward`, cosine(point(key, 'L2')), -1, 1e-9)
-    near(`${key.padEnd(8)} L3 lies beyond the Sun`, cosine(point(key, 'L3')), 1, 1e-9)
+      const d = norm(p.localKm);
+      return (
+        -(
+          p.localKm.x * planet.helioKm.x +
+          p.localKm.y * planet.helioKm.y +
+          p.localKm.z * planet.helioKm.z
+        ) /
+        (d * R)
+      );
+    };
+    near(`${key.padEnd(8)} L1 lies sunward of the planet`, cosine(point(key, 'L1')), 1, 1e-9);
+    near(`${key.padEnd(8)} L2 lies anti-sunward`, cosine(point(key, 'L2')), -1, 1e-9);
+    near(`${key.padEnd(8)} L3 lies beyond the Sun`, cosine(point(key, 'L3')), 1, 1e-9);
 
     // L3's distance from the barycentre is the classical R(1 + 5mu/12). This is
     // an independent result — it comes out of a series expansion, not out of the
     // quintic the solver bisects — so agreeing to a part in a thousand says the
     // root really is the root and not a nearby plausible number.
-    const mu = point(key, 'L3').lagrange!.massRatio
-    const barycentre = R * mu
+    const mu = point(key, 'L3').lagrange!.massRatio;
+    const barycentre = R * mu;
     near(
       `${key.padEnd(8)} L3 sits at R(1 + 5mu/12) from the barycentre`,
       (norm(point(key, 'L3').helioKm) + barycentre) / R,
       1 + (5 * mu) / 12,
       Math.max(1e-12, mu * 1e-2),
-    )
+    );
   }
 
   // The one figure everybody knows: JWST is 1.5 million km beyond Earth, and
@@ -736,11 +807,11 @@ section('Lagrange points')
   // live distance is 1.5% larger in July than in January, and comparing that
   // against a constant would be testing the date rather than the geometry.
   {
-    const earth = system.byKey.get('earth')!
+    const earth = system.byKey.get('earth')!;
     const atOneAu = (id: string): number =>
-      (norm(point('earth', id).localKm) * AU_KM) / norm(earth.helioKm) / 1e6
-    near('Sun–Earth L1 is 1.49 million km sunward, at 1 AU', atOneAu('L1'), 1.4916, 0.005, ' Mkm')
-    near('Sun–Earth L2 is 1.50 million km out, at 1 AU', atOneAu('L2'), 1.5015, 0.005, ' Mkm')
+      (norm(point('earth', id).localKm) * AU_KM) / norm(earth.helioKm) / 1e6;
+    near('Sun–Earth L1 is 1.49 million km sunward, at 1 AU', atOneAu('L1'), 1.4916, 0.005, ' Mkm');
+    near('Sun–Earth L2 is 1.50 million km out, at 1 AU', atOneAu('L2'), 1.5015, 0.005, ' Mkm');
   }
 
   // The collinear points are *near* the Hill radius, not at it — that is the
@@ -748,16 +819,19 @@ section('Lagrange points')
   // The gap is a function of the mass ratio alone, so it is checked against the
   // instantaneous separation rather than the semi-major axis the stored
   // `hillKm` uses; otherwise this measures where Jupiter happens to be today.
-  for (const [key, expected] of [['earth', 0.9966], ['jupiter', 0.9770]] as const) {
-    const planet = system.byKey.get(key)!
-    const l1 = point(key, 'L1')
-    const hillNow = norm(planet.helioKm) * Math.cbrt(l1.lagrange!.massRatio / 3)
+  for (const [key, expected] of [
+    ['earth', 0.9966],
+    ['jupiter', 0.977],
+  ] as const) {
+    const planet = system.byKey.get(key)!;
+    const l1 = point(key, 'L1');
+    const hillNow = norm(planet.helioKm) * Math.cbrt(l1.lagrange!.massRatio / 3);
     near(
       `${key.padEnd(8)} L1 sits just inside the Hill radius, not on it`,
       norm(l1.localKm) / hillNow,
       expected,
       0.0005,
-    )
+    );
   }
 
   // Every collinear point must satisfy the equation that defines it: the
@@ -765,18 +839,25 @@ section('Lagrange points')
   // stored geometry rather than from the solver's own working, so a solver that
   // returned a confident wrong answer would still fail here.
   {
-    let worst = 0
+    let worst = 0;
     for (const p of system.lagrange) {
-      const info = p.lagrange!
-      if (!info.collinear) continue
-      const x = info.rotating.x
-      const mu = info.massRatio
-      const d1 = x + mu
-      const d2 = x - 1 + mu
-      const residual = x - ((1 - mu) * d1) / (Math.abs(d1) * d1 * d1) - (mu * d2) / (Math.abs(d2) * d2 * d2)
-      worst = Math.max(worst, Math.abs(residual))
+      const info = p.lagrange!;
+      if (!info.collinear) {
+        continue;
+      }
+      const x = info.rotating.x;
+      const mu = info.massRatio;
+      const d1 = x + mu;
+      const d2 = x - 1 + mu;
+      const residual =
+        x - ((1 - mu) * d1) / (Math.abs(d1) * d1 * d1) - (mu * d2) / (Math.abs(d2) * d2 * d2);
+      worst = Math.max(worst, Math.abs(residual));
     }
-    ok('all 24 collinear points are stationary points of the effective potential', worst < 1e-9, `worst |dU/dx| = ${worst.toExponential(2)}`)
+    ok(
+      'all 24 collinear points are stationary points of the effective potential',
+      worst < 1e-9,
+      `worst |dU/dx| = ${worst.toExponential(2)}`,
+    );
   }
 
   // The scale remap must treat them as the heliocentric objects they are.
@@ -784,36 +865,40 @@ section('Lagrange points')
   // orbit radius from its planet — sitting in the planet's lap, and it would no
   // longer land on the planet's own drawn orbit.
   {
-    const explore = new ScaleModel()
-    explore.setMode('explore')
-    explore.snap()
-    system.update(jdTT, explore)
-    const earth = system.byKey.get('earth')!
-    const l4 = point('earth', 'L4')
+    const explore = new ScaleModel();
+    explore.setMode('explore');
+    explore.snap();
+    system.update(jdTT, explore);
+    const earth = system.byKey.get('earth')!;
+    const l4 = point('earth', 'L4');
     near(
       'explore scale keeps L4 on Earth’s own orbit circle',
       norm(l4.scene) / norm(earth.scene),
       1,
       1e-6,
-    )
+    );
     ok(
       'explore scale keeps L1 clear of the enlarged planet',
-      norm(l4.scene) > 0 && Math.hypot(
-        point('earth', 'L1').scene.x - earth.scene.x,
-        point('earth', 'L1').scene.y - earth.scene.y,
-        point('earth', 'L1').scene.z - earth.scene.z,
-      ) > earth.sceneRadius * 4,
-      `${(Math.hypot(
-        point('earth', 'L1').scene.x - earth.scene.x,
-        point('earth', 'L1').scene.y - earth.scene.y,
-        point('earth', 'L1').scene.z - earth.scene.z,
-      ) / earth.sceneRadius).toFixed(1)} enlarged Earth radii away`,
-    )
+      norm(l4.scene) > 0 &&
+        Math.hypot(
+          point('earth', 'L1').scene.x - earth.scene.x,
+          point('earth', 'L1').scene.y - earth.scene.y,
+          point('earth', 'L1').scene.z - earth.scene.z,
+        ) >
+          earth.sceneRadius * 4,
+      `${(
+        Math.hypot(
+          point('earth', 'L1').scene.x - earth.scene.x,
+          point('earth', 'L1').scene.y - earth.scene.y,
+          point('earth', 'L1').scene.z - earth.scene.z,
+        ) / earth.sceneRadius
+      ).toFixed(1)} enlarged Earth radii away`,
+    );
   }
 }
 
 // ---------------------------------------------------------------------------
-section('Orbit geometry survives float32')
+section('Orbit geometry survives float32');
 
 {
   // Satellite orbit vertices must be stored relative to their parent. Storing
@@ -821,40 +906,40 @@ section('Orbit geometry survives float32')
   // scene units the float32 spacing is 0.085 units while Charon's orbit is only
   // ~40 across, which showed up as a visible sawtooth. Raising the segment count
   // cannot fix that, so this asserts the property rather than the appearance.
-  const system = new SolarSystem()
-  const scale = new ScaleModel()
-  system.update(jdTT, scale)
+  const system = new SolarSystem();
+  const scale = new ScaleModel();
+  system.update(jdTT, scale);
 
-  const charon = system.byKey.get('moon:Charon')
-  const pluto = system.byKey.get('pluto')
-  const segments = 512
-  const points = charon ? system.orbitPolyline(charon, scale, segments) : null
+  const charon = system.byKey.get('moon:Charon');
+  const pluto = system.byKey.get('pluto');
+  const segments = 512;
+  const points = charon ? system.orbitPolyline(charon, scale, segments) : null;
 
   if (!points || !pluto) {
-    ok('Charon orbit polyline available', false)
+    ok('Charon orbit polyline available', false);
   } else {
-    const parentMagnitude = Math.hypot(pluto.scene.x, pluto.scene.y, pluto.scene.z)
+    const parentMagnitude = Math.hypot(pluto.scene.x, pluto.scene.y, pluto.scene.z);
 
-    let maxCoord = 0
-    let minR = Infinity
-    let maxR = -Infinity
+    let maxCoord = 0;
+    let minR = Infinity;
+    let maxR = -Infinity;
     for (let i = 0; i < segments; i++) {
-      const x = points[i * 3]!
-      const y = points[i * 3 + 1]!
-      const z = points[i * 3 + 2]!
-      maxCoord = Math.max(maxCoord, Math.abs(x), Math.abs(y), Math.abs(z))
-      const r = Math.hypot(x, y, z)
-      minR = Math.min(minR, r)
-      maxR = Math.max(maxR, r)
+      const x = points[i * 3];
+      const y = points[i * 3 + 1];
+      const z = points[i * 3 + 2];
+      maxCoord = Math.max(maxCoord, Math.abs(x), Math.abs(y), Math.abs(z));
+      const r = Math.hypot(x, y, z);
+      minR = Math.min(minR, r);
+      maxR = Math.max(maxR, r);
     }
-    const meanR = (minR + maxR) / 2
-    const relativeSpread = (maxR - minR) / meanR
+    const meanR = (minR + maxR) / 2;
+    const relativeSpread = (maxR - minR) / meanR;
 
     ok(
       'satellite orbit vertices are parent-relative, not absolute',
       maxCoord < parentMagnitude * 0.01,
       `max |coord| ${maxCoord.toFixed(2)} vs parent at ${parentMagnitude.toFixed(0)}`,
-    )
+    );
     // A circular orbit sampled in eccentric anomaly has constant radius, so any
     // spread here is quantisation. Charon's eccentricity is ~0, and the bound is
     // still far tighter than the 0.3% the absolute-coordinate version produced.
@@ -862,51 +947,52 @@ section('Orbit geometry survives float32')
       'radial quantisation below 0.01% of the orbit radius',
       relativeSpread < 1e-4,
       `spread ${(relativeSpread * 100).toFixed(5)}% of ${meanR.toFixed(3)} units`,
-    )
+    );
   }
 }
 
 // ---------------------------------------------------------------------------
-section('Tidally locked frames')
+section('Tidally locked frames');
 
 /** Angular separation in longitude, accounting for the wrap. Always 0..180. */
-const lonApart = (a: number, b: number): number =>
-  Math.abs(((((a - b) % 360) + 540) % 360) - 180)
+const lonApart = (a: number, b: number): number => Math.abs(((((a - b) % 360) + 540) % 360) - 180);
 
 // A tidally locked moon's prime meridian faces its planet — that is what the
 // IAU convention means, and every satellite map and shape model is drawn in it.
 // Get this backwards and each of the 459 moons is rendered half a turn out,
 // which is invisible on a synthesised surface and wrong on every real one.
 {
-  const system = new SolarSystem()
-  const scale = new ScaleModel()
-  system.update(jdTT, scale)
+  const system = new SolarSystem();
+  const scale = new ScaleModel();
+  system.update(jdTT, scale);
 
   for (const key of ['moon:Moon', 'moon:Phobos']) {
-    const body = system.byKey.get(key)
+    const body = system.byKey.get(key);
     if (!body || !body.parent) {
-      ok(`${key} present for the tidal-lock frame check`, false)
-      continue
+      ok(`${key} present for the tidal-lock frame check`, false);
+      continue;
     }
-    const p = body.localKm
-    const n = Math.hypot(p.x, p.y, p.z)
-    const toParent = { x: -p.x / n, y: -p.y / n, z: -p.z / n }
-    const b = body.orientation
+    const p = body.localKm;
+    const n = Math.hypot(p.x, p.y, p.z);
+    const toParent = { x: -p.x / n, y: -p.y / n, z: -p.z / n };
+    const b = body.orientation;
     const dot = (u: { x: number; y: number; z: number }, v: typeof u): number =>
-      u.x * v.x + u.y * v.y + u.z * v.z
-    let lon = (Math.atan2(dot(toParent, b.y), dot(toParent, b.x)) * 180) / Math.PI
-    if (lon < 0) lon += 360
-    const lat = (Math.asin(dot(toParent, b.z)) * 180) / Math.PI
+      u.x * v.x + u.y * v.y + u.z * v.z;
+    let lon = (Math.atan2(dot(toParent, b.y), dot(toParent, b.x)) * 180) / Math.PI;
+    if (lon < 0) {
+      lon += 360;
+    }
+    const lat = (Math.asin(dot(toParent, b.z)) * 180) / Math.PI;
     ok(
       `${key} points its prime meridian at its parent`,
       lonApart(lon, 0) < 0.5 && Math.abs(lat) < 0.5,
       `sub-parent point at ${lat.toFixed(2)}N ${lon.toFixed(2)}E, expected 0N 0E`,
-    )
+    );
   }
 }
 
 // ---------------------------------------------------------------------------
-section('Surface relief')
+section('Surface relief');
 
 // The 180 degree texture bug lived for a whole build because a wrongly rotated
 // planet still looks like a planet. An elevation grid has the same failure mode
@@ -914,151 +1000,167 @@ section('Surface relief')
 // roll, a flip or a mirrored longitude shows up immediately.
 
 interface ReliefProbe {
-  width: number
-  height: number
+  width: number;
+  height: number;
   /** Elevation in km at a latitude and *east* longitude. */
-  at(latDeg: number, lonEast: number): number
+  at(latDeg: number, lonEast: number): number;
   /** Cosine-weighted mean elevation over every sample the filter accepts. */
-  mean(accept: (lat: number, lonEast: number) => boolean): number
+  mean(accept: (lat: number, lonEast: number) => boolean): number;
   /** Where the global extremes fall, as [lat, lonEast]. */
-  extremes(): { hiAt: [number, number]; loAt: [number, number] }
+  extremes(): { hiAt: [number, number]; loAt: [number, number] };
 }
 
 function probeRelief(key: string): ReliefProbe | null {
-  const relief = reliefFor(key)
-  if (!relief) return null
-  const file = path.join(SHAPES_DIR, relief.file)
+  const relief = reliefFor(key);
+  if (!relief) {
+    return null;
+  }
+  const file = path.join(SHAPES_DIR, relief.file);
   // Assets are checked in, so a missing file should not happen — but validate
   // must not fail on a tree where they have been cleared deliberately.
-  if (!existsSync(file)) return null
+  if (!existsSync(file)) {
+    return null;
+  }
 
-  const img = decodePng(readFileSync(file))
+  const img = decodePng(readFileSync(file));
   ok(
     `${key} relief map matches its declared grid`,
     img.width === relief.width && img.height === relief.height,
     `${img.width}x${img.height} vs ${relief.width}x${relief.height}`,
-  )
+  );
 
   const kmAt = (x: number, y: number): number => {
-    const i = (y * img.width + x) * 3
-    const f = ((img.data[i]! << 8) | img.data[i + 1]!) / 65535
-    return relief.minKm + f * (relief.maxKm - relief.minKm)
-  }
-  const latOf = (y: number): number => 90 - ((y + 0.5) * 180) / img.height
-  const lonOf = (x: number): number => (180 + ((x + 0.5) * 360) / img.width) % 360
+    const i = (y * img.width + x) * 3;
+    const f = ((img.data[i] << 8) | img.data[i + 1]) / 65535;
+    return relief.minKm + f * (relief.maxKm - relief.minKm);
+  };
+  const latOf = (y: number): number => 90 - ((y + 0.5) * 180) / img.height;
+  const lonOf = (x: number): number => (180 + ((x + 0.5) * 360) / img.width) % 360;
 
   return {
     width: img.width,
     height: img.height,
     at(latDeg, lonEast) {
-      const u = (((((lonEast - 180) / 360) % 1) + 1) % 1)
-      const x = Math.min(img.width - 1, Math.round(u * img.width))
-      const y = Math.min(img.height - 1, Math.max(0, Math.round(((90 - latDeg) / 180) * img.height)))
-      return kmAt(x, y)
+      const u = ((((lonEast - 180) / 360) % 1) + 1) % 1;
+      const x = Math.min(img.width - 1, Math.round(u * img.width));
+      const y = Math.min(
+        img.height - 1,
+        Math.max(0, Math.round(((90 - latDeg) / 180) * img.height)),
+      );
+      return kmAt(x, y);
     },
     mean(accept) {
-      let sum = 0
-      let weight = 0
+      let sum = 0;
+      let weight = 0;
       for (let y = 0; y < img.height; y++) {
-        const lat = latOf(y)
-        const w = Math.cos((lat * Math.PI) / 180)
+        const lat = latOf(y);
+        const w = Math.cos((lat * Math.PI) / 180);
         for (let x = 0; x < img.width; x++) {
-          if (!accept(lat, lonOf(x))) continue
-          sum += kmAt(x, y) * w
-          weight += w
+          if (!accept(lat, lonOf(x))) {
+            continue;
+          }
+          sum += kmAt(x, y) * w;
+          weight += w;
         }
       }
-      return weight > 0 ? sum / weight : NaN
+      return weight > 0 ? sum / weight : NaN;
     },
     extremes() {
-      let hi = -Infinity
-      let lo = Infinity
-      let hiAt: [number, number] = [0, 0]
-      let loAt: [number, number] = [0, 0]
+      let hi = -Infinity;
+      let lo = Infinity;
+      let hiAt: [number, number] = [0, 0];
+      let loAt: [number, number] = [0, 0];
       for (let y = 0; y < img.height; y++) {
         for (let x = 0; x < img.width; x++) {
-          const v = kmAt(x, y)
-          if (v > hi) { hi = v; hiAt = [latOf(y), lonOf(x)] }
-          if (v < lo) { lo = v; loAt = [latOf(y), lonOf(x)] }
+          const v = kmAt(x, y);
+          if (v > hi) {
+            hi = v;
+            hiAt = [latOf(y), lonOf(x)];
+          }
+          if (v < lo) {
+            lo = v;
+            loAt = [latOf(y), lonOf(x)];
+          }
         }
       }
-      return { hiAt, loAt }
+      return { hiAt, loAt };
     },
-  }
+  };
 }
 
 {
-  const mars = probeRelief('mars')
-  if (!mars) ok('mars relief (skipped, not on disk)', true)
-  else {
+  const mars = probeRelief('mars');
+  if (mars) {
     // Spot heights. Tolerances are wide because the grid is 4 px/deg — one
     // sample spans ~15 km — so these test registration, not altimetry.
-    near('Ascraeus Mons elevation', mars.at(11.8, 255.5), 18.1, 1.5, ' km')
-    near('Isidis basin floor', mars.at(12.9, 87.0), -3.8, 1.5, ' km')
+    near('Ascraeus Mons elevation', mars.at(11.8, 255.5), 18.1, 1.5, ' km');
+    near('Isidis basin floor', mars.at(12.9, 87.0), -3.8, 1.5, ' km');
 
     // The crustal dichotomy: the northern lowlands sit kilometres below the
     // southern highlands. Independent of any single landmark, and it fails loudly
     // if the grid is ever flipped in latitude.
-    const north = mars.mean((lat) => lat > 40 && lat < 80)
-    const south = mars.mean((lat) => lat < -40 && lat > -80)
+    const north = mars.mean((lat) => lat > 40 && lat < 80);
+    const south = mars.mean((lat) => lat < -40 && lat > -80);
     ok(
       'Mars northern lowlands sit below the southern highlands',
       south - north > 2,
       `north ${north.toFixed(2)} km, south ${south.toFixed(2)} km, difference ${(south - north).toFixed(2)} km`,
-    )
+    );
 
     // The decisive one: the global extremes must land on the right features.
-    const { hiAt, loAt } = mars.extremes()
+    const { hiAt, loAt } = mars.extremes();
     // Olympus Mons is 600 km across, so its highest sample sits a degree or so
     // off the nominal centre; 3 degrees still excludes every other volcano.
     ok(
       'Mars global maximum is Olympus Mons',
       Math.abs(hiAt[0] - 18.65) < 3 && lonApart(hiAt[1], 226.2) < 3,
       `at ${hiAt[0].toFixed(2)}N ${hiAt[1].toFixed(2)}E, expected 18.65N 226.2E`,
-    )
+    );
     // Hellas is a 2,300 km basin, so the deepest sample roams within it.
     ok(
       'Mars global minimum is inside Hellas',
       loAt[0] > -50 && loAt[0] < -25 && loAt[1] > 45 && loAt[1] < 95,
       `at ${loAt[0].toFixed(2)}N ${loAt[1].toFixed(2)}E, expected the Hellas basin`,
-    )
+    );
+  } else {
+    ok('mars relief (skipped, not on disk)', true);
   }
 }
 
 {
-  const moon = probeRelief('moon:Moon')
-  if (!moon) ok('lunar relief (skipped, not on disk)', true)
-  else {
+  const moon = probeRelief('moon:Moon');
+  if (moon) {
     // The far side averages roughly 1.5-2 km higher than the near side. Being a
     // hemispheric property centred on 0 and 180 degrees, it pins the longitude
     // roll the way the crustal dichotomy pins latitude for Mars.
-    const near1 = moon.mean((_lat, lon) => lonApart(lon, 0) < 75)
-    const far = moon.mean((_lat, lon) => lonApart(lon, 180) < 75)
+    const near1 = moon.mean((_lat, lon) => lonApart(lon, 0) < 75);
+    const far = moon.mean((_lat, lon) => lonApart(lon, 180) < 75);
     ok(
       'lunar far side stands above the near side',
       far - near1 > 1,
       `near ${near1.toFixed(2)} km, far ${far.toFixed(2)} km, difference ${(far - near1).toFixed(2)} km`,
-    )
+    );
 
-    const { hiAt, loAt } = moon.extremes()
+    const { hiAt, loAt } = moon.extremes();
     ok(
       'lunar global maximum is on the far side',
       Math.abs(hiAt[0] - 5.4) < 6 && lonApart(hiAt[1], 201.4) < 6,
       `at ${hiAt[0].toFixed(2)}N ${hiAt[1].toFixed(2)}E, expected 5.4N 201.4E`,
-    )
+    );
     // Antoniadi, inside the South Pole-Aitken basin — the lowest point on the Moon.
     ok(
       'lunar global minimum is inside South Pole-Aitken',
       loAt[0] < -60 && lonApart(loAt[1], 187.5) < 25,
       `at ${loAt[0].toFixed(2)}N ${loAt[1].toFixed(2)}E, expected 70.4S 187.5E`,
-    )
+    );
+  } else {
+    ok('lunar relief (skipped, not on disk)', true);
   }
 }
 
 {
-  const earth = probeRelief('earth')
-  if (!earth) ok('Earth relief (skipped, not on disk)', true)
-  else {
+  const earth = probeRelief('earth');
+  if (earth) {
     // Bathymetry is deliberately not displaced: over an ocean the visible
     // surface is the water. So nothing anywhere may sit below sea level, and
     // open ocean must read exactly zero.
@@ -1071,32 +1173,33 @@ function probeRelief(key: string): ReliefProbe | null {
       'Earth relief never goes below sea level',
       (reliefFor('earth')?.minKm ?? -1) === 0,
       `declared minimum ${reliefFor('earth')?.minKm ?? 'missing'} km`,
-    )
+    );
     ok(
       'Earth open ocean is exactly flat',
       earth.at(0, 200) === 0 && earth.at(0, 335) === 0 && earth.at(-60, 100) === 0,
       `Pacific ${earth.at(0, 200)}, Atlantic ${earth.at(0, 335)}, Southern ${earth.at(-60, 100)}`,
-    )
+    );
 
-    near('Tibetan plateau elevation', earth.at(32, 88), 4.9, 1.2, ' km')
-    near('Altiplano elevation', earth.at(-20, 292), 3.7, 1.5, ' km')
-    near('Sahara (Libya) elevation', earth.at(25, 20), 0.5, 0.5, ' km')
+    near('Tibetan plateau elevation', earth.at(32, 88), 4.9, 1.2, ' km');
+    near('Altiplano elevation', earth.at(-20, 292), 3.7, 1.5, ' km');
+    near('Sahara (Libya) elevation', earth.at(25, 20), 0.5, 0.5, ' km');
 
     // Averaged into 10.5 arc-minute cells no single summit survives, so the
     // maximum is the Himalaya-Karakoram wall rather than Everest itself.
-    const { hiAt } = earth.extremes()
+    const { hiAt } = earth.extremes();
     ok(
       'Earth global maximum is the Himalaya',
       hiAt[0] > 25 && hiAt[0] < 40 && hiAt[1] > 70 && hiAt[1] < 100,
       `at ${hiAt[0].toFixed(2)}N ${hiAt[1].toFixed(2)}E, expected the Himalaya-Karakoram`,
-    )
+    );
+  } else {
+    ok('Earth relief (skipped, not on disk)', true);
   }
 }
 
 {
-  const titan = probeRelief('moon:Titan')
-  if (!titan) ok('Titan relief (skipped, not on disk)', true)
-  else {
+  const titan = probeRelief('moon:Titan');
+  if (titan) {
     // Titan's grid is the only one here that is an *interpolation* — a tensioned
     // spline through Cassini RADAR altimetry and SARTopo tracks that touched a
     // few percent of the surface — so its global extremes are artefacts of the
@@ -1108,56 +1211,57 @@ function probeRelief(key: string): ReliefProbe | null {
     // against, 0.24 km above the radius Aphelion gives Titan. That is a uniform
     // change of sphere size rather than of shape, and leaving it alone is what
     // makes the mean-radius check below independent.
-    const DATUM_KM = 2575.0
+    const DATUM_KM = 2575.0;
 
     // Titan's poles sit several hundred metres below its equator: the single
     // most-cited result from this dataset, and it fails loudly on a flipped or
     // rolled grid because it is a property of latitude alone.
-    const polar = titan.mean((lat) => Math.abs(lat) > 60)
-    const equatorial = titan.mean((lat) => Math.abs(lat) < 30)
+    const polar = titan.mean((lat) => Math.abs(lat) > 60);
+    const equatorial = titan.mean((lat) => Math.abs(lat) < 30);
     ok(
       'Titan polar terrain sits below its equator',
       equatorial - polar > 0.3,
       `poles ${(polar * 1000).toFixed(0)} m, equator ${(equatorial * 1000).toFixed(0)} m,` +
         ` difference ${((equatorial - polar) * 1000).toFixed(0)} m`,
-    )
+    );
 
     // The seas: Kraken, Ligeia and Punga at their Gazetteer centres, every one
     // of which has to be a hollow. Liquid pooling in topographic lows is physics
     // rather than a fitted parameter, and the three sit at three different
     // longitudes, so between them they pin the longitude roll the way the
     // far-side average pins it for the Moon.
-    const globalMean = titan.mean(() => true)
-    const seas: [string, number, number][] = [
+    const globalMean = titan.mean(() => true);
+    const seas: Array<[string, number, number]> = [
       ['Kraken Mare', 68.0, 50.0],
       ['Ligeia Mare', 79.7, 112.1],
       ['Punga Mare', 85.1, 20.3],
-    ]
+    ];
     for (const [name, lat, lonEast] of seas) {
-      const depth = (globalMean - titan.at(lat, lonEast)) * 1000
+      const depth = (globalMean - titan.at(lat, lonEast)) * 1000;
       ok(
         `${name} lies below Titan's mean surface`,
         depth > 300,
         `${depth.toFixed(0)} m below the global mean, expected more than 300`,
-      )
+      );
     }
 
     // And the check the map cannot fudge: average its own elevations over the
     // sphere and Titan's mean radius falls out. JPL's figure comes from orbit
     // solutions and limb fits and knows nothing about RADAR altimetry, so two
     // numbers that have no common ancestor have to agree.
-    const jpl = SATELLITES.find((s) => s.name === 'Titan')?.radius ?? NaN
-    near('Titan mean radius from its elevation grid', DATUM_KM + globalMean, jpl, 0.15, ' km')
+    const jpl = SATELLITES.find((s) => s.name === 'Titan')?.radius ?? NaN;
+    near('Titan mean radius from its elevation grid', DATUM_KM + globalMean, jpl, 0.15, ' km');
+  } else {
+    ok('Titan relief (skipped, not on disk)', true);
   }
 }
 
 {
-  const phobos = probeRelief('moon:Phobos')
-  if (!phobos) ok('Phobos shape (skipped, not on disk)', true)
-  else {
+  const phobos = probeRelief('moon:Phobos');
+  if (phobos) {
     // Offsets are measured from the mean radius the app gives Phobos.
-    const R = 11.08
-    const r = (lat: number, lon: number): number => R + phobos.at(lat, lon)
+    const R = 11.08;
+    const r = (lat: number, lon: number): number => R + phobos.at(lat, lon);
 
     // The IAU triaxial figure is 13.0 x 11.4 x 9.1 km with the long axis locked
     // toward Mars. Reading it back off the resampled map confirms the cube-quad
@@ -1166,17 +1270,17 @@ function probeRelief(key: string): ReliefProbe | null {
       'Phobos long axis lies along the sub-Mars meridian',
       r(0, 0) > 12 && r(0, 180) > 12,
       `sub-Mars ${r(0, 0).toFixed(2)} km, anti-Mars ${r(0, 180).toFixed(2)} km, expected > 12`,
-    )
+    );
     ok(
       'Phobos intermediate axis lies at 90 degrees',
       r(0, 90) > 11 && r(0, 90) < 12.4,
       `${r(0, 90).toFixed(2)} km, expected 11-12.4`,
-    )
+    );
     ok(
       'Phobos short axis is polar',
       r(89, 0) < 10.4 && r(-89, 0) < 10.4,
       `north ${r(89, 0).toFixed(2)} km, south ${r(-89, 0).toFixed(2)} km, expected < 10.4`,
-    )
+    );
 
     // Stickney is centred at 1N 49W, on the Mars-facing hemisphere. Comparing it
     // with the point diametrically opposite in longitude cancels the ellipsoid —
@@ -1186,16 +1290,17 @@ function probeRelief(key: string): ReliefProbe | null {
       'Stickney is a depression on the Mars-facing hemisphere',
       r(1, 131) - r(1, 311) > 0.4,
       `Stickney ${r(1, 311).toFixed(2)} km vs opposite ${r(1, 131).toFixed(2)} km`,
-    )
+    );
+  } else {
+    ok('Phobos shape (skipped, not on disk)', true);
   }
 }
 
 {
-  const deimos = probeRelief('moon:Deimos')
-  if (!deimos) ok('Deimos shape (skipped, not on disk)', true)
-  else {
-    const R = 6.2
-    const r = (lat: number, lon: number): number => R + deimos.at(lat, lon)
+  const deimos = probeRelief('moon:Deimos');
+  if (deimos) {
+    const R = 6.2;
+    const r = (lat: number, lon: number): number => R + deimos.at(lat, lon);
 
     // IAU figure is 7.8 x 6.0 x 5.1 km, long axis locked toward Mars. The source
     // is a 5 degree Viking grid, so these are loose — they test that the table's
@@ -1204,12 +1309,12 @@ function probeRelief(key: string): ReliefProbe | null {
       'Deimos long axis lies along the sub-Mars meridian',
       r(0, 0) > 6.8 && r(0, 180) > 6.8,
       `sub-Mars ${r(0, 0).toFixed(2)} km, anti-Mars ${r(0, 180).toFixed(2)} km, expected > 6.8`,
-    )
+    );
     ok(
       'Deimos short axis is polar',
       r(89, 0) < 5.8 && r(-89, 0) < 5.8,
       `north ${r(89, 0).toFixed(2)} km, south ${r(-89, 0).toFixed(2)} km, expected < 5.8`,
-    )
+    );
     // A broad, well-sampled depression in the southern hemisphere — 472 of the
     // table's 2701 points sit below 4.5 km, centred here. If the latitude order
     // were ever flipped this would appear in the north instead.
@@ -1217,7 +1322,9 @@ function probeRelief(key: string): ReliefProbe | null {
       'Deimos southern depression is in the south',
       r(-67, 232) < 4.2 && r(67, 232) > 5,
       `south ${r(-67, 232).toFixed(2)} km, north ${r(67, 232).toFixed(2)} km`,
-    )
+    );
+  } else {
+    ok('Deimos shape (skipped, not on disk)', true);
   }
 }
 
@@ -1225,31 +1332,31 @@ function probeRelief(key: string): ReliefProbe | null {
   // Every shape model here is stored in its body's own IAU frame, so reading a
   // known figure back out of the resampled map is what proves the conversion
   // kept the axes — the same test applied to Phobos and Deimos above.
-  const shaped: [string, number, string][] = [
+  const shaped: Array<[string, number, string]> = [
     ['moon:Mimas', 198.2, 'Mimas'],
     ['moon:Tethys', 531.1, 'Tethys'],
     ['moon:Dione', 561.4, 'Dione'],
     ['moon:Phoebe', 106.5, 'Phoebe'],
     ['sb:Eros', 8.42, 'Eros'],
     ['sb:Vesta', 262.7, 'Vesta'],
-  ]
+  ];
   for (const [key, ref, name] of shaped) {
-    const p = probeRelief(key)
+    const p = probeRelief(key);
     if (!p) {
-      ok(`${name} shape (skipped, not on disk)`, true)
-      continue
+      ok(`${name} shape (skipped, not on disk)`, true);
+      continue;
     }
-    const r = (lat: number, lon: number): number => ref + p.at(lat, lon)
+    const r = (lat: number, lon: number): number => ref + p.at(lat, lon);
 
     if (name === 'Mimas') {
       // Herschel is 139 km across on a 198 km moon and 10 km deep — easily the
       // deepest point, and its position pins the longitude convention exactly.
-      const { loAt } = p.extremes()
+      const { loAt } = p.extremes();
       ok(
         'Mimas deepest point is Herschel',
         Math.abs(loAt[0]) < 10 && lonApart(loAt[1], 249) < 10,
         `at ${loAt[0].toFixed(0)}N ${loAt[1].toFixed(0)}E, expected 0N 249E`,
-      )
+      );
     }
 
     if (name === 'Eros') {
@@ -1258,48 +1365,48 @@ function probeRelief(key: string): ReliefProbe | null {
         'Eros long axis is four times its waist',
         r(0, 0) > 13 && r(0, 180) > 13 && r(0, 90) < 8,
         `ends ${r(0, 0).toFixed(1)}/${r(0, 180).toFixed(1)} km, waist ${r(0, 90).toFixed(1)} km`,
-      )
+      );
     }
 
     if (name === 'Vesta') {
       // Rheasilvia excavated most of the southern hemisphere; the north-south
       // asymmetry is the single most obvious thing about Vesta's figure.
-      const north = p.mean((lat) => lat > 50)
-      const south = p.mean((lat) => lat < -50)
+      const north = p.mean((lat) => lat > 50);
+      const south = p.mean((lat) => lat < -50);
       ok(
         'Vesta southern hemisphere is excavated by Rheasilvia',
         north - south > 8,
         `north ${(ref + north).toFixed(1)} km, south ${(ref + south).toFixed(1)} km`,
-      )
+      );
     }
 
     if (name === 'Phoebe') {
       // A captured body that never relaxed: its radius varies by a quarter.
-      const { hiAt, loAt } = p.extremes()
-      const spread = (r(hiAt[0], hiAt[1]) - r(loAt[0], loAt[1])) / ref
+      const { hiAt, loAt } = p.extremes();
+      const spread = (r(hiAt[0], hiAt[1]) - r(loAt[0], loAt[1])) / ref;
       ok(
         'Phoebe is strongly irregular',
         spread > 0.2,
         `radius spread ${(spread * 100).toFixed(0)}% of the mean`,
-      )
+      );
     }
 
     if (name === 'Tethys' || name === 'Dione') {
       // Synchronous rotation raises a tidal bulge along the planet-facing axis,
       // so both ends of the prime meridian stand above the 90 degree flanks.
-      const ends = (r(0, 0) + r(0, 180)) / 2
-      const flanks = (r(0, 90) + r(0, 270)) / 2
+      const ends = (r(0, 0) + r(0, 180)) / 2;
+      const flanks = (r(0, 90) + r(0, 270)) / 2;
       ok(
         `${name} is elongated toward Saturn`,
         ends > flanks,
         `ends ${ends.toFixed(1)} km, flanks ${flanks.toFixed(1)} km`,
-      )
+      );
     }
   }
 }
 
 // ---------------------------------------------------------------------------
-section('Star catalogue')
+section('Star catalogue');
 
 {
   // A sky renders convincingly whichever way round it is, so the checks that
@@ -1307,38 +1414,32 @@ section('Star catalogue')
   // stars at their published coordinates, in the right order of brightness,
   // with the right colours. Every reference value below is a published one,
   // typed in here rather than read back out of the file being checked.
-  const file = path.join(PUBLIC_DIR, STAR_CATALOGUE.file)
-  if (!existsSync(file)) {
-    ok('star catalogue present', false, `${STAR_CATALOGUE.file} is missing — run pnpm assets`)
-  } else {
-    const raw = readFileSync(file)
-    const buf = raw.buffer.slice(raw.byteOffset, raw.byteOffset + raw.byteLength) as ArrayBuffer
-    const stars = unpackStars(buf)
+  const file = path.join(PUBLIC_DIR, STAR_CATALOGUE.file);
+  if (existsSync(file)) {
+    const raw = readFileSync(file);
+    const buf = raw.buffer.slice(raw.byteOffset, raw.byteOffset + raw.byteLength);
+    const stars = unpackStars(buf);
 
-    ok('star catalogue unpacks', stars !== null, `${STAR_CATALOGUE.count} stars declared`)
+    ok('star catalogue unpacks', stars !== null, `${STAR_CATALOGUE.count} stars declared`);
 
     if (stars) {
       /** Nearest catalogue entry to a published position, and how far off it is. */
       const find = (raDeg: number, decDeg: number) => {
-        const ra = raDeg * DEG
-        const dec = decDeg * DEG
-        const t = [
-          Math.cos(dec) * Math.cos(ra),
-          Math.cos(dec) * Math.sin(ra),
-          Math.sin(dec),
-        ]
+        const ra = raDeg * DEG;
+        const dec = decDeg * DEG;
+        const t = [Math.cos(dec) * Math.cos(ra), Math.cos(dec) * Math.sin(ra), Math.sin(dec)];
         // The stored directions are equatorial J2000, the same frame as the
         // reference values, so this comparison never touches the obliquity.
-        let best = -2
-        let index = -1
+        let best = -2;
+        let index = -1;
         for (let i = 0; i < stars.count; i++) {
           const d =
-            stars.direction[i * 3]! * t[0]! +
-            stars.direction[i * 3 + 1]! * t[1]! +
-            stars.direction[i * 3 + 2]! * t[2]!
+            stars.direction[i * 3] * t[0] +
+            stars.direction[i * 3 + 1] * t[1] +
+            stars.direction[i * 3 + 2] * t[2];
           if (d > best) {
-            best = d
-            index = i
+            best = d;
+            index = i;
           }
         }
         // Angle from the chord, not from acos of the dot product. The stored
@@ -1347,29 +1448,29 @@ section('Star catalogue')
         // like a catalogue that is slightly wrong. The chord form has no such
         // cancellation and resolves to well under an arcsecond.
         const chord = Math.hypot(
-          stars.direction[index * 3]! - t[0]!,
-          stars.direction[index * 3 + 1]! - t[1]!,
-          stars.direction[index * 3 + 2]! - t[2]!,
-        )
+          stars.direction[index * 3] - t[0],
+          stars.direction[index * 3 + 1] - t[1],
+          stars.direction[index * 3 + 2] - t[2],
+        );
         return {
           index,
           arcsec: 2 * Math.asin(Math.min(1, chord / 2)) * RAD * 3600,
-          mag: stars.magnitude[index]!,
+          mag: stars.magnitude[index],
           rgb: [
-            stars.colour[index * 3]!,
-            stars.colour[index * 3 + 1]!,
-            stars.colour[index * 3 + 2]!,
+            stars.colour[index * 3],
+            stars.colour[index * 3 + 1],
+            stars.colour[index * 3 + 2],
           ] as const,
           pm: Math.hypot(
-            stars.properMotion[index * 3]!,
-            stars.properMotion[index * 3 + 1]!,
-            stars.properMotion[index * 3 + 2]!,
+            stars.properMotion[index * 3],
+            stars.properMotion[index * 3 + 1],
+            stars.properMotion[index * 3 + 2],
           ),
-        }
-      }
+        };
+      };
 
       // RA/Dec J2000 and Johnson V, from the standard bright-star references.
-      const NAMED: [string, number, number, number][] = [
+      const NAMED: Array<[string, number, number, number]> = [
         ['Sirius', 101.28715, -16.71611, -1.46],
         ['Canopus', 95.98796, -52.69566, -0.74],
         ['Arcturus', 213.9153, 19.18241, -0.05],
@@ -1381,16 +1482,16 @@ section('Star catalogue')
         ['Deneb', 310.35798, 45.28034, 1.25],
         // Declination 89.26: the one that catches a pole-handling slip.
         ['Polaris', 37.95456, 89.26411, 1.98],
-      ]
+      ];
 
-      let worstArcsec = 0
-      let worstMag = 0
+      let worstArcsec = 0;
+      let worstMag = 0;
       for (const [name, ra, dec, vmag] of NAMED) {
-        const hit = find(ra, dec)
-        worstArcsec = Math.max(worstArcsec, hit.arcsec)
-        worstMag = Math.max(worstMag, Math.abs(hit.mag - vmag))
+        const hit = find(ra, dec);
+        worstArcsec = Math.max(worstArcsec, hit.arcsec);
+        worstMag = Math.max(worstMag, Math.abs(hit.mag - vmag));
         if (hit.arcsec > 60) {
-          ok(`${name} is where it should be`, false, `nearest star is ${hit.arcsec.toFixed(0)}"`)
+          ok(`${name} is where it should be`, false, `nearest star is ${hit.arcsec.toFixed(0)}"`);
         }
       }
       // Right ascension is packed into a full turn of a uint16 and declination
@@ -1401,25 +1502,25 @@ section('Star catalogue')
         'ten named stars sit at their published positions',
         worstArcsec < 15,
         `worst ${worstArcsec.toFixed(1)}"`,
-      )
+      );
       // Bright stars are frequently variable — Betelgeuse alone swings by half a
       // magnitude — so this is a check on the column, not on the photometry.
       ok(
         'and carry their published magnitudes',
         worstMag < 0.15,
         `worst ${worstMag.toFixed(3)} mag`,
-      )
+      );
 
       // Colour: B stars must come out blue-white and M stars orange. Comparing
       // the blue/red ratio pins the direction of the B-V mapping, which a sign
       // slip would silently invert into a sky of red hot stars and blue cool ones.
-      const rigel = find(78.63446, -8.20164).rgb
-      const betelgeuse = find(88.79293, 7.40706).rgb
+      const rigel = find(78.63446, -8.20164).rgb;
+      const betelgeuse = find(88.79293, 7.40706).rgb;
       ok(
         'Rigel is blue-white and Betelgeuse is orange',
         rigel[2] > rigel[0] && betelgeuse[0] > betelgeuse[2],
         `Rigel rgb(${rigel.join(',')}), Betelgeuse rgb(${betelgeuse.join(',')})`,
-      )
+      );
 
       // Proper motion. The catalogue's own epoch is J1991.25 and these were
       // propagated forward to J2000, which is invisible on the sky as a whole
@@ -1427,74 +1528,84 @@ section('Star catalogue')
       // inside the magnitude limit, at 7.06"/yr — it travelled 62 arcseconds
       // between the two epochs, six times the packing quantum, so this fails
       // loudly if the propagation is ever dropped or applied twice.
-      const groombridge = find(178.24487, 37.71868) // HD 103095, V 6.42
+      const groombridge = find(178.24487, 37.71868); // HD 103095, V 6.42
       ok(
         'Groombridge 1830 was propagated to J2000 and kept its proper motion',
         groombridge.arcsec < 15 && Math.abs(groombridge.pm * RAD * 3600 - 7.06) < 0.05,
         `${(groombridge.pm * RAD * 3600).toFixed(2)}"/yr, ${groombridge.arcsec.toFixed(1)}" from J2000`,
-      )
+      );
 
       // Nothing in the file may be fainter than the limit the module advertises,
       // or the renderer's size law hands out negative radii.
-      let faintest = -Infinity
-      for (let i = 0; i < stars.count; i++) faintest = Math.max(faintest, stars.magnitude[i]!)
+      let faintest = -Infinity;
+      for (let i = 0; i < stars.count; i++) {
+        faintest = Math.max(faintest, stars.magnitude[i]);
+      }
       ok(
         'no star is fainter than the declared limit',
         faintest <= STAR_CATALOGUE.magnitudeLimit + 1e-3,
         `faintest V ${faintest.toFixed(2)}, limit ${STAR_CATALOGUE.magnitudeLimit}`,
-      )
+      );
 
       // Every direction must be a unit vector; the int16 packing is what would
       // break this, and a short vector renders as a star at the wrong distance
       // from the sphere's centre rather than as anything obviously wrong.
-      let worstLength = 0
+      let worstLength = 0;
       for (let i = 0; i < stars.count; i++) {
         const len = Math.hypot(
-          stars.direction[i * 3]!,
-          stars.direction[i * 3 + 1]!,
-          stars.direction[i * 3 + 2]!,
-        )
-        worstLength = Math.max(worstLength, Math.abs(len - 1))
+          stars.direction[i * 3],
+          stars.direction[i * 3 + 1],
+          stars.direction[i * 3 + 2],
+        );
+        worstLength = Math.max(worstLength, Math.abs(len - 1));
       }
-      ok('directions are unit vectors', worstLength < 1e-4, `worst |1-|v|| = ${worstLength.toExponential(1)}`)
+      ok(
+        'directions are unit vectors',
+        worstLength < 1e-4,
+        `worst |1-|v|| = ${worstLength.toExponential(1)}`,
+      );
 
       // The Milky Way must actually be where the stars are dense. This is the
       // one check that ties the two layers of the sky together: it recomputes
       // the galactic pole from published values and asks whether the catalogue
       // crowds the plane it defines.
-      const GNP_RA = 192.85948 * DEG
-      const GNP_DEC = 27.12825 * DEG
+      const GNP_RA = 192.85948 * DEG;
+      const GNP_DEC = 27.12825 * DEG;
       const pole = [
         Math.cos(GNP_DEC) * Math.cos(GNP_RA),
         Math.cos(GNP_DEC) * Math.sin(GNP_RA),
         Math.sin(GNP_DEC),
-      ]
-      let nearPlane = 0
+      ];
+      let nearPlane = 0;
       for (let i = 0; i < stars.count; i++) {
         const sinB = Math.abs(
-          stars.direction[i * 3]! * pole[0]! +
-            stars.direction[i * 3 + 1]! * pole[1]! +
-            stars.direction[i * 3 + 2]! * pole[2]!,
-        )
-        if (sinB < Math.sin(10 * DEG)) nearPlane++
+          stars.direction[i * 3] * pole[0] +
+            stars.direction[i * 3 + 1] * pole[1] +
+            stars.direction[i * 3 + 2] * pole[2],
+        );
+        if (sinB < Math.sin(10 * DEG)) {
+          nearPlane++;
+        }
       }
       // A band 10 degrees either side of the plane is 17.4% of the sky by area,
       // and a mirrored or mis-rotated catalogue would land on exactly that. The
       // excess is real but modest — everything down to eighth magnitude is
       // nearby, within a few disc scale heights, so the bright sky is far less
       // concentrated than the faint one that makes up the Milky Way.
-      const fraction = nearPlane / stars.count
+      const fraction = nearPlane / stars.count;
       ok(
         'stars crowd the galactic plane',
         fraction > 0.22,
         `${(fraction * 100).toFixed(1)}% within 10 degrees of it, against 17.4% of the sky`,
-      )
+      );
     }
+  } else {
+    ok('star catalogue present', false, `${STAR_CATALOGUE.file} is missing — run pnpm assets`);
   }
 }
 
 // ---------------------------------------------------------------------------
-section('Uranian system')
+section('Uranian system');
 {
   // JPL Horizons state vectors, ecliptic J2000, km, relative to the planet's
   // centre at JD 2451544.5 TDB. Independent of the mean elements Aphelion
@@ -1512,25 +1623,25 @@ section('Uranian system')
     Miranda: [123174.8, -21566.4, -34602.5],
     Puck: [-71598.3, 22932.0, 42258.1],
     Charon: [-40.8, -10402.8, -16608.3],
-  }
-  const system = new SolarSystem()
-  system.update(2451544.5, new ScaleModel())
+  };
+  const system = new SolarSystem();
+  system.update(2451544.5, new ScaleModel());
   for (const [name, ref] of Object.entries(HORIZONS)) {
-    const body = system.bodies.find((b) => b.key === `moon:${name}`)
+    const body = system.bodies.find((b) => b.key === `moon:${name}`);
     if (!body) {
-      ok(`${name} exists`, false)
-      continue
+      ok(`${name} exists`, false);
+      continue;
     }
-    const d = Math.hypot(body.localKm.x - ref[0], body.localKm.y - ref[1], body.localKm.z - ref[2])
+    const d = Math.hypot(body.localKm.x - ref[0], body.localKm.y - ref[1], body.localKm.z - ref[2]);
     // Mean elements, so the tolerance is set by how well they can do at all:
     // the classical moons land within 2,000 km and Puck, the innermost and the
     // fastest precessing, within 8,000. A frame error is six orders louder.
-    const tol = name === 'Charon' ? 2000 : name === 'Puck' ? 12000 : 5000
+    const tol = name === 'Charon' ? 2000 : name === 'Puck' ? 12000 : 5000;
     ok(
       `${name} matches its Horizons position`,
       d < tol,
       `${Math.round(d)} km from JPL, tolerance ${tol} km`,
-    )
+    );
   }
 
   // A satellite's IAU north is the end of its axis lying on its primary's north
@@ -1538,68 +1649,79 @@ section('Uranian system')
   // equal IAU longitude and keeps every satellite map registered. Getting it
   // wrong is invisible on a procedural surface and turns a real map upside down
   // and mirrored, which is what had happened to Triton.
-  let flipped = 0
-  let checked = 0
+  let flipped = 0;
+  let checked = 0;
   for (const body of system.bodies) {
-    if (body.type !== 'moon' || !body.parent?.spec) continue
-    const p = body.parent.orientation.z
-    const z = body.orientation.z
-    checked++
-    if (z.x * p.x + z.y * p.y + z.z * p.z < 0) flipped++
+    if (body.type !== 'moon' || !body.parent?.spec) {
+      continue;
+    }
+    const p = body.parent.orientation.z;
+    const z = body.orientation.z;
+    checked++;
+    if (z.x * p.x + z.y * p.y + z.z * p.z < 0) {
+      flipped++;
+    }
   }
   ok(
     'every satellite is oriented about its primary’s north side',
     flipped === 0,
     `${checked} satellites, ${flipped} inverted`,
-  )
+  );
 }
 
-section('Uranian photomosaics')
+section('Uranian photomosaics');
 {
   // USGS I-1920 is a printed map sheet, so the whole conversion — the fitted
   // polar-stereographic geometry, the direction longitude runs, the repair of
   // the printed graticule — is checked against the IAU Gazetteer's published
   // feature coordinates rather than trusted.
   const probe = (file: string) => {
-    const full = path.join(PUBLIC_DIR, 'textures', file)
-    if (!existsSync(full)) return null
-    const img = decodePng(readFileSync(full))
-    const px = (lat: number, lonEast: number): number => {
-      const lon = ((((lonEast + 180) % 360) + 360) % 360) - 180
-      const x = Math.min(img.width - 1, Math.max(0, Math.round(((lon + 180) / 360) * img.width)))
-      const y = Math.min(img.height - 1, Math.max(0, Math.round(((90 - lat) / 180) * img.height)))
-      return img.data[(y * img.width + x) * img.channels]!
+    const full = path.join(PUBLIC_DIR, 'textures', file);
+    if (!existsSync(full)) {
+      return null;
     }
+    const img = decodePng(readFileSync(full));
+    const px = (lat: number, lonEast: number): number => {
+      const lon = ((((lonEast + 180) % 360) + 360) % 360) - 180;
+      const x = Math.min(img.width - 1, Math.max(0, Math.round(((lon + 180) / 360) * img.width)));
+      const y = Math.min(img.height - 1, Math.max(0, Math.round(((90 - lat) / 180) * img.height)));
+      return img.data[(y * img.width + x) * img.channels];
+    };
     // Average a small disc so no check turns on one pixel.
     const patch = (lat: number, lonEast: number): number => {
-      let s = 0
-      let n = 0
-      const scale = Math.max(Math.cos((lat * Math.PI) / 180), 0.2)
+      let s = 0;
+      let n = 0;
+      const scale = Math.max(Math.cos((lat * Math.PI) / 180), 0.2);
       for (let dy = -6; dy <= 6; dy++) {
         for (let dx = -6; dx <= 6; dx++) {
-          s += px(lat + dy * 0.18, lonEast + (dx * 0.18) / scale)
-          n++
+          s += px(lat + dy * 0.18, lonEast + (dx * 0.18) / scale);
+          n++;
         }
       }
-      return s / n
-    }
-    const fill = img.data[0]!
-    let northImaged = 0
-    let southImaged = 0
-    let sum = 0
-    let n = 0
+      return s / n;
+    };
+    const fill = img.data[0];
+    let northImaged = 0;
+    let southImaged = 0;
+    let sum = 0;
+    let n = 0;
     for (let y = 0; y < img.height; y++) {
       for (let x = 0; x < img.width; x++) {
-        const v = img.data[(y * img.width + x) * img.channels]!
-        if (v === fill) continue
-        if (y < img.height / 2) northImaged++
-        else southImaged++
-        sum += v
-        n++
+        const v = img.data[(y * img.width + x) * img.channels];
+        if (v === fill) {
+          continue;
+        }
+        if (y < img.height / 2) {
+          northImaged++;
+        } else {
+          southImaged++;
+        }
+        sum += v;
+        n++;
       }
     }
-    return { img, patch, northImaged, southImaged, mean: sum / Math.max(n, 1) }
-  }
+    return { img, patch, northImaged, southImaged, mean: sum / Math.max(n, 1) };
+  };
 
   for (const [body, file] of [
     ['Miranda', 'miranda.png'],
@@ -1608,58 +1730,62 @@ section('Uranian photomosaics')
     ['Titania', 'titania.png'],
     ['Oberon', 'oberon.png'],
   ] as const) {
-    const p = probe(file)
-    if (!p) continue
+    const p = probe(file);
+    if (!p) {
+      continue;
+    }
     ok(
       `${body} mosaic is a 2048x1024 equirectangular grey`,
       p.img.width === 2048 && p.img.height === 1024 && p.img.channels === 1,
       `${p.img.width}x${p.img.height}, ${p.img.channels} channel`,
-    )
+    );
     // Voyager 2 arrived at southern summer solstice, so the northern hemisphere
     // is not merely sparse, it is entirely unobserved. It must be flat, and the
     // south must not be.
-    const southFraction = p.southImaged / (p.img.width * (p.img.height / 2))
+    const southFraction = p.southImaged / (p.img.width * (p.img.height / 2));
     ok(
       `${body} has an imaged south and a blank north`,
       p.northImaged === 0 && southFraction > 0.7,
       `north ${p.northImaged} imaged px, south ${(southFraction * 100).toFixed(0)}%`,
-    )
+    );
   }
 
   // Registration, against the Gazetteer. Oberon's Hamlet and Macbeth are its
   // conspicuous dark-floored craters; mirroring the longitude convention lands
   // both on ordinary bright ground, which is what makes this a test of the
   // convention and not just of the darkness.
-  const oberon = probe('oberon.png')
+  const oberon = probe('oberon.png');
   if (oberon) {
     for (const [name, lat, lon, margin] of [
       ['Hamlet', -46.1, 44.4, 20],
       ['Macbeth', -58.4, 112.5, 50],
     ] as const) {
-      const here = oberon.patch(lat, lon)
-      const mirrored = oberon.patch(lat, -lon)
+      const here = oberon.patch(lat, lon);
+      const mirrored = oberon.patch(lat, -lon);
       ok(
         `Oberon's ${name} is a dark floor at its Gazetteer position`,
         here < oberon.mean - margin && here < mirrored - 15,
         `${here.toFixed(0)} against a mean of ${oberon.mean.toFixed(0)}, mirrored ${mirrored.toFixed(0)}`,
-      )
+      );
     }
   }
   // Wunda is the brightest thing on Umbriel and the only feature on it anyone
   // can name from a picture.
-  const umbriel = probe('umbriel.png')
+  const umbriel = probe('umbriel.png');
   if (umbriel) {
-    const wunda = umbriel.patch(-7.9, 273.6)
+    const wunda = umbriel.patch(-7.9, 273.6);
     ok(
       'Umbriel’s Wunda is the bright ring at its Gazetteer position',
       wunda > umbriel.mean + 20,
       `${wunda.toFixed(0)} against a mean of ${umbriel.mean.toFixed(0)}`,
-    )
+    );
   }
 }
 
 // ---------------------------------------------------------------------------
 console.log(
-  `\n\x1b[1m${checks - failures}/${checks} checks passed\x1b[0m${failures ? ` \x1b[31m(${failures} failed)\x1b[0m` : ''}\n`,
-)
-if (failures > 0) process.exit(1)
+  `\n\u001B[1m${checks - failures}/${checks} checks passed\u001B[0m${failures ? ` \u001B[31m(${failures} failed)\u001B[0m` : ''}\n`,
+);
+if (failures > 0) {
+  process.exit(1);
+}
