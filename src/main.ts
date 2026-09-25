@@ -29,15 +29,13 @@ import { registerServiceWorker } from './sw-register.ts';
 import { makeCollapsible } from './ui/collapse.ts';
 import { Minimap } from './ui/minimap.ts';
 import { installMobileShell } from './ui/mobile.ts';
-import {
-  BodyBrowser,
-  formatDistance,
-  HelpOverlay,
-  InfoPanel,
-  TimePanel,
-  Toast,
-  TogglePanel,
-} from './ui/panels.ts';
+import { BodyBrowser } from './ui/panels/body-browser.ts';
+import { formatDistance } from './ui/panels/format.ts';
+import { HelpOverlay } from './ui/panels/help-overlay.ts';
+import { InfoPanel } from './ui/panels/info-panel.ts';
+import { TimePanel } from './ui/panels/time-panel.ts';
+import { Toast } from './ui/panels/toast.ts';
+import { TogglePanel } from './ui/panels/toggle-panel.ts';
 
 registerServiceWorker();
 
