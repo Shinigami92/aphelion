@@ -8,7 +8,7 @@ import { BufferAttribute, BufferGeometry, Points } from 'three';
 import { SCENE_UNIT_KM } from '../../core/constants.ts';
 import { buildSwarms } from '../../data/belts.ts';
 import { createSwarmMaterial } from '../materials/swarm.ts';
-import { pointSprite } from '../procedural.ts';
+import { pointSprite } from '../procedural/sprites.ts';
 import { setViewport } from './geometry.ts';
 
 export class SwarmLayer {
