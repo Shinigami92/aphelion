@@ -14,26 +14,20 @@ import type { SimBody } from '../src/core/system.ts';
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { inflateSync } from 'node:zlib';
+import { calendarToJd, formatUtc, jdToCalendar, parseUtc } from '../src/astro/calendar.ts';
 import { solveEccentricAnomaly, wrap2pi } from '../src/astro/kepler.ts';
 import { moonSpherical } from '../src/astro/moon.ts';
 import { PLANET_KEYS, planetPosition } from '../src/astro/planets.ts';
-import {
-  calendarToJd,
-  formatUtc,
-  jdToCalendar,
-  jdUtcToTt,
-  parseUtc,
-  taiMinusUtc,
-} from '../src/astro/timescales.ts';
+import { jdUtcToTt, taiMinusUtc } from '../src/astro/timescales.ts';
 import { AU_KM, DEG, RAD } from '../src/core/constants.ts';
 import { ScaleModel } from '../src/core/scale.ts';
 import { SolarSystem } from '../src/core/system.ts';
+import { parseView } from '../src/core/url-parse.ts';
 import {
   DEFAULT_LABELS,
   DEFAULT_ORBITS,
   DEFAULT_TOGGLES,
   encodeView,
-  parseView,
 } from '../src/core/url-state.ts';
 import { ALL_BODY_SPECS } from '../src/data/bodies.ts';
 import { reliefFor } from '../src/data/generated/relief.ts';

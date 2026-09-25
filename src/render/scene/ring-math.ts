@@ -2,7 +2,7 @@
 
 import type { ScaleModel } from '../../core/scale.ts';
 import type { SimBody } from '../../core/system.ts';
-import type { RingSpec } from '../../data/bodies.ts';
+import type { RingSpec } from '../../data/body-spec.ts';
 import { SCENE_UNIT_KM } from '../../core/constants.ts';
 
 /**

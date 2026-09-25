@@ -6,7 +6,7 @@ import type { SimBody, SolarSystem } from '../core/system.ts';
 import type { TimeController } from '../core/time.ts';
 import type { SharedView } from '../core/url-state.ts';
 import type { SceneView } from '../render/scene.ts';
-import { rateToPreset } from '../core/url-state.ts';
+import { rateToPreset } from '../core/time.ts';
 
 /**
  * First pass: the clock and the scale mode, which have to land before the first

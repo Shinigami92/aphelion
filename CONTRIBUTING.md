@@ -69,14 +69,18 @@ src/
     moon.ts         Meeus/ELP-2000 lunar theory
     frames.ts       ecliptic / equatorial / Laplace frames, IAU orientation
     lagrange.ts     the five equilibria of the restricted three-body problem
-    timescales.ts   UTC ↔ JD ↔ TT, leap seconds, ΔT, calendar
+    timescales.ts   UTC ↔ JD ↔ TT, leap seconds, ΔT
+    calendar.ts     calendar dates and their UTC text form
   core/
     time.ts         the clock: rates, pause, reverse, scrub
     system.ts       the body tree; solves ~690 positions and 40 points per frame
+    system/         building the tree, the per-frame solve, catalogue tables
+    url-*.ts        the view in the address bar: state, parse, writer
     scale.ts        the two scale models
   data/
-    bodies.ts       physical properties, rings, atmospheres, facts
-    belts.ts        statistical belt generation
+    bodies.ts       the Sun and the catalogue lists; body-spec.ts has the types
+    bodies/         one file per planet, the dwarf planets, moon and small-body tables
+    belts.ts        statistical belt generation; belts/ holds the populations
     stars.ts        the packed star catalogue's format
     generated/      committed output of scripts/fetch-assets.ts
   render/

@@ -1,7 +1,7 @@
 /** What the scene keeps per rendered body. */
 
 import type { SimBody } from '../../core/system.ts';
-import type { RingSpec } from '../../data/bodies.ts';
+import type { RingSpec } from '../../data/body-spec.ts';
 import type { ReliefMap } from '../../data/generated/relief.ts';
 import type { Group, Mesh, ShaderMaterial } from 'three';
 

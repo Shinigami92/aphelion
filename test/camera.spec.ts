@@ -13,7 +13,8 @@
 
 import type { SimBody } from '../src/core/system.ts';
 import { beforeAll, describe, expect, it } from 'vitest';
-import { jdUtcToTt, parseUtc } from '../src/astro/timescales.ts';
+import { parseUtc } from '../src/astro/calendar.ts';
+import { jdUtcToTt } from '../src/astro/timescales.ts';
 import { CameraController } from '../src/controls/camera.ts';
 import { ScaleModel } from '../src/core/scale.ts';
 import { SolarSystem } from '../src/core/system.ts';

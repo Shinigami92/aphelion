@@ -1,7 +1,7 @@
 /** The clock and the transport bar: date entry, play, reverse, step, rate. */
 
 import type { TimeController } from '../../core/time.ts';
-import { formatUtcDate, formatUtcTime } from '../../astro/timescales.ts';
+import { formatUtcDate, formatUtcTime } from '../../astro/calendar.ts';
 import { RATE_PRESETS } from '../../core/time.ts';
 import { el } from './dom.ts';
 

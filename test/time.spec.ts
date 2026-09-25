@@ -8,7 +8,8 @@
 
 import type { TimeListener } from '../src/core/time.ts';
 import { describe, expect, it, vi } from 'vitest';
-import { jdUtcToTt, parseUtc } from '../src/astro/timescales.ts';
+import { parseUtc } from '../src/astro/calendar.ts';
+import { jdUtcToTt } from '../src/astro/timescales.ts';
 import { SEC_PER_DAY } from '../src/core/constants.ts';
 import { JD_MAX, JD_MIN, RATE_PRESETS, TimeController } from '../src/core/time.ts';
 
