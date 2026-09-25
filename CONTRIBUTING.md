@@ -87,7 +87,9 @@ src/
     sky.ts          the star field and the deep-sky backdrop
     procedural.ts   synthesised surfaces
     textures.ts     lazy loading with procedural fallback
-  controls/camera.ts
+  controls/
+    camera.ts       CameraController: the public face of the camera
+    camera/         orbit, free flight, cinematic flights, shared views, pointer input
   ui/               panels, orrery mini-map, styles
   sw-register.ts    registers the service worker in production
 test/               Vitest unit tests for the pure modules (*.spec.ts)

@@ -1,6 +1,7 @@
 /** The hold-to-move keys: which key drives which part of the camera. */
 
-import type { CameraController, CameraKeyState } from '../controls/camera.ts';
+import type { CameraController } from '../controls/camera.ts';
+import type { CameraKeyState } from '../controls/camera/keys.ts';
 
 /** Keys that mean "I am driving now", which cancels a cinematic approach. */
 export const MOVEMENT_KEYS = new Set([
