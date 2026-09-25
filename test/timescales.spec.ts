@@ -11,9 +11,15 @@ import {
   calendarToJd,
   deltaTSeconds,
   formatUtc,
+  formatUtcDate,
+  formatUtcTime,
+  gmst,
   jdToCalendar,
+  jdToMs,
   jdToYearFraction,
   jdUtcToTt,
+  msToJd,
+  nowJdUtc,
   parseUtc,
   taiMinusUtc,
 } from '../src/astro/timescales.ts';
@@ -107,6 +113,46 @@ describe('calendar round trips', () => {
 describe('formatUtc', () => {
   it('pads every field and marks a BCE year with a leading minus', () => {
     expect(formatUtc(utc(-44, 3, 15, 6, 5, 4))).toBe('-0044-03-15 06:05:04');
+  });
+
+  it('appends milliseconds on request', () => {
+    expect(formatUtc(utc(2024, 4, 8, 18, 17, 16) + 0.25 / SEC_PER_DAY, true)).toBe(
+      '2024-04-08 18:17:16.250',
+    );
+  });
+
+  it('splits into the date and time halves the transport bar shows', () => {
+    const jd = utc(-44, 3, 15, 6, 5, 4);
+    expect(formatUtcDate(jd)).toBe('-0044-03-15');
+    expect(formatUtcTime(jd)).toBe('06:05:04');
+  });
+});
+
+describe('wall clock', () => {
+  it('converts Unix milliseconds to a Julian Date and back', () => {
+    expect(msToJd(0)).toBe(2440587.5);
+    expect(jdToMs(J2000)).toBe(Date.UTC(2000, 0, 1, 12));
+  });
+
+  it('reads now from the system clock', () => {
+    const before = msToJd(Date.now());
+    const now = nowJdUtc();
+    expect(now).toBeGreaterThanOrEqual(before);
+    expect(now - before).toBeLessThan(1 / 24);
+  });
+});
+
+describe('gmst', () => {
+  it('matches the Astronomical Almanac at J2000.0', () => {
+    // 18h 41m 50.548s, IAU 1982.
+    expect(gmst(J2000)).toBeCloseTo(((18 + 41 / 60 + 50.548_41 / 3600) / 24) * 2 * Math.PI, 8);
+  });
+
+  it('stays within one turn', () => {
+    for (const jd of [J2000 - 100_000.3, J2000, J2000 + 12_345.6]) {
+      expect(gmst(jd)).toBeGreaterThanOrEqual(0);
+      expect(gmst(jd)).toBeLessThan(2 * Math.PI);
+    }
   });
 });
 

@@ -11,7 +11,8 @@
  */
 
 import type { SharedView } from '../src/core/url-state.ts';
-import { describe, expect, it } from 'vitest';
+import type { Mock } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { parseUtc } from '../src/astro/timescales.ts';
 import { RATE_PRESETS } from '../src/core/time.ts';
 import {
@@ -21,6 +22,7 @@ import {
   encodeView,
   parseView,
   rateToPreset,
+  UrlWriter,
 } from '../src/core/url-state.ts';
 
 // NaN rather than a cast: should the fixture ever stop parsing, every
@@ -227,5 +229,52 @@ describe('rateToPreset', () => {
 
   it('treats a zero rate as the slowest preset', () => {
     expect(rateToPreset(0)).toEqual({ index: 0, direction: 1 });
+  });
+});
+
+/** Node has no `window`; the writer only ever touches these two members. */
+const stubWindow = (): Mock<History['replaceState']> => {
+  const replaceState = vi.fn<History['replaceState']>();
+  vi.stubGlobal('window', { location: { pathname: '/aphelion/' }, history: { replaceState } });
+  return replaceState;
+};
+
+describe('UrlWriter', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('writes the encoded view under the current path', () => {
+    const replaceState = stubWindow();
+    const view = baseView();
+    new UrlWriter().sync(1000, () => view);
+    expect(replaceState).toHaveBeenCalledExactlyOnceWith(
+      null,
+      '',
+      `/aphelion/?${encodeView(view)}`,
+    );
+  });
+
+  it('throttles to one rebuild per interval and skips an unchanged query', () => {
+    const replaceState = stubWindow();
+    const writer = new UrlWriter(400);
+    const snapshot = vi.fn<() => SharedView>(() => baseView());
+
+    writer.sync(1000, snapshot);
+    writer.sync(1200, snapshot);
+    expect(snapshot).toHaveBeenCalledTimes(1);
+
+    writer.sync(1400, snapshot);
+    expect(snapshot).toHaveBeenCalledTimes(2);
+    expect(replaceState).toHaveBeenCalledTimes(1);
+  });
+
+  it('flushes immediately, ignoring the throttle', () => {
+    const replaceState = stubWindow();
+    const writer = new UrlWriter(400);
+    writer.sync(1000, () => baseView());
+    writer.flush(() => baseView({ focusKey: 'mars' }));
+    expect(replaceState).toHaveBeenCalledTimes(2);
+    expect(replaceState.mock.lastCall?.[2]).toContain('focus=mars');
   });
 });
