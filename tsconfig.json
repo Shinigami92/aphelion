@@ -24,5 +24,5 @@
     // `node` is needed for scripts/ (the asset pipeline); `vite/client` for src/.
     "types": ["vite/client", "node"]
   },
-  "include": ["src", "scripts", "test"]
+  "include": ["src", "scripts", "test", "e2e"]
 }

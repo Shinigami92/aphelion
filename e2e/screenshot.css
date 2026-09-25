@@ -1,0 +1,6 @@
+/* The boot toast fades on its own schedule and says nothing about the scene.
+   Hidden rather than masked: a mask follows the element's box, which changes
+   size as it fades, so the masked frames never match. */
+#toast {
+  display: none !important;
+}

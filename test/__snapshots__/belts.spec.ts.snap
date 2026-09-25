@@ -1,0 +1,51 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`structure > matches the golden summary 1`] = `
+[
+  {
+    "count": 42000,
+    "firstA": 2.32062,
+    "name": "Main belt",
+  },
+  {
+    "count": 1600,
+    "firstA": 3.99643,
+    "name": "Hilda group",
+  },
+  {
+    "count": 4200,
+    "firstA": 5.28143,
+    "name": "Jupiter Trojans (L4 — Greeks)",
+  },
+  {
+    "count": 3400,
+    "firstA": 5.23154,
+    "name": "Jupiter Trojans (L5 — Trojans)",
+  },
+  {
+    "count": 4000,
+    "firstA": 39.7586,
+    "name": "Plutinos (3:2 with Neptune)",
+  },
+  {
+    "count": 9000,
+    "firstA": 45.2563,
+    "name": "Classical Kuiper belt (cold)",
+  },
+  {
+    "count": 5000,
+    "firstA": 44.5985,
+    "name": "Classical Kuiper belt (hot)",
+  },
+  {
+    "count": 900,
+    "firstA": 47.7669,
+    "name": "Twotinos (2:1 with Neptune)",
+  },
+  {
+    "count": 4500,
+    "firstA": 63.1196,
+    "name": "Scattered disc",
+  },
+]
+`;
