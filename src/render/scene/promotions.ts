@@ -11,7 +11,7 @@ import { Group, Mesh, Vector3 } from 'three';
 import { RELIEF_EXAGGERATION } from '../../data/bodies/relief.ts';
 import { reliefFor } from '../../data/generated/relief.ts';
 import { createBodyMaterial } from '../materials/body.ts';
-import { solidTexture } from '../procedural.ts';
+import { solidTexture } from '../procedural/sprites.ts';
 import { whenLoaded } from '../textures.ts';
 import { updateBodyVisual } from './body-visual-update.ts';
 import { SHAPE_APPARENT_PX } from './constants.ts';

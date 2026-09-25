@@ -430,7 +430,7 @@ at all.
 
 Roughly 450 of the 687 bodies have **no map that has ever been made**; most are
 unresolved points of light even to Hubble. Their surfaces are generated
-procedurally by `src/render/procedural.ts` from properties that _are_ known —
+procedurally by `src/render/procedural/` from properties that _are_ known —
 radius, parent, albedo class, whether the body is icy or rocky — producing
 plausible crater densities, albedo mottling and polar frost.
 

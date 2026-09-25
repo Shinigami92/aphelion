@@ -6,7 +6,7 @@ import type { BodyVisual } from './visual.ts';
 import type { Group, ShaderMaterial } from 'three';
 import { BufferAttribute, BufferGeometry, Color, Points } from 'three';
 import { createMinorPointsMaterial } from '../materials/minor-points.ts';
-import { pointSprite } from '../procedural.ts';
+import { pointSprite } from '../procedural/sprites.ts';
 import { setViewport } from './geometry.ts';
 
 export class MinorPointsLayer {

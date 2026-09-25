@@ -8,7 +8,7 @@ import { Matrix4, Mesh, Vector3 } from 'three';
 import { SCENE_UNIT_KM } from '../../core/constants.ts';
 import { createRingParticleMaterial } from '../materials/ring-particle.ts';
 import { textureUniform, vec3Uniform } from '../materials/uniforms.ts';
-import { solidTexture } from '../procedural.ts';
+import { solidTexture } from '../procedural/sprites.ts';
 import { createRingParticleGeometry, poleMatrix } from './geometry.ts';
 import { gravitationalParameter, ringKmPerUnit, ringParticleSizeKm } from './ring-math.ts';
 

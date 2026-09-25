@@ -6,7 +6,7 @@ import type { Group, ShaderMaterial } from 'three';
 import { BufferAttribute, BufferGeometry, Color, LineSegments, Points, Vector3 } from 'three';
 import { createLagrangeMarkerMaterial } from '../materials/lagrange-marker.ts';
 import { createOrbitMaterial } from '../materials/orbit.ts';
-import { markerSprite } from '../procedural.ts';
+import { markerSprite } from '../procedural/sprites.ts';
 import { float32Array, plainAttribute, smoothstep } from './geometry.ts';
 
 /**

@@ -169,7 +169,7 @@ select(selected);
 function select(body: SimBody): void {
   selected = body;
   scene.setSelected(body);
-  infoPanel.setBody(body, system);
+  infoPanel.setBody(body);
   browser.setSelected(body);
 }
 

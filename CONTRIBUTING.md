@@ -89,12 +89,12 @@ src/
     scene.ts        SceneView: builds the scene and runs its layers each frame
     scene/          one file per layer: bodies, rings, orbits, labels, picking, ...
     sky.ts          the star field and the deep-sky backdrop
-    procedural.ts   synthesised surfaces
+    procedural/     synthesised surfaces, rings and sprites
     textures.ts     lazy loading with procedural fallback
   controls/
     camera.ts       CameraController: the public face of the camera
     camera/         orbit, free flight, cinematic flights, shared views, pointer input
-  ui/               panels, orrery mini-map, styles
+  ui/               panels, orrery mini-map, styles; panels/ and minimap/ hold their parts
   sw-register.ts    registers the service worker in production
 test/               Vitest unit tests for the pure modules (*.spec.ts)
 e2e/                Playwright guards for render/UI refactors: screenshots, pick maps, input (*.e2e.ts)

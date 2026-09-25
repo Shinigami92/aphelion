@@ -2,7 +2,7 @@
  * Texture loading.
  *
  * Real imagery lives in public/textures and is listed in the generated
- * manifest. Anything not on disk falls back to `procedural.ts`, so the app is
+ * manifest. Anything not on disk falls back to `procedural/`, so the app is
  * fully functional before `pnpm assets` has ever been run — it just looks
  * synthetic rather than photographic.
  *
