@@ -157,7 +157,7 @@ export function jdToYearFraction(jd: number): number {
 /** UTC Julian Date -> TT Julian Date. */
 export function jdUtcToTt(jdUTC: number): number {
   const first = LEAP_SECONDS[0];
-  if (first && jdUTC >= first[0]) {
+  if (first !== undefined && jdUTC >= first[0]) {
     return jdUTC + (32.184 + taiMinusUtc(jdUTC)) / SEC_PER_DAY;
   }
   return jdUTC + deltaTSeconds(jdToYearFraction(jdUTC)) / SEC_PER_DAY;
@@ -306,7 +306,7 @@ export function formatUtcTime(jd: number): string {
  */
 export function parseUtc(text: string): number | null {
   const m =
-    /^\s*(-?\d{1,6})-(\d{1,2})-(\d{1,2})(?:[ T]+(\d{1,2}):(\d{1,2})(?::(\d{1,2}(?:\.\d+)?))?)?\s*Z?\s*$/.exec(
+    /^\s*(-?\d{1,6})-(\d{1,2})-(\d{1,2})(?:[ T]+(\d{1,2}):(\d{1,2})(?::(\d{1,2}(?:\.\d+)?))?)?\s*Z?\s*$/u.exec(
       text,
     );
   if (!m) {

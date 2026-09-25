@@ -56,16 +56,21 @@ export function installMobileShell(
     }
   };
 
+  // Tapping the open tab again closes it, so the scene can be seen whole
+  // without hunting for a dismiss control. Declared outside the loop so the
+  // per-button listeners only close over their own tab, not the mutable state.
+  const toggle = (id: string): void => {
+    setOpen(openId === id ? null : id);
+  };
+
   for (const tab of tabs) {
     const button = document.createElement('button');
     button.className = 'tabbar__btn';
     button.type = 'button';
     button.textContent = tab.label;
     button.setAttribute('aria-expanded', 'false');
-    // Tapping the open tab again closes it, so the scene can be seen whole
-    // without hunting for a dismiss control.
     button.addEventListener('click', () => {
-      setOpen(openId === tab.id ? null : tab.id);
+      toggle(tab.id);
     });
     buttons.set(tab.id, button);
     bar.append(button);

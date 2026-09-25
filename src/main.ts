@@ -45,15 +45,22 @@ registerServiceWorker();
 // DOM
 // ---------------------------------------------------------------------------
 
-const need = <T extends HTMLElement>(id: string): T => {
+/**
+ * Look up an element the page shell guarantees. The optional constructor is
+ * checked with `instanceof`, so asking for a canvas cannot hand back a `div`
+ * that merely claims to be one.
+ */
+function need(id: string): HTMLElement;
+function need<T extends HTMLElement>(id: string, type: new () => T): T;
+function need(id: string, type: new () => HTMLElement = HTMLElement): HTMLElement {
   const node = document.getElementById(id);
-  if (!node) {
+  if (!(node instanceof type)) {
     throw new Error(`missing element #${id}`);
   }
-  return node as T;
-};
+  return node;
+}
 
-const canvas = need<HTMLCanvasElement>('viewport');
+const canvas = need('viewport', HTMLCanvasElement);
 const bootEl = need('boot');
 const bootFill = need('boot-fill');
 const bootStatus = need('boot-status');
@@ -84,7 +91,7 @@ if (shared.rate !== undefined) {
   time.setRateIndex(index);
   time.setDirection(direction);
 }
-if (shared.paused) {
+if (shared.paused === true) {
   time.setPaused(true);
 }
 
@@ -142,9 +149,13 @@ function arrivalDirection(body: SimBody): { x: number; y: number; z: number } | 
 const focused = (): SimBody => camera.focus ?? system.sun;
 
 const initialFocus =
-  (shared.focusKey ? system.byKey.get(shared.focusKey) : null) ?? system.byKey.get('earth')!;
+  (shared.focusKey !== undefined && shared.focusKey !== ''
+    ? system.byKey.get(shared.focusKey)
+    : null) ?? system.byKey.get('earth')!;
 let selected: SimBody =
-  (shared.selectedKey ? system.byKey.get(shared.selectedKey) : null) ?? initialFocus;
+  (shared.selectedKey !== undefined && shared.selectedKey !== null && shared.selectedKey !== ''
+    ? system.byKey.get(shared.selectedKey)
+    : null) ?? initialFocus;
 
 camera.setFocus(initialFocus, { immediate: true, arriveFrom: arrivalDirection(initialFocus) });
 // A shared link carries an explicit angle and range; without one, keep the
@@ -231,6 +242,10 @@ const minimap = new Minimap(minimapHost, system, (body) => {
  */
 let mobileLayout = false;
 
+/** Whether a panel takes up room on screen right now, collapsed or hidden ones not. */
+const isShown = (el: HTMLElement): boolean =>
+  el.offsetParent !== null && getComputedStyle(el).display !== 'none';
+
 function syncPanelBounds(): void {
   // The phone layout positions these panels from the stylesheet, and inline
   // styles would win over it. Hand them back rather than merely skipping, or a
@@ -247,8 +262,6 @@ function syncPanelBounds(): void {
   }
 
   const viewportHeight = document.documentElement.clientHeight;
-  const shown = (el: HTMLElement): boolean =>
-    el.offsetParent !== null && getComputedStyle(el).display !== 'none';
 
   // Right column: the info panel stops above the orrery map. The map is always
   // in the corner now — collapsing it moves its top edge down, which this reads
@@ -262,20 +275,20 @@ function syncPanelBounds(): void {
   // height — and that height is content-dependent (it grows with every toggle
   // added), which is exactly why the hard-coded 176px in the stylesheet was 29px
   // short and the two overlapped.
-  const browser = need('browser');
+  const browserEl = need('browser');
   const toggles = need('toggles');
-  const clearance = shown(toggles)
+  const clearance = isShown(toggles)
     ? Math.round(viewportHeight - toggles.getBoundingClientRect().top + 12)
     : 14;
-  browser.style.bottom = `${clearance}px`;
+  browserEl.style.bottom = `${clearance}px`;
 
   // ...and starts below the time panel, for the same reason in the other
   // direction. The stylesheet's 186px assumes a fully expanded clock, so
   // collapsing it used to leave the browser stranded with a band of empty space
   // above it while the other two edges of the column tracked their neighbours.
-  const timePanel = need('time-panel');
-  browser.style.top = shown(timePanel)
-    ? `${Math.round(timePanel.getBoundingClientRect().bottom + 12)}px`
+  const timePanelEl = need('time-panel');
+  browserEl.style.top = isShown(timePanelEl)
+    ? `${Math.round(timePanelEl.getBoundingClientRect().bottom + 12)}px`
     : '14px';
 }
 
@@ -298,23 +311,47 @@ const togglePanel = new TogglePanel(
     {
       label: 'labels',
       get: () => scene.toggles.labels !== 'none',
-      set: (v) => (scene.toggles.labels = v ? 'major' : 'none'),
+      set: (v) => {
+        scene.toggles.labels = v ? 'major' : 'none';
+      },
     },
-    { label: 'belts', get: () => scene.toggles.belts, set: (v) => (scene.toggles.belts = v) },
-    { label: 'rings', get: () => scene.toggles.rings, set: (v) => (scene.toggles.rings = v) },
+    {
+      label: 'belts',
+      get: () => scene.toggles.belts,
+      set: (v) => {
+        scene.toggles.belts = v;
+      },
+    },
+    {
+      label: 'rings',
+      get: () => scene.toggles.rings,
+      set: (v) => {
+        scene.toggles.rings = v;
+      },
+    },
     {
       label: 'atmospheres',
       get: () => scene.toggles.atmospheres,
-      set: (v) => (scene.toggles.atmospheres = v),
+      set: (v) => {
+        scene.toggles.atmospheres = v;
+      },
     },
     // One switch for the whole backdrop — the deep sky and the catalogue stars
     // are two layers of one thing. The URL parameter keeps its old name so
     // links shared before the stars existed still resolve.
-    { label: 'stars', get: () => scene.toggles.milkyway, set: (v) => (scene.toggles.milkyway = v) },
+    {
+      label: 'stars',
+      get: () => scene.toggles.milkyway,
+      set: (v) => {
+        scene.toggles.milkyway = v;
+      },
+    },
     {
       label: 'minor bodies',
       get: () => scene.toggles.minorBodies,
-      set: (v) => (scene.toggles.minorBodies = v),
+      set: (v) => {
+        scene.toggles.minorBodies = v;
+      },
     },
     {
       label: 'Lagrange points',
@@ -577,10 +614,12 @@ const QUALITIES: Quality[] = ['low', 'medium', 'high'];
 let quality: Quality = 'high';
 
 function typingInField(target: EventTarget | null): boolean {
-  const node = target as HTMLElement | null;
-  if (!node) {
+  // Anything that is not an HTML element — the window, the document, an SVG
+  // node — has neither a form-field tag nor `isContentEditable`.
+  if (!(target instanceof HTMLElement)) {
     return false;
   }
+  const node = target;
   const tag = node.tagName;
   return tag === 'INPUT' || tag === 'TEXTAREA' || node.isContentEditable;
 }
@@ -797,7 +836,7 @@ window.addEventListener('keydown', (ev) => {
       goTo(system.sun);
       break;
     default:
-      if (/^[1-9]$/.test(ev.key)) {
+      if (/^[1-9]$/u.test(ev.key)) {
         const key = PLANET_ORDER[Number(ev.key) - 1];
         const body = key ? system.byKey.get(key) : undefined;
         if (body) {

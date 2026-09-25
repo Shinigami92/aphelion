@@ -25,6 +25,10 @@ const TITAN_DISTANCE_KM = 1_221_870;
 const RING_INNER_RADII = 1.24;
 const RING_OUTER_RADII = 2.33;
 
+/** Where a Saturn satellite would land if the knee applied no compression at all. */
+const proportional = (inParentRadii: number): number =>
+  (SATURN_RADIUS_KM * DEFAULT_PARAMS.bodyScale * inParentRadii) / SCENE_UNIT_KM;
+
 describe('true scale is the identity', () => {
   const s = settledAt('true');
 
@@ -84,8 +88,6 @@ describe('the satellite knee', () => {
     s.satelliteDistance(inParentRadii * SATURN_RADIUS_KM, SATURN_RADIUS_KM);
 
   it('is proportional below and up to the knee', () => {
-    const proportional = (inParentRadii: number): number =>
-      (SATURN_RADIUS_KM * DEFAULT_PARAMS.bodyScale * inParentRadii) / SCENE_UNIT_KM;
     expect(mappedRadii(1)).toBeCloseTo(proportional(1), 6);
     expect(mappedRadii(knee)).toBeCloseTo(proportional(knee), 6);
   });

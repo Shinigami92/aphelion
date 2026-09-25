@@ -254,7 +254,7 @@ export class CameraController {
       this.targetElevation = 0.3;
     }
 
-    if (opts.immediate || !previous) {
+    if (opts.immediate === true || !previous) {
       this.distance = this.targetDistance;
       this.azimuth = this.targetAzimuth;
       this.elevation = this.targetElevation;
@@ -863,9 +863,9 @@ export class CameraController {
       handler: (ev: HTMLElementEventMap[K]) => void,
       opts?: AddEventListenerOptions,
     ): void => {
-      element.addEventListener(type, handler as EventListener, opts);
+      element.addEventListener(type, handler, opts);
       this.detachers.push(() => {
-        element.removeEventListener(type, handler as EventListener);
+        element.removeEventListener(type, handler);
       });
     };
 

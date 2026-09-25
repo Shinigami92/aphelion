@@ -22,6 +22,15 @@ import { J2000, SEC_PER_DAY } from '../src/core/constants.ts';
 const utc = (year: number, month: number, day: number, hour = 0, minute = 0, second = 0): number =>
   calendarToJd({ year, month, day, hour, minute, second, ms: 0 });
 
+/** TT − UTC at a UTC instant, in seconds. */
+const offsetSeconds = (jdUtc: number): number => (jdUtcToTt(jdUtc) - jdUtc) * SEC_PER_DAY;
+
+/** A Julian Date's calendar fields, as a tuple so a round trip compares in one assertion. */
+const fields = (jd: number): [number, number, number, number, number, number] => {
+  const c = jdToCalendar(jd);
+  return [c.year, c.month, c.day, c.hour, c.minute, c.second];
+};
+
 const FIRST_LEAP_SECOND_JD = 2441317.5; // 1972-01-01
 const JAN_2006_JD = 2453736.5; // where TAI − UTC steps from 32 to 33
 
@@ -49,7 +58,6 @@ describe('jdUtcToTt', () => {
   // so f64 cancellation leaves it good to ~1e-4 s — far below the model's own
   // arcsecond-scale accuracy, but not to the picosecond a bare toBeCloseTo wants.
   const TOLERANCE_S = 1e-3;
-  const offsetSeconds = (jdUtc: number): number => (jdUtcToTt(jdUtc) - jdUtc) * SEC_PER_DAY;
 
   it('is 32.184 s plus the leap-second count inside the modern era', () => {
     const leapSecondsIn2017 = 37;
@@ -75,11 +83,6 @@ describe('deltaTSeconds', () => {
 });
 
 describe('calendar round trips', () => {
-  const fields = (jd: number): [number, number, number, number, number, number] => {
-    const c = jdToCalendar(jd);
-    return [c.year, c.month, c.day, c.hour, c.minute, c.second];
-  };
-
   it('survives the 2024 total eclipse', () => {
     expect(fields(utc(2024, 4, 8, 18, 17, 16))).toEqual([2024, 4, 8, 18, 17, 16]);
   });
@@ -132,6 +135,8 @@ describe('parseUtc', () => {
     const jd = 2460409.2619;
     const reparsed = parseUtc(formatUtc(jd));
     expect(reparsed).not.toBeNull();
-    expect(Math.abs((reparsed as number) - jd) * SEC_PER_DAY).toBeLessThan(1);
+    // `Number(null)` is 0, some 2.4 million days from `jd`, so a null that slipped
+    // past the check above still fails here rather than needing a cast.
+    expect(Math.abs(Number(reparsed) - jd) * SEC_PER_DAY).toBeLessThan(1);
   });
 });

@@ -282,8 +282,14 @@ export class SolarSystem {
     this.sun = this.addSpec(SUN, null);
 
     for (const spec of PLANETS) {
+      // Checked rather than cast: a planet added to the catalogue without a row
+      // in the JPL table should fail loudly here, not propagate `undefined`
+      // elements into every later update.
+      if (!isPlanetKey(spec.key)) {
+        throw new Error(`No planetary elements for '${spec.key}'`);
+      }
       const body = this.addSpec(spec, this.sun);
-      body.elements = planetOrbitElements(spec.key as PlanetKey);
+      body.elements = planetOrbitElements(spec.key);
       body.periodDays = TWO_PI / Math.abs(body.elements.n);
     }
 
@@ -450,8 +456,8 @@ export class SolarSystem {
       if (planet.type !== 'planet' || !planet.spec || !planet.elements) {
         continue;
       }
-      const gm = GM[planet.spec.key as keyof typeof GM];
-      if (!gm) {
+      const gm = hasGm(planet.spec.key) ? GM[planet.spec.key] : undefined;
+      if (gm === undefined) {
         continue;
       }
 
@@ -750,15 +756,10 @@ export class SolarSystem {
     const p: Vec3 = { x: 0, y: 0, z: 0 };
     for (let s = 0; s < segments; s++) {
       applyBasis(body.basis, raw[s * 3], raw[s * 3 + 1], raw[s * 3 + 2], p);
-      let x: number;
-      let y: number;
-      let z: number;
+      const r = length(p);
+      let f: number;
       if (isHelio) {
-        const r = length(p);
-        const f = r > 0 ? scale.heliocentricDistance(r) / r : 0;
-        x = p.x * f;
-        y = p.y * f;
-        z = p.z * f;
+        f = r > 0 ? scale.heliocentricDistance(r) / r : 0;
       } else {
         // Deliberately parent-RELATIVE. Adding the parent's absolute scene
         // position here and storing the sum in a Float32Array destroys the
@@ -768,15 +769,11 @@ export class SolarSystem {
         // error from tessellating it with 512 segments. The renderer positions
         // the line at the parent instead, keeping the shift in float64 until
         // after the floating-origin transform.
-        const r = length(p);
-        const f = r > 0 ? scale.satelliteDistance(r, parent.radiusKm) / r : 0;
-        x = p.x * f;
-        y = p.y * f;
-        z = p.z * f;
+        f = r > 0 ? scale.satelliteDistance(r, parent.radiusKm) / r : 0;
       }
-      out[s * 3] = x;
-      out[s * 3 + 1] = y;
-      out[s * 3 + 2] = z;
+      out[s * 3] = p.x * f;
+      out[s * 3 + 1] = p.y * f;
+      out[s * 3 + 2] = p.z * f;
     }
     // Close the loop.
     out[segments * 3] = out[0]!;
@@ -796,7 +793,9 @@ export class SolarSystem {
     if (!parent) {
       return [];
     }
-    return parent.children.filter((c) => c.type === 'moon').sort((a, b) => b.radiusKm - a.radiusKm);
+    return parent.children
+      .filter((c) => c.type === 'moon')
+      .toSorted((a, b) => b.radiusKm - a.radiusKm);
   }
 
   /** The five Lagrange points of a planet, L1 through L5. Empty for anything else. */
@@ -815,8 +814,9 @@ function elementsFromSatellite(sat: SatelliteData): Elements {
   // satellites of an oblate primary have an advancing apsis and a regressing
   // node; retrograde satellites are the other way round.
   const apsisRate =
-    sat.apsisPeriod && sat.apsisPeriod !== 0 ? TWO_PI / (sat.apsisPeriod * 365.25) : 0;
-  const nodeRate = sat.nodePeriod && sat.nodePeriod !== 0 ? TWO_PI / (sat.nodePeriod * 365.25) : 0;
+    sat.apsisPeriod !== null && sat.apsisPeriod !== 0 ? TWO_PI / (sat.apsisPeriod * 365.25) : 0;
+  const nodeRate =
+    sat.nodePeriod !== null && sat.nodePeriod !== 0 ? TWO_PI / (sat.nodePeriod * 365.25) : 0;
 
   return {
     a: sat.a,
@@ -901,6 +901,9 @@ function makeBody(init: BodyInit): SimBody {
 
 const isPlanetKey = (key: string): key is PlanetKey =>
   (PLANET_KEYS as ReadonlyArray<string>).includes(key);
+
+/** Own keys only, so an inherited name such as `toString` is not mistaken for a mass. */
+const hasGm = (key: string): key is keyof typeof GM => Object.hasOwn(GM, key);
 
 const capitalize = (s: string): string => s.charAt(0).toUpperCase() + s.slice(1);
 

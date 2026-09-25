@@ -48,7 +48,6 @@ import {
   SRGBColorSpace,
   Vector2,
   Vector3,
-  Vector4,
   WebGLRenderer,
   WebGLRenderTarget,
 } from 'three';
@@ -73,6 +72,10 @@ import {
   createSunMaterial,
   createSwarmMaterial,
   MAX_OCCLUDERS,
+  occluderSlots,
+  textureUniform,
+  vec2Uniform,
+  vec3Uniform,
   ZONAL_SAMPLES,
 } from './materials.ts';
 import {
@@ -86,6 +89,7 @@ import {
   solidTexture,
 } from './procedural.ts';
 import { SkyView } from './sky.ts';
+import { whenLoaded } from './textures.ts';
 
 export type Quality = 'low' | 'medium' | 'high';
 export type OrbitMode = 'none' | 'planets' | 'all';
@@ -480,6 +484,43 @@ function createAnnulus(
   return geo;
 }
 
+/**
+ * A geometry attribute this file built as a plain buffer.
+ *
+ * `getAttribute` admits interleaved attributes too, which have no array of
+ * their own to write into. Every attribute read back here was created as a
+ * `BufferAttribute`, so this only confirms it — an `instanceof`, cheap enough
+ * for the per-frame writers.
+ */
+function plainAttribute(geometry: BufferGeometry, name: string): BufferAttribute {
+  const attribute = geometry.getAttribute(name);
+  if (attribute instanceof BufferAttribute) {
+    return attribute;
+  }
+  throw new TypeError(`[aphelion] attribute ${name} is not a plain BufferAttribute`);
+}
+
+/** The Float32 storage behind an attribute that was built from one. */
+function float32Array(attribute: BufferAttribute): Float32Array {
+  const array = attribute.array;
+  if (array instanceof Float32Array) {
+    return array;
+  }
+  throw new TypeError(`[aphelion] attribute ${attribute.name} is not backed by a Float32Array`);
+}
+
+/** Push the viewport size to a points material, if it is one that sizes by it. */
+function setViewport(
+  material: ShaderMaterial | null | undefined,
+  width: number,
+  height: number,
+): void {
+  const viewport: unknown = material?.uniforms.uViewport?.value;
+  if (viewport instanceof Vector2) {
+    viewport.set(width, height);
+  }
+}
+
 /** GLSL's smoothstep, on the CPU side. */
 function smoothstep(edge0: number, edge1: number, x: number): number {
   const t = Math.max(0, Math.min(1, (x - edge0) / (edge1 - edge0)));
@@ -571,6 +612,13 @@ interface BodyVisual {
   reliefExaggeration: number;
 }
 
+/**
+ * A recycled mesh for promoted minor bodies. Its body is null until the slot is
+ * first claimed; once released it keeps the last one, which is harmless since
+ * a released slot is hidden and never updated.
+ */
+type PromotionSlot = Omit<BodyVisual, 'body'> & { body: SimBody | null };
+
 // ---------------------------------------------------------------------------
 // SceneView
 // ---------------------------------------------------------------------------
@@ -647,9 +695,9 @@ export class SceneView {
 
   private visuals = new Map<string, BodyVisual>();
   private promoted = new Map<string, BodyVisual>();
-  private promotionPool: BodyVisual[] = [];
+  private promotionPool: PromotionSlot[] = [];
 
-  private minorPoints: Points | null = null;
+  private minorPoints: Points<BufferGeometry, ShaderMaterial> | null = null;
   private minorBodies: SimBody[] = [];
   private minorPositions: Float32Array = new Float32Array(0);
   private minorSizes: Float32Array = new Float32Array(0);
@@ -843,10 +891,7 @@ export class SceneView {
       reliefExaggeration: 1,
     };
 
-    void this.library.load('sun.jpg').then((tex) => {
-      if (!tex) {
-        return;
-      }
+    void whenLoaded(this.library.load('sun.jpg'), (tex) => {
       tex.flipY = false;
       material.uniforms.uMap.value = tex;
       material.uniforms.uHasMap.value = 1;
@@ -899,10 +944,7 @@ export class SceneView {
     // rather than a briefly deformed one.
     const relief = reliefFor(body.key);
     if (relief) {
-      void this.library.loadRelief(relief.file).then((tex) => {
-        if (!tex) {
-          return;
-        }
+      void whenLoaded(this.library.loadRelief(relief.file), (tex) => {
         const u = material.uniforms;
         u.uRelief.value = tex;
         u.uReliefMinKm.value = relief.minKm;
@@ -916,11 +958,8 @@ export class SceneView {
 
     // Real imagery, if we have any for this body.
     const mapFile = body.textureFile;
-    if (mapFile && this.library.available(mapFile)) {
-      void this.library.load(mapFile).then((tex) => {
-        if (!tex) {
-          return;
-        }
+    if (this.library.available(mapFile)) {
+      void whenLoaded(this.library.load(mapFile), (tex) => {
         material.uniforms.uMap.value = tex;
         material.needsUpdate = true;
       });
@@ -933,7 +972,7 @@ export class SceneView {
       this.attachOptionalMap(material, spec.textures.specular, 'uSpecularMap', 'uHasSpecular');
 
       // Cloud shell.
-      if (spec.textures.clouds && this.library.available(spec.textures.clouds)) {
+      if (this.library.available(spec.textures.clouds)) {
         // Black placeholder: the shader reads cover from brightness, so an
         // all-black map means "no cloud" and discards until the real one lands.
         const cloudMaterial = createCloudMaterial(solidTexture(0x000000), {
@@ -955,10 +994,7 @@ export class SceneView {
         group.add(clouds);
         visual.clouds = clouds;
         visual.cloudMaterial = cloudMaterial;
-        void this.library.load(spec.textures.clouds).then((tex) => {
-          if (!tex) {
-            return;
-          }
+        void whenLoaded(this.library.load(spec.textures.clouds), (tex) => {
           tex.flipY = false;
           cloudMaterial.uniforms.uMap.value = tex;
           cloudMaterial.needsUpdate = true;
@@ -1006,37 +1042,34 @@ export class SceneView {
               gaps: 3,
               sharpness: 3.2,
             });
-        const material = createRingMaterial({
+        const ringMaterial = createRingMaterial({
           texture,
           innerKm: ring.innerKm,
           outerKm: ring.outerKm,
           opacity: ring.opacity,
           parentRadiusKm: body.radiusKm,
         });
-        const mesh = new Mesh(
+        const ringMesh = new Mesh(
           createAnnulus(ring.innerKm, ring.outerKm, 512, RING_RADIAL_STEPS),
-          material,
+          ringMaterial,
         );
         // The shader places vertices in scene units itself, so the mesh must
         // not also be scaled by the body radius the way the sphere is.
-        mesh.scale.setScalar(1);
+        ringMesh.scale.setScalar(1);
         // ...which also means the geometry's own bounds describe a unit circle
         // rather than the ring. Left to cull itself, a ring would vanish the
         // moment the planet's centre left the screen — precisely when you are
         // flying through it.
-        mesh.frustumCulled = false;
-        mesh.renderOrder = 4;
-        group.add(mesh);
-        visual.rings.push({ mesh, material, spec: ring });
+        ringMesh.frustumCulled = false;
+        ringMesh.renderOrder = 4;
+        group.add(ringMesh);
+        visual.rings.push({ mesh: ringMesh, material: ringMaterial, spec: ring });
 
-        if (ring.texture && this.library.available(ring.texture)) {
-          void this.library.load(ring.texture).then((tex) => {
-            if (!tex) {
-              return;
-            }
+        if (this.library.available(ring.texture)) {
+          void whenLoaded(this.library.load(ring.texture), (tex) => {
             tex.flipY = false;
-            material.uniforms.uTex.value = tex;
-            material.needsUpdate = true;
+            ringMaterial.uniforms.uTex.value = tex;
+            ringMaterial.needsUpdate = true;
           });
         }
       }
@@ -1052,13 +1085,10 @@ export class SceneView {
     slot: string,
     flag: string,
   ): void {
-    if (!file || !this.library.available(file)) {
+    if (!this.library.available(file)) {
       return;
     }
-    void this.library.load(file).then((tex) => {
-      if (!tex) {
-        return;
-      }
+    void whenLoaded(this.library.load(file), (tex) => {
       tex.flipY = false;
       material.uniforms[slot].value = tex;
       material.uniforms[flag].value = 1;
@@ -1192,7 +1222,7 @@ export class SceneView {
       group.visible = false;
       this.world.add(group);
       this.promotionPool.push({
-        body: null as unknown as SimBody,
+        body: null,
         group,
         mesh,
         material,
@@ -1304,9 +1334,9 @@ export class SceneView {
     u.uCellA.value = cellA;
     u.uCellB.value = cellB;
     u.uBlend.value = evenOctave ? fraction : 1 - fraction;
-    wrapInto(u.uCamA.value as Vector3, position, cellA);
-    wrapInto(u.uCamB.value as Vector3, position, cellB);
-    u.uStreak.value.copy(velocity).multiplyScalar(dt);
+    wrapInto(vec3Uniform(u, 'uCamA'), position, cellA);
+    wrapInto(vec3Uniform(u, 'uCamB'), position, cellB);
+    vec3Uniform(u, 'uStreak').copy(velocity).multiplyScalar(dt);
     u.uIntensity.value = intensity;
   }
 
@@ -1422,7 +1452,7 @@ export class SceneView {
       // The corona is drawn on a shell far larger than the photosphere.
       const outer = sun.sceneRadius * 4.5;
       this.coronaMesh.scale.setScalar(outer);
-      this.coronaMaterial.uniforms.uCentre.value.copy(this.sunRender);
+      vec3Uniform(this.coronaMaterial.uniforms, 'uCentre').copy(this.sunRender);
       this.coronaMaterial.uniforms.uInner.value = sun.sceneRadius * 0.98;
       this.coronaMaterial.uniforms.uOuter.value = outer;
       this.coronaMaterial.uniforms.uIntensity.value = 0.55;
@@ -1449,7 +1479,7 @@ export class SceneView {
       const u = visual.material.uniforms;
       u.uReliefScale.value = exaggeration / body.radiusKm;
       const seg = LOD_SEGMENTS[visual.lod] ?? LOD_SEGMENTS[0];
-      u.uReliefStep.value.set(1 / seg[0], 1 / seg[1]);
+      vec2Uniform(u, 'uReliefStep').set(1 / seg[0], 1 / seg[1]);
       cloudLift = Math.max(
         cloudLift,
         1 + (visual.relief.maxKm * exaggeration * 1.05) / body.radiusKm,
@@ -1478,7 +1508,8 @@ export class SceneView {
     }
     // The shell is a uniformly scaled sphere, so it needs no orientation of its
     // own: the shader gets the pole as a uniform and squashes the march instead.
-    const shellRatio = (visual.atmosphere?.userData.shellRatio as number | undefined) ?? 1;
+    const storedRatio: unknown = visual.atmosphere?.userData.shellRatio;
+    const shellRatio = typeof storedRatio === 'number' ? storedRatio : 1;
     const shellRadius = radius * shellRatio;
     if (visual.atmosphere) {
       // The mesh only has to generate fragments — the shader intersects the
@@ -1495,9 +1526,9 @@ export class SceneView {
     this.applyLighting(visual.material, body, centre, sunSceneRadius, scale);
     if (visual.cloudMaterial) {
       const u = visual.cloudMaterial.uniforms;
-      u.uSunPos.value.copy(this.sunRender);
+      vec3Uniform(u, 'uSunPos').copy(this.sunRender);
       u.uSunRadius.value = sunSceneRadius;
-      u.uBodyCentre.value.copy(centre);
+      vec3Uniform(u, 'uBodyCentre').copy(centre);
       u.uKmPerUnit.value = body.radiusKm / Math.max(body.sceneRadius, 1e-9);
       u.uPhaseA.value = this.cloudPhaseA;
       u.uPhaseB.value = this.cloudPhaseB;
@@ -1506,16 +1537,16 @@ export class SceneView {
     }
     if (visual.atmosphereMaterial) {
       const u = visual.atmosphereMaterial.uniforms;
-      u.uCentre.value.copy(centre);
+      vec3Uniform(u, 'uCentre').copy(centre);
       // Both radii in rendered scene units, matching the mesh. Handing the
       // shader the *ratio* here while the mesh sat at 1.08 units inside a
       // 38-unit planet is what kept this shell from drawing a single pixel.
       u.uPlanetRadius.value = radius;
       u.uAtmoRadius.value = shellRadius;
       const pole = body.orientation.z;
-      u.uPole.value.set(pole.x, pole.y, pole.z);
+      vec3Uniform(u, 'uPole').set(pole.x, pole.y, pole.z);
       u.uSquash.value = squash;
-      u.uSunPos.value.copy(this.sunRender);
+      vec3Uniform(u, 'uSunPos').copy(this.sunRender);
       u.uSunRadius.value = sunSceneRadius;
       // The same compressed falloff the surface gets, so a planet's haze is
       // never lit more brightly than the planet it belongs to.
@@ -1550,9 +1581,9 @@ export class SceneView {
       poleMatrix(body.orientation.z, this.tmpMatrix);
       ring.mesh.quaternion.setFromRotationMatrix(this.tmpMatrix);
       const u = ring.material.uniforms;
-      u.uSunPos.value.copy(this.sunRender);
+      vec3Uniform(u, 'uSunPos').copy(this.sunRender);
       u.uSunRadius.value = sunSceneRadius;
-      u.uPlanetCentre.value.copy(centre);
+      vec3Uniform(u, 'uPlanetCentre').copy(centre);
       u.uPlanetRadius.value = radius;
       u.uParentRadiusKm.value = body.radiusKm;
       u.uBodyScale.value = scale.params.bodyScale;
@@ -1563,7 +1594,7 @@ export class SceneView {
       u.uExploreBoost.value = ring.spec.exploreBoost ?? 1;
       u.uExploreBrightness.value = ring.spec.exploreBrightness ?? 1;
       this.tmpVec2.set(body.orientation.z.x, body.orientation.z.y, body.orientation.z.z);
-      u.uNormal.value.copy(this.tmpVec2);
+      vec3Uniform(u, 'uNormal').copy(this.tmpVec2);
     }
 
     // Ring shadow cast onto the planet itself.
@@ -1576,11 +1607,15 @@ export class SceneView {
     if (mainRing && this.toggles.rings) {
       const u = visual.material.uniforms;
       u.uRingEnabled.value = 1;
-      u.uRingTex.value = mainRing.material.uniforms.uTex.value;
+      u.uRingTex.value = textureUniform(mainRing.material.uniforms, 'uTex');
       u.uRingInnerKm.value = mainRing.spec.innerKm;
       u.uRingOuterKm.value = mainRing.spec.outerKm;
       u.uRingOpacity.value = mainRing.spec.opacity;
-      u.uRingNormal.value.set(body.orientation.z.x, body.orientation.z.y, body.orientation.z.z);
+      vec3Uniform(u, 'uRingNormal').set(
+        body.orientation.z.x,
+        body.orientation.z.y,
+        body.orientation.z.z,
+      );
       u.uParentRadiusKm.value = body.radiusKm;
       u.uBodyScale.value = scale.params.bodyScale;
       u.uSatExponent.value = scale.params.satelliteExponent;
@@ -1811,10 +1846,10 @@ export class SceneView {
     const camAngle = Math.atan2(this.tmpVec2.y, this.tmpVec2.x);
 
     const u = material.uniforms;
-    u.uProfile.value = ring.material.uniforms.uTex.value;
+    u.uProfile.value = textureUniform(ring.material.uniforms, 'uTex');
     u.uInnerKm.value = ring.spec.innerKm;
     u.uOuterKm.value = ring.spec.outerKm;
-    u.uCamRing.value.set(camRadiusKm, camAngle, 0);
+    vec3Uniform(u, 'uCamRing').set(camRadiusKm, camAngle, 0);
 
     // Field extent and rock size are fixed in kilometres for a given ring, and
     // deliberately not tied to how far away the camera is. Sizing them by
@@ -1833,8 +1868,8 @@ export class SceneView {
     u.uGmKm.value = gravitationalParameter(body);
     // Both in render space: the shader shades against vWorldPos, which the
     // model matrix has already carried out of the ring's local frame.
-    u.uSunPos.value.copy(this.sunRender);
-    u.uPlanetCentre.value.copy(this.tmpVec);
+    vec3Uniform(u, 'uSunPos').copy(this.sunRender);
+    vec3Uniform(u, 'uPlanetCentre').copy(this.tmpVec);
     u.uPlanetRadius.value = body.sceneRadius;
     u.uParentRadiusKm.value = body.radiusKm;
     u.uBodyScale.value = scale.params.bodyScale;
@@ -1872,14 +1907,14 @@ export class SceneView {
   ): void {
     void scale;
     const u = material.uniforms;
-    u.uSunPos.value.copy(this.sunRender);
+    vec3Uniform(u, 'uSunPos').copy(this.sunRender);
     u.uSunRadius.value = sunSceneRadius;
-    u.uBodyCentre.value.copy(centre);
+    vec3Uniform(u, 'uBodyCentre').copy(centre);
     u.uKmPerUnit.value = body.radiusKm / Math.max(body.sceneRadius, 1e-9);
     u.uSunIntensity.value = sunIntensity(body);
 
     // The Sun in body-centred kilometres.
-    u.uSunPosKm.value.set(-body.helioKm.x, -body.helioKm.y, -body.helioKm.z);
+    vec3Uniform(u, 'uSunPosKm').set(-body.helioKm.x, -body.helioKm.y, -body.helioKm.z);
     u.uSunRadiusKm.value = SUN_RADIUS_KM;
 
     this.setEclipseUniforms(material, body);
@@ -1890,7 +1925,10 @@ export class SceneView {
    * the shader in body-centred kilometres.
    */
   private setEclipseUniforms(material: ShaderMaterial, body: SimBody): void {
-    const slots = material.uniforms.uOccluders.value as Vector4[];
+    const slots = occluderSlots(material);
+    if (slots === undefined) {
+      throw new TypeError('[aphelion] eclipse uniforms set on a material without occluder slots');
+    }
     for (const slot of slots) {
       slot.set(0, 0, 0, 0);
     }
@@ -1925,7 +1963,7 @@ export class SceneView {
         const d = Math.max(Math.hypot(dx, dy, dz), 1);
         return { c, dx, dy, dz, angular: c.radiusKm / d };
       })
-      .sort((a, b) => b.angular - a.angular)
+      .toSorted((a, b) => b.angular - a.angular)
       .slice(0, MAX_OCCLUDERS);
 
     for (let i = 0; i < scored.length; i++) {
@@ -1973,11 +2011,13 @@ export class SceneView {
       if (this.promoted.has(body.key)) {
         continue;
       }
-      const visual = this.promotionPool.pop();
-      if (!visual) {
+      const slot = this.promotionPool.pop();
+      if (!slot) {
         break;
       }
-      visual.body = body;
+      // Claimed in place rather than copied: late texture loads hold on to this
+      // very object and compare its body to tell whether the slot moved on.
+      const visual: BodyVisual = Object.assign(slot, { body });
       visual.group.visible = true;
       // Flat colour now; the surface arrives on a later frame, so approaching a
       // new rock never costs a dropped frame.
@@ -1994,8 +2034,8 @@ export class SceneView {
       const relief = reliefFor(body.key);
       if (relief) {
         const target = visual;
-        void this.library.loadRelief(relief.file).then((tex) => {
-          if (!tex || target.body !== body) {
+        void whenLoaded(this.library.loadRelief(relief.file), (tex) => {
+          if (target.body !== body) {
             return;
           }
           const u = target.material.uniforms;
@@ -2009,14 +2049,14 @@ export class SceneView {
       }
 
       const file = body.textureFile;
-      if (file && this.library.available(file)) {
+      if (this.library.available(file)) {
         // Real imagery exists for this one (Vesta, and any other minor planet we
         // later find a map for) — always prefer it over a synthesised surface.
         visual.pendingProcedural = false;
         const target = visual;
-        void this.library.load(file).then((tex) => {
+        void whenLoaded(this.library.load(file), (tex) => {
           // The slot may have been reassigned while the texture decoded.
-          if (tex && target.body === body) {
+          if (target.body === body) {
             target.material.uniforms.uMap.value = tex;
             target.material.needsUpdate = true;
           }
@@ -2053,13 +2093,10 @@ export class SceneView {
       this.minorSizes[i] = this.promoted.has(body.key) ? 0 : 1;
     }
     void camera;
-    const posAttr = points.geometry.getAttribute('position') as BufferAttribute;
-    const sizeAttr = points.geometry.getAttribute('aSize') as BufferAttribute;
-    posAttr.needsUpdate = true;
-    sizeAttr.needsUpdate = true;
+    points.geometry.getAttribute('position').needsUpdate = true;
+    points.geometry.getAttribute('aSize').needsUpdate = true;
 
-    const material = points.material as ShaderMaterial;
-    material.uniforms.uPixelRatio.value = this.renderer.getPixelRatio();
+    points.material.uniforms.uPixelRatio.value = this.renderer.getPixelRatio();
   }
 
   private updateSwarms(system: SolarSystem, scale: ScaleModel): void {
@@ -2123,10 +2160,10 @@ export class SceneView {
     }
 
     const host = this.activeLagrangeHost();
-    const positions = points.geometry.getAttribute('position') as BufferAttribute;
-    const fades = points.geometry.getAttribute('aFade') as BufferAttribute;
-    const positionArray = positions.array as Float32Array;
-    const fadeArray = fades.array as Float32Array;
+    const positions = plainAttribute(points.geometry, 'position');
+    const fades = plainAttribute(points.geometry, 'aFade');
+    const positionArray = float32Array(positions);
+    const fadeArray = float32Array(fades);
 
     for (let i = 0; i < this.lagrangeBodies.length; i++) {
       const body = this.lagrangeBodies[i];
@@ -2185,8 +2222,8 @@ export class SceneView {
       return;
     }
 
-    const frameAttribute = frame.geometry.getAttribute('position') as BufferAttribute;
-    const frameArray = frameAttribute.array as Float32Array;
+    const frameAttribute = plainAttribute(frame.geometry, 'position');
+    const frameArray = float32Array(frameAttribute);
     let vertex = 0;
     for (const [from, to] of LAGRANGE_FRAME) {
       for (const end of [from, to]) {
@@ -2259,7 +2296,7 @@ export class SceneView {
       if (host && host !== system.sun) {
         const majors = host.children
           .filter((c) => c.type === 'moon' && c.radiusKm >= MAJOR_MOON_RADIUS)
-          .sort((a, b) => b.radiusKm - a.radiusKm)
+          .toSorted((a, b) => b.radiusKm - a.radiusKm)
           .slice(0, 12);
         for (const moon of majors) {
           consider(moon, 0.28);
@@ -2294,9 +2331,9 @@ export class SceneView {
 
     let entry = this.orbitLines.get(body.key);
     if (entry) {
-      const attr = entry.line.geometry.getAttribute('position') as BufferAttribute;
+      const attr = plainAttribute(entry.line.geometry, 'position');
       if (attr.array.length === points.length) {
-        (attr.array as Float32Array).set(points);
+        float32Array(attr).set(points);
         attr.needsUpdate = true;
       } else {
         entry.line.geometry.setAttribute('position', new BufferAttribute(points, 3));
@@ -2376,9 +2413,9 @@ export class SceneView {
     // rule the moons follow, and for the same reason. "L1" beside Neptune while
     // you are at Earth says nothing.
     if (this.toggles.lagrange) {
-      const host = this.activeLagrangeHost();
+      const lagrangeHost = this.activeLagrangeHost();
       for (const point of this.lagrangeBodies) {
-        if (point.lagrange!.secondary === host || point === this.selected) {
+        if (point.lagrange!.secondary === lagrangeHost || point === this.selected) {
           candidates.push(point);
         }
       }
@@ -2431,8 +2468,8 @@ export class SceneView {
   }
 
   private labelElement(index: number): HTMLElement {
-    let el = this.labelPool[index];
-    if (!el) {
+    let el: HTMLElement | undefined = this.labelPool[index];
+    if (el === undefined) {
       el = document.createElement('div');
       el.className = 'label';
       this.labelHost!.append(el);
@@ -2643,9 +2680,8 @@ export class SceneView {
     const size = this.renderer.getDrawingBufferSize(new Vector2());
     this.composer?.setSize(size.x, size.y);
     this.bloom?.setSize(size.x, size.y);
-    const material = this.minorPoints?.material as ShaderMaterial | undefined;
-    material?.uniforms.uViewport?.value.set(width, height);
-    this.swarmMaterial?.uniforms.uViewport?.value.set(width, height);
+    setViewport(this.minorPoints?.material, width, height);
+    setViewport(this.swarmMaterial, width, height);
   }
 
   render(camera: PerspectiveCamera): void {
