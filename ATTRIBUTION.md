@@ -552,7 +552,7 @@ members are synthetic.
 - [Vite](https://vite.dev/) — MIT licence. Build tooling.
 - [TypeScript](https://www.typescriptlang.org/) — Apache 2.0.
 
-All shaders in `src/render/materials.ts` are original to this project.
+All shaders in `src/render/shaders/` are original to this project.
 
 ---
 

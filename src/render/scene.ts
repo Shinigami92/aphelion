@@ -88,6 +88,10 @@ import {
   seedFromName,
   solidTexture,
 } from './procedural.ts';
+import lagrangeMarkerFragmentShader from './shaders/lagrange-marker.frag.glsl?raw';
+import lagrangeMarkerVertexShader from './shaders/lagrange-marker.vert.glsl?raw';
+import minorPointsFragmentShader from './shaders/minor-points.frag.glsl?raw';
+import minorPointsVertexShader from './shaders/minor-points.vert.glsl?raw';
 import { SkyView } from './sky.ts';
 import { whenLoaded } from './textures.ts';
 
@@ -2735,39 +2739,8 @@ function createLagrangeMarkerMaterial(sprite: Texture): ShaderMaterial {
       uSize: { value: LAGRANGE_MARKER_PX },
       uOpacity: { value: 0.95 },
     },
-    vertexShader: /* glsl */ `
-      attribute vec3 aColor;
-      attribute float aFade;
-      uniform float uPixelRatio;
-      uniform float uSize;
-      varying vec3 vColor;
-      varying float vFade;
-      // <common> supplies isPerspectiveMatrix(), which the log-depth chunk calls.
-      #include <common>
-      #include <logdepthbuf_pars_vertex>
-      void main() {
-        vColor = aColor;
-        vFade = aFade;
-        gl_Position = projectionMatrix * viewMatrix * modelMatrix * vec4(position, 1.0);
-        gl_PointSize = uSize * uPixelRatio;
-        #include <logdepthbuf_vertex>
-      }
-    `,
-    fragmentShader: /* glsl */ `
-      precision highp float;
-      uniform sampler2D uSprite;
-      uniform float uOpacity;
-      varying vec3 vColor;
-      varying float vFade;
-      #include <logdepthbuf_pars_fragment>
-      void main() {
-        #include <logdepthbuf_fragment>
-        if (vFade <= 0.001) discard;
-        float a = texture2D(uSprite, gl_PointCoord).a;
-        if (a < 0.01) discard;
-        gl_FragColor = vec4(vColor, a * vFade * uOpacity);
-      }
-    `,
+    vertexShader: lagrangeMarkerVertexShader,
+    fragmentShader: lagrangeMarkerFragmentShader,
   });
 }
 
@@ -2791,40 +2764,7 @@ function createMinorPointsMaterial(sprite: Texture): ShaderMaterial {
       uViewport: { value: new Vector2(1, 1) },
       uOpacity: { value: 0.95 },
     },
-    vertexShader: /* glsl */ `
-      attribute vec3 aColor;
-      attribute float aSize;
-      uniform float uPixelRatio;
-      varying vec3 vColor;
-      varying float vFade;
-      // <common> supplies isPerspectiveMatrix(), which the log-depth chunk calls.
-      #include <common>
-      #include <logdepthbuf_pars_vertex>
-      void main() {
-        vColor = aColor;
-        vec4 mv = viewMatrix * modelMatrix * vec4(position, 1.0);
-        gl_Position = projectionMatrix * mv;
-        float dist = max(-mv.z, 1e-4);
-        // aSize is 0 when the body has been promoted to a real mesh.
-        gl_PointSize = aSize * clamp(uPixelRatio * 420.0 / dist, 1.2, 7.0);
-        vFade = aSize * clamp(gl_PointSize / 2.0, 0.25, 1.0);
-        #include <logdepthbuf_vertex>
-      }
-    `,
-    fragmentShader: /* glsl */ `
-      precision highp float;
-      uniform sampler2D uSprite;
-      uniform float uOpacity;
-      varying vec3 vColor;
-      varying float vFade;
-      #include <logdepthbuf_pars_fragment>
-      void main() {
-        #include <logdepthbuf_fragment>
-        if (vFade <= 0.001) discard;
-        float a = texture2D(uSprite, gl_PointCoord).a;
-        if (a < 0.01) discard;
-        gl_FragColor = vec4(vColor, a * vFade * uOpacity);
-      }
-    `,
+    vertexShader: minorPointsVertexShader,
+    fragmentShader: minorPointsFragmentShader,
   });
 }
