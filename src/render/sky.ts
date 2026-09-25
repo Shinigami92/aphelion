@@ -45,7 +45,7 @@ import {
 import { equatorialToEcliptic } from '../astro/frames.ts';
 import { STAR_CATALOGUE } from '../data/generated/stars.ts';
 import { unpackStars } from '../data/stars.ts';
-import { createSkyMaterial, createStarMaterial } from './materials.ts';
+import { createSkyMaterial, createStarMaterial } from './materials/sky.ts';
 import { solidTexture } from './procedural.ts';
 import { whenLoaded } from './textures.ts';
 

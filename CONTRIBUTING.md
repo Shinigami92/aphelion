@@ -78,7 +78,7 @@ src/
     stars.ts        the packed star catalogue's format
     generated/      committed output of scripts/fetch-assets.ts
   render/
-    materials.ts    every material: uniforms, defines, blending
+    materials/      one file per material: uniforms, defines, blending
     shaders/        the GLSL behind them; chunks/ holds the shared #include chunks
     scene.ts        scene assembly, LOD, floating origin, picking
     sky.ts          the star field and the deep-sky backdrop

@@ -16,7 +16,7 @@
  *
  * 3. **Analytic shadows.** No shadow maps — they cannot span from ring particles
  *    to Neptune. Eclipses, ring shadows and planet-on-ring shadows are all
- *    solved in closed form in the shaders (see materials.ts).
+ *    solved in closed form in the shaders (see materials/ and shaders/).
  */
 
 import type { Basis } from '../astro/frames.ts';
@@ -60,24 +60,21 @@ import { AU_KM, SCENE_UNIT_KM, SUN_RADIUS_KM } from '../core/constants.ts';
 import { buildSwarms } from '../data/belts.ts';
 import { MOON_ATMOSPHERES, RELIEF_EXAGGERATION } from '../data/bodies.ts';
 import { reliefFor } from '../data/generated/relief.ts';
+import { createAtmosphereMaterial } from './materials/atmosphere.ts';
+import { createBodyMaterial } from './materials/body.ts';
+import { createCloudMaterial, ZONAL_SAMPLES } from './materials/cloud.ts';
+import { createDustMaterial, createOrbitMaterial } from './materials/orbit.ts';
+import { createRingParticleMaterial } from './materials/ring-particle.ts';
+import { createRingMaterial } from './materials/ring.ts';
+import { createCoronaMaterial, createSunMaterial } from './materials/sun.ts';
+import { createSwarmMaterial } from './materials/swarm.ts';
 import {
-  createAtmosphereMaterial,
-  createBodyMaterial,
-  createCloudMaterial,
-  createCoronaMaterial,
-  createDustMaterial,
-  createOrbitMaterial,
-  createRingMaterial,
-  createRingParticleMaterial,
-  createSunMaterial,
-  createSwarmMaterial,
   MAX_OCCLUDERS,
   occluderSlots,
   textureUniform,
   vec2Uniform,
   vec3Uniform,
-  ZONAL_SAMPLES,
-} from './materials.ts';
+} from './materials/uniforms.ts';
 import {
   classifySurface,
   markerSprite,
