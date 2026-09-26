@@ -40,6 +40,155 @@ const tmpVec = new Vector3();
 const tmpVec2 = new Vector3();
 
 /**
+ * Is anything actually drawn for this body right now?
+ *
+ * An invisible thing that swallows clicks meant for what is behind it is
+ * indistinguishable from a broken hit test. This was written for the Lagrange
+ * reticles and applies just as well to everything else: a moon whose mesh has
+ * been culled for being sub-pixel is drawn nowhere at all, and with the minor
+ * bodies toggled off neither is a rock.
+ *
+ * The Sun, the planets and the dwarfs are exempt. They are the landmarks of
+ * the map — they carry a label at any size, they are the destinations the
+ * whole UI is built around, and one of them is always what a click on a
+ * distant speck of a system was reaching for.
+ */
+function isAimable(body: SimBody, visual: BodyVisual | undefined, toggles: SceneToggles): boolean {
+  if (body.type === 'star' || body.type === 'planet' || body.type === 'dwarf') {
+    return true;
+  }
+  if (body.type === 'lagrange') {
+    return toggles.lagrange;
+  }
+  if (visual) {
+    return visual.group.visible;
+  }
+  return toggles.minorBodies;
+}
+
+/** Where a body lands on screen, or null if it is not in front of the camera. */
+function projectForPick(
+  body: SimBody,
+  camera: PerspectiveCamera,
+  state: FrameState,
+): PickPoint | null {
+  tmpVec.set(body.scene.x, body.scene.y, body.scene.z).sub(state.origin);
+  tmpVec2.copy(tmpVec).project(camera);
+  if (tmpVec2.z < -1 || tmpVec2.z > 1) {
+    return null;
+  }
+  const distance = camera.position.distanceTo(tmpVec);
+  return {
+    x: (tmpVec2.x * 0.5 + 0.5) * state.viewport.x,
+    y: (-tmpVec2.y * 0.5 + 0.5) * state.viewport.y,
+    distance,
+    // A marker is exactly as big as it is drawn. Using its nominal radius
+    // here would let a Lagrange point standing close to the camera claim half
+    // the screen while showing a 13-pixel reticle.
+    apparent:
+      body.type === 'lagrange'
+        ? 0
+        : (body.sceneRadius / Math.max(distance, 1e-9)) * state.viewport.y,
+  };
+}
+
+/**
+ * Every aimable body within reach of the cursor, and the distance of the
+ * nearest solid disc under it.
+ */
+function collectReachable(
+  clientX: number,
+  clientY: number,
+  system: SolarSystem,
+  tolerance: number,
+  camera: PerspectiveCamera,
+  ctx: PickContext,
+): { reachable: Candidate[]; occluderDistance: number } {
+  // Lagrange points are only worth walking while their layer is drawn.
+  const groups = ctx.state.toggles.lagrange ? [system.bodies, ctx.lagrangeBodies] : [system.bodies];
+
+  const reachable: Candidate[] = [];
+  // Nearest solid disc lying under the cursor. Whatever is drawn there hides
+  // everything behind it, and the depth buffer already agrees — a sprite
+  // eclipsed by a planet is not on screen to be clicked.
+  let occluderDistance = Infinity;
+
+  for (const group of groups) {
+    for (const body of group) {
+      // The Sun keeps its visual outside the map, and it is the one disc big
+      // enough that things routinely pass behind it.
+      const visual =
+        body.type === 'star'
+          ? (ctx.sunVisual ?? undefined)
+          : (ctx.visuals.get(body.key) ?? ctx.promoted.get(body.key));
+      if (!isAimable(body, visual, ctx.state.toggles)) {
+        continue;
+      }
+      const point = projectForPick(body, camera, ctx.state);
+      if (!point) {
+        continue;
+      }
+      const pixelDistance = Math.hypot(point.x - clientX, point.y - clientY);
+
+      // Only a drawn sphere blocks anything. A sprite is a pixel of glow.
+      if (visual?.group.visible === true && pixelDistance <= point.apparent) {
+        occluderDistance = Math.min(occluderDistance, point.distance);
+      }
+      // Clicking anywhere on a large body should select it.
+      if (pixelDistance <= Math.max(tolerance, point.apparent)) {
+        reachable.push({ body, point });
+      }
+    }
+  }
+  return { reachable, occluderDistance };
+}
+
+/**
+ * Walk up to the body a click in this cluster actually means.
+ *
+ * A primary's aim disc is opaque to its own shapeless satellites: while the
+ * cursor is inside the reach of a planet, no speck orbiting that planet can
+ * outrank it. From far away that disc is the whole system, so every click
+ * near the dot lands on the planet, which is the point. Chain it and a click
+ * on an unresolved inner planet resolves through to the Sun for the same
+ * reason.
+ *
+ * Both conditions are doing work. Without the shape test a moon transiting
+ * from close range — a real disc, unmistakably aimed at — would be swallowed
+ * by the planet behind it. Without the reach test the moons of a planet you
+ * are standing next to would be, and by the time a moon is drawn clear of its
+ * planet you can point at it. What remains unreachable is a shapeless moon
+ * against its own primary's disc, which is right twice over: at one pixel
+ * across it cannot be aimed at, and it is either lost against the lit surface
+ * or hidden behind it.
+ */
+function clusterPrimary(
+  body: SimBody,
+  point: PickPoint,
+  camera: PerspectiveCamera,
+  clientX: number,
+  clientY: number,
+  tolerance: number,
+  state: FrameState,
+): Candidate {
+  let current = body;
+  let currentPoint = point;
+  while (current.parent && currentPoint.apparent < SHAPE_APPARENT_PX) {
+    const parentPoint = projectForPick(current.parent, camera, state);
+    if (!parentPoint) {
+      break;
+    }
+    const reach = Math.max(tolerance, parentPoint.apparent);
+    if (Math.hypot(parentPoint.x - clientX, parentPoint.y - clientY) > reach) {
+      break;
+    }
+    current = current.parent;
+    currentPoint = parentPoint;
+  }
+  return { body: current, point: currentPoint };
+}
+
+/**
  * Nearest body to a screen position, within a pixel tolerance.
  *
  * Screen-space proximity rather than ray casting, so point-rendered minor
@@ -105,153 +254,4 @@ export function pickBody(
     }
   }
   return best;
-}
-
-/**
- * Every aimable body within reach of the cursor, and the distance of the
- * nearest solid disc under it.
- */
-function collectReachable(
-  clientX: number,
-  clientY: number,
-  system: SolarSystem,
-  tolerance: number,
-  camera: PerspectiveCamera,
-  ctx: PickContext,
-): { reachable: Candidate[]; occluderDistance: number } {
-  // Lagrange points are only worth walking while their layer is drawn.
-  const groups = ctx.state.toggles.lagrange ? [system.bodies, ctx.lagrangeBodies] : [system.bodies];
-
-  const reachable: Candidate[] = [];
-  // Nearest solid disc lying under the cursor. Whatever is drawn there hides
-  // everything behind it, and the depth buffer already agrees — a sprite
-  // eclipsed by a planet is not on screen to be clicked.
-  let occluderDistance = Infinity;
-
-  for (const group of groups) {
-    for (const body of group) {
-      // The Sun keeps its visual outside the map, and it is the one disc big
-      // enough that things routinely pass behind it.
-      const visual =
-        body.type === 'star'
-          ? (ctx.sunVisual ?? undefined)
-          : (ctx.visuals.get(body.key) ?? ctx.promoted.get(body.key));
-      if (!isAimable(body, visual, ctx.state.toggles)) {
-        continue;
-      }
-      const point = projectForPick(body, camera, ctx.state);
-      if (!point) {
-        continue;
-      }
-      const pixelDistance = Math.hypot(point.x - clientX, point.y - clientY);
-
-      // Only a drawn sphere blocks anything. A sprite is a pixel of glow.
-      if (visual?.group.visible === true && pixelDistance <= point.apparent) {
-        occluderDistance = Math.min(occluderDistance, point.distance);
-      }
-      // Clicking anywhere on a large body should select it.
-      if (pixelDistance <= Math.max(tolerance, point.apparent)) {
-        reachable.push({ body, point });
-      }
-    }
-  }
-  return { reachable, occluderDistance };
-}
-
-/**
- * Is anything actually drawn for this body right now?
- *
- * An invisible thing that swallows clicks meant for what is behind it is
- * indistinguishable from a broken hit test. This was written for the Lagrange
- * reticles and applies just as well to everything else: a moon whose mesh has
- * been culled for being sub-pixel is drawn nowhere at all, and with the minor
- * bodies toggled off neither is a rock.
- *
- * The Sun, the planets and the dwarfs are exempt. They are the landmarks of
- * the map — they carry a label at any size, they are the destinations the
- * whole UI is built around, and one of them is always what a click on a
- * distant speck of a system was reaching for.
- */
-function isAimable(body: SimBody, visual: BodyVisual | undefined, toggles: SceneToggles): boolean {
-  if (body.type === 'star' || body.type === 'planet' || body.type === 'dwarf') {
-    return true;
-  }
-  if (body.type === 'lagrange') {
-    return toggles.lagrange;
-  }
-  if (visual) {
-    return visual.group.visible;
-  }
-  return toggles.minorBodies;
-}
-
-/**
- * Walk up to the body a click in this cluster actually means.
- *
- * A primary's aim disc is opaque to its own shapeless satellites: while the
- * cursor is inside the reach of a planet, no speck orbiting that planet can
- * outrank it. From far away that disc is the whole system, so every click
- * near the dot lands on the planet, which is the point. Chain it and a click
- * on an unresolved inner planet resolves through to the Sun for the same
- * reason.
- *
- * Both conditions are doing work. Without the shape test a moon transiting
- * from close range — a real disc, unmistakably aimed at — would be swallowed
- * by the planet behind it. Without the reach test the moons of a planet you
- * are standing next to would be, and by the time a moon is drawn clear of its
- * planet you can point at it. What remains unreachable is a shapeless moon
- * against its own primary's disc, which is right twice over: at one pixel
- * across it cannot be aimed at, and it is either lost against the lit surface
- * or hidden behind it.
- */
-function clusterPrimary(
-  body: SimBody,
-  point: PickPoint,
-  camera: PerspectiveCamera,
-  clientX: number,
-  clientY: number,
-  tolerance: number,
-  state: FrameState,
-): Candidate {
-  let current = body;
-  let currentPoint = point;
-  while (current.parent && currentPoint.apparent < SHAPE_APPARENT_PX) {
-    const parentPoint = projectForPick(current.parent, camera, state);
-    if (!parentPoint) {
-      break;
-    }
-    const reach = Math.max(tolerance, parentPoint.apparent);
-    if (Math.hypot(parentPoint.x - clientX, parentPoint.y - clientY) > reach) {
-      break;
-    }
-    current = current.parent;
-    currentPoint = parentPoint;
-  }
-  return { body: current, point: currentPoint };
-}
-
-/** Where a body lands on screen, or null if it is not in front of the camera. */
-function projectForPick(
-  body: SimBody,
-  camera: PerspectiveCamera,
-  state: FrameState,
-): PickPoint | null {
-  tmpVec.set(body.scene.x, body.scene.y, body.scene.z).sub(state.origin);
-  tmpVec2.copy(tmpVec).project(camera);
-  if (tmpVec2.z < -1 || tmpVec2.z > 1) {
-    return null;
-  }
-  const distance = camera.position.distanceTo(tmpVec);
-  return {
-    x: (tmpVec2.x * 0.5 + 0.5) * state.viewport.x,
-    y: (-tmpVec2.y * 0.5 + 0.5) * state.viewport.y,
-    distance,
-    // A marker is exactly as big as it is drawn. Using its nominal radius
-    // here would let a Lagrange point standing close to the camera claim half
-    // the screen while showing a 13-pixel reticle.
-    apparent:
-      body.type === 'lagrange'
-        ? 0
-        : (body.sceneRadius / Math.max(distance, 1e-9)) * state.viewport.y,
-  };
 }

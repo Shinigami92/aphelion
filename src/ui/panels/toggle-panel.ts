@@ -8,6 +8,24 @@ export interface ToggleConfig {
   set: (value: boolean) => void;
 }
 
+/** The panel title, with the repository link when there is one. */
+function titleRow(repoUrl: string | undefined): HTMLElement {
+  const title = el('div', 'panel__title');
+  title.append(el('span', undefined, 'View'));
+
+  if (repoUrl !== undefined && repoUrl !== '') {
+    const link = document.createElement('a');
+    link.className = 'title-link';
+    link.href = repoUrl;
+    link.target = '_blank';
+    link.rel = 'noopener noreferrer';
+    link.textContent = 'GitHub ↗';
+    link.title = 'Source, data provenance and licences';
+    title.append(link);
+  }
+  return title;
+}
+
 export class TogglePanel {
   private items: Array<{ config: ToggleConfig; node: HTMLElement }> = [];
   private orbitButtons: HTMLElement[] = [];
@@ -95,22 +113,4 @@ export class TogglePanel {
     }
     return scaleRow;
   }
-}
-
-/** The panel title, with the repository link when there is one. */
-function titleRow(repoUrl: string | undefined): HTMLElement {
-  const title = el('div', 'panel__title');
-  title.append(el('span', undefined, 'View'));
-
-  if (repoUrl !== undefined && repoUrl !== '') {
-    const link = document.createElement('a');
-    link.className = 'title-link';
-    link.href = repoUrl;
-    link.target = '_blank';
-    link.rel = 'noopener noreferrer';
-    link.textContent = 'GitHub ↗';
-    link.title = 'Source, data provenance and licences';
-    title.append(link);
-  }
-  return title;
 }

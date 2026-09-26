@@ -44,6 +44,30 @@ function caret(): SVGSVGElement {
   return svg;
 }
 
+/**
+ * Height of the panel with only its header showing — measured by hiding the
+ * body and asking, rather than by adding up the header and the padding. The
+ * headers differ too much for arithmetic to be safe: two sit inside padded
+ * wrappers, and the info panel's is two stacked block elements.
+ *
+ * `bottom` is neutralised for the measurement because the browser panel is
+ * stretched between `top` and `bottom`; left alone it would report the
+ * stretched height and the panel would refuse to fold.
+ */
+function measureCollapsed(panel: HTMLElement, body: HTMLElement): number {
+  const prevHeight = panel.style.height;
+  const prevBottom = panel.style.bottom;
+  const prevDisplay = body.style.display;
+  panel.style.height = '';
+  panel.style.bottom = 'auto';
+  body.style.display = 'none';
+  const measured = panel.getBoundingClientRect().height;
+  body.style.display = prevDisplay;
+  panel.style.bottom = prevBottom;
+  panel.style.height = prevHeight;
+  return measured;
+}
+
 class CollapsiblePanel implements Collapsible {
   private isCollapsed = false;
   private timer: number | undefined;
@@ -158,28 +182,4 @@ export function makeCollapsible(
   label: string,
 ): Collapsible {
   return new CollapsiblePanel(panel, head, body, label);
-}
-
-/**
- * Height of the panel with only its header showing — measured by hiding the
- * body and asking, rather than by adding up the header and the padding. The
- * headers differ too much for arithmetic to be safe: two sit inside padded
- * wrappers, and the info panel's is two stacked block elements.
- *
- * `bottom` is neutralised for the measurement because the browser panel is
- * stretched between `top` and `bottom`; left alone it would report the
- * stretched height and the panel would refuse to fold.
- */
-function measureCollapsed(panel: HTMLElement, body: HTMLElement): number {
-  const prevHeight = panel.style.height;
-  const prevBottom = panel.style.bottom;
-  const prevDisplay = body.style.display;
-  panel.style.height = '';
-  panel.style.bottom = 'auto';
-  body.style.display = 'none';
-  const measured = panel.getBoundingClientRect().height;
-  body.style.display = prevDisplay;
-  panel.style.bottom = prevBottom;
-  panel.style.height = prevHeight;
-  return measured;
 }

@@ -68,6 +68,13 @@ const EPHEMERIS_BEST_MAX = 2469807.5; // 2050-01-01
 
 export type TimeListener = (t: TimeController) => void;
 
+function clampJd(jd: number): number {
+  if (!Number.isFinite(jd)) {
+    return JD_MIN;
+  }
+  return Math.max(JD_MIN, Math.min(JD_MAX, jd));
+}
+
 export class TimeController {
   /** UTC Julian Date. */
   private _jdUtc: number;
@@ -265,11 +272,4 @@ export class TimeController {
       fn(this);
     }
   }
-}
-
-function clampJd(jd: number): number {
-  if (!Number.isFinite(jd)) {
-    return JD_MIN;
-  }
-  return Math.max(JD_MIN, Math.min(JD_MAX, jd));
 }

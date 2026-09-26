@@ -13,32 +13,6 @@ const tmpA: Vec3 = { x: 0, y: 0, z: 0 };
 const tmpB: Vec3 = { x: 0, y: 0, z: 0 };
 
 /**
- * Place every Lagrange point for the instant just solved.
- *
- * The rotating frame is rebuilt from the pair's real geometry each time
- * rather than assumed: the separation `R` is the *instantaneous* one, so the
- * whole configuration breathes in and out with the planet's eccentricity, and
- * the orbit normal comes from r x v, so the points track the plane rather
- * than sitting in a nominal ecliptic. That makes these the points of the
- * circular problem evaluated at the current separation — which is what
- * everyone means by "Sun-Earth L2", and what its 1.5 million km refers to.
- *
- * Note the frame is right-handed by construction: `w` is the orbit normal
- * crossed into the radial direction, which for any orbit is the direction of
- * travel. That is what makes L4 *lead* the planet by 60 degrees and L5 trail
- * it, rather than the other way round — and getting it backwards would put
- * Jupiter's L4 marker in the middle of the Trojan camp instead of the Greek
- * one, with nothing else on screen looking any different.
- */
-export function updateLagrange(points: ReadonlyArray<SimBody>, scale: ScaleModel): void {
-  for (const point of points) {
-    if (placeLagrangePoint(point)) {
-      remapLagrangePoint(point, scale);
-    }
-  }
-}
-
-/**
  * Put a point where it belongs in its pair's rotating frame, in heliocentric
  * km. Returns false when the pair is degenerate and the point cannot be placed.
  */
@@ -110,6 +84,32 @@ function remapLagrangePoint(point: SimBody, scale: ScaleModel): void {
   point.scene.y = point.helioKm.y * f;
   point.scene.z = point.helioKm.z * f;
   point.sceneRadius = scale.bodyRadius(point.radiusKm);
+}
+
+/**
+ * Place every Lagrange point for the instant just solved.
+ *
+ * The rotating frame is rebuilt from the pair's real geometry each time
+ * rather than assumed: the separation `R` is the *instantaneous* one, so the
+ * whole configuration breathes in and out with the planet's eccentricity, and
+ * the orbit normal comes from r x v, so the points track the plane rather
+ * than sitting in a nominal ecliptic. That makes these the points of the
+ * circular problem evaluated at the current separation — which is what
+ * everyone means by "Sun-Earth L2", and what its 1.5 million km refers to.
+ *
+ * Note the frame is right-handed by construction: `w` is the orbit normal
+ * crossed into the radial direction, which for any orbit is the direction of
+ * travel. That is what makes L4 *lead* the planet by 60 degrees and L5 trail
+ * it, rather than the other way round — and getting it backwards would put
+ * Jupiter's L4 marker in the middle of the Trojan camp instead of the Greek
+ * one, with nothing else on screen looking any different.
+ */
+export function updateLagrange(points: ReadonlyArray<SimBody>, scale: ScaleModel): void {
+  for (const point of points) {
+    if (placeLagrangePoint(point)) {
+      remapLagrangePoint(point, scale);
+    }
+  }
 }
 
 export function solvePosition(body: SimBody, sun: SimBody, jdTT: number): void {

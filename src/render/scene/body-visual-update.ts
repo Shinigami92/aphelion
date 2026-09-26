@@ -27,28 +27,33 @@ const tmpMatrix = new Matrix4();
 const tmpQuat = new Quaternion();
 const tmpVec = new Vector3();
 
-export function updateBodyVisual(
-  visual: BodyVisual,
-  scale: ScaleModel,
-  sunSceneRadius: number,
-  ctx: VisualContext,
-): void {
+/**
+ * Hand the relief uniforms their per-frame values.
+ *
+ * Returns how far above the surface the cloud deck has to sit, as a multiple
+ * of the radius.
+ */
+function applyRelief(visual: BodyVisual, scale: ScaleModel): number {
   const body = visual.body;
-  const group = visual.group;
-  group.position.set(body.scene.x, body.scene.y, body.scene.z);
-
-  const shellRadius = placeShells(visual, scale, ctx);
-
-  // Body centre in render space.
-  tmpVec.set(body.scene.x, body.scene.y, body.scene.z).sub(ctx.state.origin);
-  const centre = tmpVec;
-
-  applyLighting(visual.material, body, centre, ctx.state.sunRender, sunSceneRadius);
-  shadeClouds(visual, centre, sunSceneRadius, ctx);
-  shadeAtmosphere(visual, centre, shellRadius, sunSceneRadius, ctx);
-  shadeRings(visual, centre, scale, sunSceneRadius, ctx);
-  shadeRingShadow(visual, scale, ctx);
-  updateDetail(visual, centre, ctx);
+  // The cloud deck sits 0.4% of a radius up, which is roughly right for Earth
+  // until relief is exaggerated 25-fold and the Himalayas stand four times
+  // higher than the clouds. Lift the shell just enough to clear the peaks.
+  let cloudLift = 1.004;
+  if (visual.relief) {
+    // Model space is the unit sphere, so one unit of displacement is one body
+    // radius: dividing the elevation by the true radius keeps relief in
+    // proportion, and it then rides whatever scaling the body itself gets.
+    const exaggeration = scale.reliefExaggeration(visual.reliefExaggeration);
+    const u = visual.material.uniforms;
+    u.uReliefScale.value = exaggeration / body.radiusKm;
+    const seg = LOD_SEGMENTS[visual.lod] ?? LOD_SEGMENTS[0];
+    vec2Uniform(u, 'uReliefStep').set(1 / seg[0], 1 / seg[1]);
+    cloudLift = Math.max(
+      cloudLift,
+      1 + (visual.relief.maxKm * exaggeration * 1.05) / body.radiusKm,
+    );
+  }
+  return cloudLift;
 }
 
 /**
@@ -96,35 +101,6 @@ function placeShells(visual: BodyVisual, scale: ScaleModel, ctx: VisualContext):
     visual.atmosphere.scale.setScalar(shellRadius * SHELL_MESH_MARGIN);
   }
   return shellRadius;
-}
-
-/**
- * Hand the relief uniforms their per-frame values.
- *
- * Returns how far above the surface the cloud deck has to sit, as a multiple
- * of the radius.
- */
-function applyRelief(visual: BodyVisual, scale: ScaleModel): number {
-  const body = visual.body;
-  // The cloud deck sits 0.4% of a radius up, which is roughly right for Earth
-  // until relief is exaggerated 25-fold and the Himalayas stand four times
-  // higher than the clouds. Lift the shell just enough to clear the peaks.
-  let cloudLift = 1.004;
-  if (visual.relief) {
-    // Model space is the unit sphere, so one unit of displacement is one body
-    // radius: dividing the elevation by the true radius keeps relief in
-    // proportion, and it then rides whatever scaling the body itself gets.
-    const exaggeration = scale.reliefExaggeration(visual.reliefExaggeration);
-    const u = visual.material.uniforms;
-    u.uReliefScale.value = exaggeration / body.radiusKm;
-    const seg = LOD_SEGMENTS[visual.lod] ?? LOD_SEGMENTS[0];
-    vec2Uniform(u, 'uReliefStep').set(1 / seg[0], 1 / seg[1]);
-    cloudLift = Math.max(
-      cloudLift,
-      1 + (visual.relief.maxKm * exaggeration * 1.05) / body.radiusKm,
-    );
-  }
-  return cloudLift;
 }
 
 function shadeClouds(
@@ -194,6 +170,26 @@ function shadeAtmosphere(
   visual.atmosphere!.visible = ctx.state.toggles.atmospheres;
 }
 
+function synthesiseSurface(visual: BodyVisual): void {
+  const body = visual.body;
+  visual.pendingProcedural = false;
+  visual.material.uniforms.uMap.value = proceduralSurface(`body:${body.key}`, {
+    color: body.color,
+    radiusKm: body.radiusKm,
+    surface:
+      body.key === 'io'
+        ? 'sulfurous'
+        : classifySurface({
+            parentKey: body.parent?.key ?? null,
+            name: body.name,
+            radiusKm: body.radiusKm,
+            isMoon: body.type === 'moon',
+          }),
+    seed: seedFromName(body.key),
+  });
+  visual.material.needsUpdate = true;
+}
+
 /** Level of detail from apparent size. */
 function updateDetail(visual: BodyVisual, centre: Vector3, ctx: VisualContext): void {
   const body = visual.body;
@@ -229,22 +225,26 @@ function updateDetail(visual: BodyVisual, centre: Vector3, ctx: VisualContext): 
   }
 }
 
-function synthesiseSurface(visual: BodyVisual): void {
+export function updateBodyVisual(
+  visual: BodyVisual,
+  scale: ScaleModel,
+  sunSceneRadius: number,
+  ctx: VisualContext,
+): void {
   const body = visual.body;
-  visual.pendingProcedural = false;
-  visual.material.uniforms.uMap.value = proceduralSurface(`body:${body.key}`, {
-    color: body.color,
-    radiusKm: body.radiusKm,
-    surface:
-      body.key === 'io'
-        ? 'sulfurous'
-        : classifySurface({
-            parentKey: body.parent?.key ?? null,
-            name: body.name,
-            radiusKm: body.radiusKm,
-            isMoon: body.type === 'moon',
-          }),
-    seed: seedFromName(body.key),
-  });
-  visual.material.needsUpdate = true;
+  const group = visual.group;
+  group.position.set(body.scene.x, body.scene.y, body.scene.z);
+
+  const shellRadius = placeShells(visual, scale, ctx);
+
+  // Body centre in render space.
+  tmpVec.set(body.scene.x, body.scene.y, body.scene.z).sub(ctx.state.origin);
+  const centre = tmpVec;
+
+  applyLighting(visual.material, body, centre, ctx.state.sunRender, sunSceneRadius);
+  shadeClouds(visual, centre, sunSceneRadius, ctx);
+  shadeAtmosphere(visual, centre, shellRadius, sunSceneRadius, ctx);
+  shadeRings(visual, centre, scale, sunSceneRadius, ctx);
+  shadeRingShadow(visual, scale, ctx);
+  updateDetail(visual, centre, ctx);
 }

@@ -69,6 +69,51 @@ export interface LunarState {
   distance: number;
 }
 
+/**
+ * The periodic series of Meeus chapter 47, plus the additive terms, in the
+ * table's own units: 1e-6 degrees for longitude and latitude, metres for distance.
+ */
+function periodicSums(
+  T: number,
+  E: number,
+  args: LunarArguments,
+): { sumL: number; sumR: number; sumB: number } {
+  const { Lpr, Dr, Mr, Mpr, Fr } = args;
+  let sumL = 0;
+  let sumR = 0;
+  for (let k = 0; k < TERMS_LR.length; k += 6) {
+    const cM = TERMS_LR[k + 1];
+    const arg = TERMS_LR[k] * Dr + cM * Mr + TERMS_LR[k + 2] * Mpr + TERMS_LR[k + 3] * Fr;
+    // Terms containing M are damped by E (once per power of M).
+    const ecc = cM === 0 ? 1 : cM === 1 || cM === -1 ? E : E * E;
+    sumL += TERMS_LR[k + 4] * ecc * Math.sin(arg);
+    sumR += TERMS_LR[k + 5] * ecc * Math.cos(arg);
+  }
+
+  let sumB = 0;
+  for (let k = 0; k < TERMS_B.length; k += 5) {
+    const cM = TERMS_B[k + 1];
+    const arg = TERMS_B[k] * Dr + cM * Mr + TERMS_B[k + 2] * Mpr + TERMS_B[k + 3] * Fr;
+    const ecc = cM === 0 ? 1 : cM === 1 || cM === -1 ? E : E * E;
+    sumB += TERMS_B[k + 4] * ecc * Math.sin(arg);
+  }
+
+  // Additive terms from Venus (A1), Jupiter (A2) and Earth's flattening (A3).
+  const A1 = (119.75 + 131.849 * T) * DEG;
+  const A2 = (53.09 + 479264.29 * T) * DEG;
+  const A3 = (313.45 + 481266.484 * T) * DEG;
+
+  sumL += 3958 * Math.sin(A1) + 1962 * Math.sin(Lpr - Fr) + 318 * Math.sin(A2);
+  sumB +=
+    -2235 * Math.sin(Lpr) +
+    382 * Math.sin(A3) +
+    175 * Math.sin(A1 - Fr) +
+    175 * Math.sin(A1 + Fr) +
+    127 * Math.sin(Lpr - Mpr) -
+    115 * Math.sin(Lpr + Mpr);
+  return { sumL, sumR, sumB };
+}
+
 /** Geocentric ecliptic spherical coordinates of the Moon. */
 export function moonSpherical(jdTT: number): LunarState {
   const T = centuriesSinceJ2000(jdTT);
@@ -114,51 +159,6 @@ interface LunarArguments {
   Mr: number;
   Mpr: number;
   Fr: number;
-}
-
-/**
- * The periodic series of Meeus chapter 47, plus the additive terms, in the
- * table's own units: 1e-6 degrees for longitude and latitude, metres for distance.
- */
-function periodicSums(
-  T: number,
-  E: number,
-  args: LunarArguments,
-): { sumL: number; sumR: number; sumB: number } {
-  const { Lpr, Dr, Mr, Mpr, Fr } = args;
-  let sumL = 0;
-  let sumR = 0;
-  for (let k = 0; k < TERMS_LR.length; k += 6) {
-    const cM = TERMS_LR[k + 1];
-    const arg = TERMS_LR[k] * Dr + cM * Mr + TERMS_LR[k + 2] * Mpr + TERMS_LR[k + 3] * Fr;
-    // Terms containing M are damped by E (once per power of M).
-    const ecc = cM === 0 ? 1 : cM === 1 || cM === -1 ? E : E * E;
-    sumL += TERMS_LR[k + 4] * ecc * Math.sin(arg);
-    sumR += TERMS_LR[k + 5] * ecc * Math.cos(arg);
-  }
-
-  let sumB = 0;
-  for (let k = 0; k < TERMS_B.length; k += 5) {
-    const cM = TERMS_B[k + 1];
-    const arg = TERMS_B[k] * Dr + cM * Mr + TERMS_B[k + 2] * Mpr + TERMS_B[k + 3] * Fr;
-    const ecc = cM === 0 ? 1 : cM === 1 || cM === -1 ? E : E * E;
-    sumB += TERMS_B[k + 4] * ecc * Math.sin(arg);
-  }
-
-  // Additive terms from Venus (A1), Jupiter (A2) and Earth's flattening (A3).
-  const A1 = (119.75 + 131.849 * T) * DEG;
-  const A2 = (53.09 + 479264.29 * T) * DEG;
-  const A3 = (313.45 + 481266.484 * T) * DEG;
-
-  sumL += 3958 * Math.sin(A1) + 1962 * Math.sin(Lpr - Fr) + 318 * Math.sin(A2);
-  sumB +=
-    -2235 * Math.sin(Lpr) +
-    382 * Math.sin(A3) +
-    175 * Math.sin(A1 - Fr) +
-    175 * Math.sin(A1 + Fr) +
-    127 * Math.sin(Lpr - Mpr) -
-    115 * Math.sin(Lpr + Mpr);
-  return { sumL, sumR, sumB };
 }
 
 /** Geocentric ecliptic J2000 rectangular position of the Moon, km. */

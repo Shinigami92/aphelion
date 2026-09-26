@@ -57,22 +57,6 @@ export function taiMinusUtc(jdUTC: number): number {
   return v;
 }
 
-/**
- * dT = TT - UT in seconds, from the Espenak & Meeus (2006) piecewise fits used
- * by NASA's eclipse canon. Only consulted outside the leap-second era.
- */
-export function deltaTSeconds(year: number): number {
-  const y = year;
-
-  if (y < 1600) {
-    return deltaTBeforeTelescopes(y);
-  }
-  if (y < 1900) {
-    return deltaTTelescopic(y);
-  }
-  return deltaTModern(y);
-}
-
 /** Before 1600: fits to ancient and medieval eclipse and occultation records. */
 function deltaTBeforeTelescopes(y: number): number {
   if (y < -500) {
@@ -163,6 +147,22 @@ function deltaTModern(y: number): number {
   }
   const u = (y - 1820) / 100;
   return -20 + 32 * u * u;
+}
+
+/**
+ * dT = TT - UT in seconds, from the Espenak & Meeus (2006) piecewise fits used
+ * by NASA's eclipse canon. Only consulted outside the leap-second era.
+ */
+export function deltaTSeconds(year: number): number {
+  const y = year;
+
+  if (y < 1600) {
+    return deltaTBeforeTelescopes(y);
+  }
+  if (y < 1900) {
+    return deltaTTelescopic(y);
+  }
+  return deltaTModern(y);
 }
 
 /** Approximate decimal year for a Julian Date (used only for dT lookup). */

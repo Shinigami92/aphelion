@@ -35,25 +35,36 @@ export function generateCraters(rng: () => number, count: number, maxAngular: nu
 }
 
 /**
- * Stamp the craters into `shade` — a darkened floor, a bright rim and a fading
- * ejecta blanket.
- *
- * Each crater touches only the pixels inside its own latitude/longitude
- * extent. Testing every crater against every pixel is O(pixels x craters) and
- * was by far the most expensive thing in the app; bounding them makes it
- * O(total crater area), which is a 5-10x saving at these sizes.
+ * Longitude half-width of the cap at this latitude. Close to the poles a
+ * small cap spans every longitude, so fall back to the whole row.
  */
-export function stampCraters(
-  shade: Float32Array,
-  width: number,
-  height: number,
-  craters: ReadonlyArray<Crater>,
+function lonHalfSpan(cosLat: number, reach: number): number {
+  if (cosLat < 1e-4 || reach >= Math.PI / 2) {
+    return Math.PI;
+  }
+  const ratio = Math.sin(reach) / cosLat;
+  return ratio >= 1 ? Math.PI : Math.asin(ratio) * 1.15;
+}
+
+/** One pixel's shade, `t` crater radii from the centre. */
+function craterShade(
+  value: number,
+  t: number,
+  cr: Crater,
   maxAngular: number,
   ejecta: number,
-): void {
-  for (const cr of craters) {
-    stampCrater(shade, width, height, cr, maxAngular, ejecta);
+): number {
+  if (t < 0.82) {
+    // Floor: darkened, with a slight central peak for larger craters.
+    const floor = 1 - cr.depth * 0.42 * (1 - t * 0.5);
+    const peak = cr.radius > maxAngular * 0.45 && t < 0.16 ? 1.16 : 1;
+    return value * floor * peak;
   }
+  if (t < 1.06) {
+    return value * (1 + 0.3 * cr.bright);
+  }
+  const f = 1 - (t - 1.06) / 1.04;
+  return value * (1 + ejecta * cr.bright * f * f * 0.6);
 }
 
 function stampCrater(
@@ -104,34 +115,23 @@ function stampCrater(
 }
 
 /**
- * Longitude half-width of the cap at this latitude. Close to the poles a
- * small cap spans every longitude, so fall back to the whole row.
+ * Stamp the craters into `shade` — a darkened floor, a bright rim and a fading
+ * ejecta blanket.
+ *
+ * Each crater touches only the pixels inside its own latitude/longitude
+ * extent. Testing every crater against every pixel is O(pixels x craters) and
+ * was by far the most expensive thing in the app; bounding them makes it
+ * O(total crater area), which is a 5-10x saving at these sizes.
  */
-function lonHalfSpan(cosLat: number, reach: number): number {
-  if (cosLat < 1e-4 || reach >= Math.PI / 2) {
-    return Math.PI;
-  }
-  const ratio = Math.sin(reach) / cosLat;
-  return ratio >= 1 ? Math.PI : Math.asin(ratio) * 1.15;
-}
-
-/** One pixel's shade, `t` crater radii from the centre. */
-function craterShade(
-  value: number,
-  t: number,
-  cr: Crater,
+export function stampCraters(
+  shade: Float32Array,
+  width: number,
+  height: number,
+  craters: ReadonlyArray<Crater>,
   maxAngular: number,
   ejecta: number,
-): number {
-  if (t < 0.82) {
-    // Floor: darkened, with a slight central peak for larger craters.
-    const floor = 1 - cr.depth * 0.42 * (1 - t * 0.5);
-    const peak = cr.radius > maxAngular * 0.45 && t < 0.16 ? 1.16 : 1;
-    return value * floor * peak;
+): void {
+  for (const cr of craters) {
+    stampCrater(shade, width, height, cr, maxAngular, ejecta);
   }
-  if (t < 1.06) {
-    return value * (1 + 0.3 * cr.bright);
-  }
-  const f = 1 - (t - 1.06) / 1.04;
-  return value * (1 + ejecta * cr.bright * f * f * 0.6);
 }

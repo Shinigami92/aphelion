@@ -119,15 +119,27 @@ const timePanel = new TimePanel(need('time-panel'), time, () => {
 const infoPanel = new InfoPanel(need('info'));
 const toast = new Toast(need('toast'));
 
+function goTo(body: SimBody): void {
+  flyTo(camera, toast, body);
+}
+
 const browser = new BodyBrowser(
   need('browser'),
   system,
   (body) => {
+    // oxlint-disable-next-line no-use-before-define -- select() updates this browser, so one of the two has to come first
     select(body);
     goTo(body);
   },
   () => scene.toggles.lagrange,
 );
+
+function select(body: SimBody): void {
+  selected = body;
+  scene.setSelected(body);
+  infoPanel.setBody(body);
+  browser.setSelected(body);
+}
 
 /**
  * The one way to turn the Lagrange points on and off.
@@ -165,17 +177,6 @@ select(selected);
 // ---------------------------------------------------------------------------
 // Selection and navigation
 // ---------------------------------------------------------------------------
-
-function select(body: SimBody): void {
-  selected = body;
-  scene.setSelected(body);
-  infoPanel.setBody(body);
-  browser.setSelected(body);
-}
-
-function goTo(body: SimBody): void {
-  flyTo(camera, toast, body);
-}
 
 installPointerSelection(canvas, (x, y) => scene.pick(x, y, system), select, goTo);
 
