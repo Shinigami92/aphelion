@@ -107,6 +107,10 @@ function pace(): void {
 /** Open a view and wait until the boot veil is gone and every texture has loaded. */
 export async function openView(page: Page, query: string): Promise<void> {
   await page.addInitScript(pace);
+  // SwiftShader loses lines in a multisampled float target; see the flag's doc.
+  await page.addInitScript(() => {
+    window.__e2eNoMultisample = true;
+  });
   await page.goto(`./?${query}`);
   await expect(page.locator('#boot')).toBeHidden({ timeout: 30_000 });
   await page.waitForLoadState('networkidle');
