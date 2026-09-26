@@ -9,7 +9,7 @@ import path from 'node:path';
  * scripts/convert-textures.sh; this uses it only as a rasteriser and decoder,
  * because a scanned map sheet arrives as PDF and nothing here can decode one.
  */
-export function execFile(
+export async function execFile(
   file: string,
   args: string[],
 ): Promise<{ stdout: string; stderr: string }> {
