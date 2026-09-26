@@ -1,8 +1,15 @@
 /** Free flight: six degrees of freedom, with speed set by how much room there is. */
 
 import type { CameraMode, CameraState } from './state.ts';
-import { Quaternion, Vector3 } from 'three';
-import { FREE_SPEED_PER_UNIT, MAX_FREE_SPEED, MAX_STEP_FRACTION, MIN_FREE_SPEED } from './math.ts';
+import { Matrix4, Quaternion, Vector3 } from 'three';
+import {
+  FREE_SPEED_FACTOR_RANGE,
+  FREE_SPEED_PER_UNIT,
+  MAX_FREE_SPEED,
+  MAX_STEP_FRACTION,
+  MIN_FREE_SPEED,
+} from './math.ts';
+import { cancelFlight, takeOverForOrbit } from './orbit.ts';
 
 /**
  * How far free flight moves this frame, derived from how much room there is.
@@ -39,7 +46,7 @@ function rollFree(s: CameraState, amount: number): void {
 
 /** One frame of free flight: move by the clearance ahead, and roll. */
 export function updateFree(s: CameraState, dt: number): void {
-  const boost = s.keys.boost ? 8 : s.keys.precise ? 0.12 : 1;
+  const boost = (s.keys.boost ? 8 : s.keys.precise ? 0.12 : 1) * s.freeSpeedFactor;
   const step = freeFlightStep(s, dt, boost);
 
   const forward = new Vector3(0, 0, -1).applyQuaternion(s.freeQuaternion);
@@ -89,28 +96,41 @@ export function lookBy(s: CameraState, yaw: number, pitch: number): void {
   s.freeQuaternion.normalize();
 }
 
-/** Switch between orbiting and free flight, carrying the pose across. */
+/**
+ * Scale the free-flight speed by `factor`, within FREE_SPEED_FACTOR_RANGE, and
+ * return the new setting.
+ */
+export function scaleFreeSpeed(s: CameraState, factor: number): number {
+  const [min, max] = FREE_SPEED_FACTOR_RANGE;
+  s.freeSpeedFactor = Math.max(min, Math.min(max, s.freeSpeedFactor * factor));
+  return s.freeSpeedFactor;
+}
+
+/** Switch between orbiting and free flight, carrying the pose across both ways. */
 export function toggleMode(s: CameraState): CameraMode {
   if (s.mode === 'orbit') {
+    // Stop a flight first: it runs whatever the mode says, so it would carry
+    // on steering the camera straight through the switch.
+    cancelFlight(s);
     s.mode = 'free';
     s.freePosition.copy(s.camera.position);
     s.freeQuaternion.copy(s.camera.quaternion);
-    // Scale flight speed to whatever we are looking at.
-    s.freeSpeed = Math.max(s.distance * 0.35, 1);
   } else {
+    takeOverForOrbit(s);
     s.mode = 'orbit';
   }
   return s.mode;
 }
+
+const aim = new Matrix4();
+const NORTH = new Vector3(0, 0, 1);
+const ORIGIN = new Vector3();
 
 /** Point the free camera at the render-space origin. */
 export function lookAtFocus(s: CameraState): void {
   if (s.mode !== 'free') {
     return;
   }
-  const m = s.camera.clone();
-  m.position.copy(s.freePosition);
-  m.up.set(0, 0, 1);
-  m.lookAt(0, 0, 0);
-  s.freeQuaternion.copy(m.quaternion);
+  // Matrix4.lookAt with the eye first is what Object3D.lookAt does for a camera.
+  s.freeQuaternion.setFromRotationMatrix(aim.lookAt(s.freePosition, ORIGIN, NORTH));
 }

@@ -1,10 +1,9 @@
 /** Pointer, touch and wheel input: drag to look, pinch or wheel to zoom, modifier-drag to pan. */
 
 import type { CameraState } from './state.ts';
-import { cancelFlight } from './flight.ts';
-import { lookBy } from './free.ts';
+import { lookBy, scaleFreeSpeed } from './free.ts';
 import { MAX_ELEVATION } from './math.ts';
-import { panByScreen, zoomBy } from './orbit.ts';
+import { cancelFlight, panByScreen, zoomBy } from './orbit.ts';
 
 export class CameraInput {
   private dragging: 'none' | 'orbit' | 'pan' = 'none';
@@ -17,7 +16,11 @@ export class CameraInput {
   private element: HTMLElement | null = null;
   private detachers: Array<() => void> = [];
 
-  constructor(private readonly s: CameraState) {}
+  constructor(
+    private readonly s: CameraState,
+    /** Told the new setting whenever the wheel changes free-flight speed. */
+    private readonly onFreeSpeed: (factor: number) => void,
+  ) {}
 
   attach(element: HTMLElement): void {
     this.element = element;
@@ -138,7 +141,10 @@ export class CameraInput {
   private pinchMove(): void {
     const d = this.currentPinchDistance();
     const centre = this.currentPinchCentre();
-    if (this.pinchDistance > 0 && d > 0) {
+    // Zoom and pan are orbit-mode ideas. In free flight they only moved the
+    // orbit state, which free flight overwrites every frame, so a pinch did
+    // nothing visible until V was pressed — and then the camera jumped.
+    if (this.s.mode === 'orbit' && this.pinchDistance > 0 && d > 0) {
       zoomBy(this.s, this.pinchDistance / d);
       panByScreen(this.s, centre.x - this.pinchCentre.x, centre.y - this.pinchCentre.y);
       this.s.interacted = true;
@@ -172,8 +178,10 @@ export class CameraInput {
     const delta = ev.deltaY * unit;
     const sensitivity = pinch ? 0.012 : 0.0016;
 
+    // In free flight the wheel sets how fast WASD flies: away from you to
+    // speed up, the way it zooms in while orbiting.
     if (this.s.mode === 'free') {
-      this.s.freeSpeed = Math.max(0.01, this.s.freeSpeed * Math.exp(-delta * sensitivity));
+      this.onFreeSpeed(scaleFreeSpeed(this.s, Math.exp(-delta * sensitivity)));
       return;
     }
     zoomBy(this.s, Math.exp(delta * sensitivity));

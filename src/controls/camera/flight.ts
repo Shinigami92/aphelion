@@ -2,10 +2,20 @@
 
 import type { SimBody } from '../../core/system.ts';
 import type { CameraState, Flight } from './state.ts';
-import type { Vector3 } from 'three';
-import { PerspectiveCamera, Quaternion } from 'three';
+import { Matrix4, Quaternion, Vector3 } from 'three';
 import { ARRIVED_FRACTION, flightDuration, orbitOffset } from './math.ts';
 import { adoptOrbitFrom, adoptOrbitFromPosition, setFocus } from './orbit.ts';
+
+// Scratch for the per-frame update, which runs every frame of every flight and
+// used to allocate a whole PerspectiveCamera each time just to call lookAt.
+const direction = new Vector3();
+const arrival = new Vector3();
+const destination = new Vector3();
+const swing = new Quaternion();
+const partial = new Quaternion();
+const aim = new Matrix4();
+const aimed = new Quaternion();
+const NORTH = new Vector3(0, 0, 1);
 
 /**
  * Where the camera is now, relative to the destination — captured before
@@ -96,16 +106,6 @@ export function flyTo(
   beginFlight(s, body, from, fromQuaternion, trip, opts.onArrive);
 }
 
-/** Abandon a flight in progress, keeping wherever the camera has reached. */
-export function cancelFlight(s: CameraState): void {
-  if (!s.flight) {
-    return;
-  }
-  s.flight = null;
-  adoptOrbitFromPosition(s);
-  s.travelIntensity = 0;
-}
-
 /**
  * Interpolate the direction on the sphere and the radius in log space, so
  * the crossing reads as steady progress rather than a sudden arrival.
@@ -120,12 +120,9 @@ export function cancelFlight(s: CameraState): void {
 function swingPosition(s: CameraState, fromPosition: Vector3, to: Vector3, ease: number): number {
   const fromLength = Math.max(fromPosition.length(), 1e-6);
   const toLength = Math.max(to.length(), 1e-6);
-  const direction = fromPosition.clone().divideScalar(fromLength);
-  const swing = new Quaternion().setFromUnitVectors(
-    direction.clone(),
-    to.clone().divideScalar(toLength),
-  );
-  direction.applyQuaternion(new Quaternion().slerp(swing, ease));
+  direction.copy(fromPosition).divideScalar(fromLength);
+  swing.setFromUnitVectors(direction, arrival.copy(to).divideScalar(toLength));
+  direction.applyQuaternion(partial.identity().slerp(swing, ease));
   const radius = Math.exp(
     Math.log(fromLength) + (Math.log(toLength) - Math.log(fromLength)) * ease,
   );
@@ -166,17 +163,15 @@ export function updateFlight(s: CameraState, dt: number): void {
   const turn = Math.min(1, ease * 3);
 
   // Destination position in the same frame the flight started in.
-  const to = orbitOffset(f.toDistance, f.toAzimuth, f.toElevation);
+  const to = orbitOffset(f.toDistance, f.toAzimuth, f.toElevation, destination);
 
   const radius = swingPosition(s, f.fromPosition, to, ease);
 
   // Orientation: from wherever we were looking, to facing the destination.
-  s.camera.up.set(0, 0, 1);
-  const aimed = new PerspectiveCamera();
-  aimed.up.set(0, 0, 1);
-  aimed.position.copy(s.camera.position);
-  aimed.lookAt(s.panOffset);
-  s.camera.quaternion.copy(f.fromQuaternion).slerp(aimed.quaternion, turn);
+  // Matrix4.lookAt with the eye first is what Object3D.lookAt does for a camera.
+  s.camera.up.copy(NORTH);
+  aimed.setFromRotationMatrix(aim.lookAt(s.camera.position, s.panOffset, NORTH));
+  s.camera.quaternion.copy(f.fromQuaternion).slerp(aimed, turn);
 
   // Fast in the middle, still at both ends — what the dust field reacts to.
   s.travelIntensity = Math.sin(Math.PI * t) ** 0.7;

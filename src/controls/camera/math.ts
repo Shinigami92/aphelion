@@ -18,6 +18,15 @@ export const MIN_FREE_SPEED = 0.05;
 /** Keeps deep Kuiper emptiness from producing an unusable jump per frame. */
 export const MAX_FREE_SPEED = 30_000;
 /**
+ * How far the wheel can turn free-flight speed down or up, as a multiplier.
+ *
+ * It scales the clearance-derived speed rather than replacing it, so flight
+ * still slows on the approach at any setting. Six doublings each way covers
+ * creeping along a ring and crossing the Kuiper belt, and the step cap below
+ * holds at the top end.
+ */
+export const FREE_SPEED_FACTOR_RANGE = [1 / 64, 64] as const;
+/**
  * Most of the remaining gap a single frame may close. Below 1 this is a
  * geometric approach, so the surface is a limit rather than a thing you hit —
  * and it holds however hard the boost key is pressed.
@@ -60,9 +69,14 @@ export function nearestAngle(current: number, target: number): number {
 }
 
 /** Spherical orbit state to a Cartesian offset from the focus, z up. */
-export function orbitOffset(distance: number, azimuth: number, elevation: number): Vector3 {
+export function orbitOffset(
+  distance: number,
+  azimuth: number,
+  elevation: number,
+  out = new Vector3(),
+): Vector3 {
   const cosE = Math.cos(elevation);
-  return new Vector3(
+  return out.set(
     distance * cosE * Math.cos(azimuth),
     distance * cosE * Math.sin(azimuth),
     distance * Math.sin(elevation),

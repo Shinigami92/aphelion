@@ -58,7 +58,7 @@ Everything has both a pointer gesture and a key.
 | Input                  | Action                                  |
 | ---------------------- | --------------------------------------- |
 | drag                   | orbit the focused body                  |
-| scroll / pinch         | zoom                                    |
+| scroll / pinch         | zoom (scroll sets speed, in free mode)  |
 | shift-drag, right-drag | pan                                     |
 | `W` `A` `S` `D`        | orbit and zoom (fly, in free mode)      |
 | arrows                 | orbit                                   |

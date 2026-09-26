@@ -18,7 +18,7 @@ const KEY_HELP: Array<[string, Array<[string, string]>]> = [
     'Moving around',
     [
       ['drag', 'orbit the focused body'],
-      ['scroll / pinch', 'zoom in and out'],
+      ['scroll / pinch', 'zoom in and out (scroll sets speed, in free mode)'],
       ['shift-drag, right-drag', 'pan'],
       ['W A S D', 'orbit and zoom (or fly, in free mode)'],
       ['arrows', 'orbit'],

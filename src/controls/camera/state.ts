@@ -67,7 +67,8 @@ export class CameraState {
   /** Free-flight state. */
   readonly freePosition = new Vector3(0, -400, 120);
   readonly freeQuaternion = new Quaternion();
-  freeSpeed = 200;
+  /** Wheel-set multiplier on the free-flight step. See FREE_SPEED_FACTOR_RANGE. */
+  freeSpeedFactor = 1;
 
   /** Smoothed follow of the focus so scale transitions do not snap. */
   focusTransition = 0;
