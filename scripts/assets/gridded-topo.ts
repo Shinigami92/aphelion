@@ -158,9 +158,11 @@ export async function buildGriddedTopo(spec: GriddedTopoSpec): Promise<ReliefRes
     // Samples are 1-based in the PDS formulae. `lonOf` stays in the product's
     // own direction so it can be checked against the label; the conversion to
     // east longitude happens once, afterwards.
-    const latOf = (line: number) => (lineOffset + 1 - line) / res;
-    const lonOf = (sample: number) => centreLon + (sign * (sample - sampleOffset - 1)) / res;
-    const eastOf = (lon: number) => (((positive === 'WEST' ? -lon : lon) % 360) + 360) % 360;
+    const latOf = (line: number): number => (lineOffset + 1 - line) / res;
+    const lonOf = (sample: number): number =>
+      centreLon + (sign * (sample - sampleOffset - 1)) / res;
+    const eastOf = (lon: number): number =>
+      (((positive === 'WEST' ? -lon : lon) % 360) + 360) % 360;
 
     // The label states its extent independently of the offsets that produce it,
     // so the two have to agree. This is the only warning either file gives
@@ -168,7 +170,7 @@ export async function buildGriddedTopo(spec: GriddedTopoSpec): Promise<ReliefRes
     // SAMPLE_PROJECTION_OFFSET by 360 pixels, which is exactly the kind of thing
     // one would otherwise get half right.
     const halfCell = 0.5 / res;
-    const spans = (a: number, b: number, lo: number, hi: number) =>
+    const spans = (a: number, b: number, lo: number, hi: number): boolean =>
       Math.abs(Math.min(a, b) - halfCell - lo) < 1e-3 &&
       Math.abs(Math.max(a, b) + halfCell - hi) < 1e-3;
     if (

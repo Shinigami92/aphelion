@@ -77,11 +77,20 @@ export function checkUranianSystem(): void {
   }
 }
 
+interface MosaicProbe {
+  img: ReturnType<typeof decodePng>;
+  /** Mean grey level of a small disc around a latitude and east longitude. */
+  patch: (lat: number, lonEast: number) => number;
+  northImaged: number;
+  southImaged: number;
+  mean: number;
+}
+
 // USGS I-1920 is a printed map sheet, so the whole conversion — the fitted
 // polar-stereographic geometry, the direction longitude runs, the repair of
 // the printed graticule — is checked against the IAU Gazetteer's published
 // feature coordinates rather than trusted.
-const probe = (file: string) => {
+const probe = (file: string): MosaicProbe | null => {
   const full = path.join(PUBLIC_DIR, 'textures', file);
   if (!existsSync(full)) {
     return null;

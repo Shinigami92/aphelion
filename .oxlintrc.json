@@ -43,6 +43,7 @@
     "import/consistent-type-specifier-style": ["error", "prefer-top-level"],
 
     // --- typescript ---
+    "typescript/explicit-function-return-type": "error",
     "typescript/explicit-module-boundary-types": "error",
     "typescript/array-type": ["error", { "default": "array-simple", "readonly": "generic" }],
     "typescript/prefer-find": "error",

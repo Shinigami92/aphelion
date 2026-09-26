@@ -21,15 +21,15 @@ export function createViewOptions(
     host,
     layerToggles(scene, deps.setLagrange),
     {
-      get: () => scene.toggles.orbits,
-      set: (mode) => {
+      get: (): string => scene.toggles.orbits,
+      set: (mode): void => {
         scene.toggles.orbits = mode;
         togglePanel.refresh();
       },
     },
     {
-      get: () => scale.mode,
-      set: (mode) => {
+      get: (): string => scale.mode,
+      set: (mode): void => {
         scale.setMode(mode);
         togglePanel.refresh();
         toast.show(

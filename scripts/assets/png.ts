@@ -10,7 +10,7 @@ import { deflateSync } from 'node:zlib';
 // would honour and quietly regrade — fatal when the pixels are numbers rather
 // than colours.
 
-const CRC_TABLE = (() => {
+const CRC_TABLE = ((): Int32Array => {
   const table = new Int32Array(256);
   for (let n = 0; n < 256; n++) {
     let c = n;

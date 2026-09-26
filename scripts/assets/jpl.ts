@@ -6,7 +6,7 @@ import { parseLeadingFloat } from './gridded-topo.ts';
 // 3. JPL satellite elements + physical parameters
 // ---------------------------------------------------------------------------
 
-const stripTags = (s: string) =>
+const stripTags = (s: string): string =>
   s
     .replaceAll(/<[^>]+>/gu, ' ')
     .replaceAll('&nbsp;', ' ')

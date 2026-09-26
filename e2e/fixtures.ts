@@ -89,7 +89,7 @@ function pace(): void {
 
   const requestFrame = window.requestAnimationFrame.bind(window);
   window.__e2eFrozen = false;
-  window.requestAnimationFrame = (callback) =>
+  window.requestAnimationFrame = (callback): number =>
     requestFrame((now) => {
       if (window.__e2eFrozen === true || !gpuCaughtUp()) {
         window.requestAnimationFrame(callback);
@@ -127,7 +127,7 @@ export async function settle(page: Page): Promise<void> {
         const { scene } = window.aphelion;
         const render = scene.render.bind(scene);
         let left = frames;
-        scene.render = (camera) => {
+        scene.render = (camera): void => {
           render(camera);
           left--;
           if (left === 0) {

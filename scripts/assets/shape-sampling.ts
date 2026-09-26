@@ -55,7 +55,7 @@ export function sampleLatLonTable(spec: ShapeModelSpec, text: string): Float64Ar
     const x0 = Math.floor(fx);
     const ty = fy - y0;
     const tx = fx - x0;
-    const g = (y: number, x: number) => grid[y * lons.length + x];
+    const g = (y: number, x: number): number => grid[y * lons.length + x];
     return (
       g(y0, x0) * (1 - tx) * (1 - ty) +
       g(y0, x0 + 1) * tx * (1 - ty) +
@@ -123,15 +123,15 @@ export function rasteriseCubeQuad(spec: ShapeModelSpec, text: string): Float64Ar
   const radii = new Float64Array(w * h);
   const filled = new Uint8Array(w * h);
 
-  const lonOf = (i: number) => {
+  const lonOf = (i: number): number => {
     const d = (Math.atan2(vy[i], vx[i]) * 180) / Math.PI;
     return d < 0 ? d + 360 : d;
   };
-  const latOf = (i: number) => {
+  const latOf = (i: number): number => {
     const r = Math.hypot(vx[i], vy[i], vz[i]);
     return (Math.asin(vz[i] / r) * 180) / Math.PI;
   };
-  const radOf = (i: number) => Math.hypot(vx[i], vy[i], vz[i]);
+  const radOf = (i: number): number => Math.hypot(vx[i], vy[i], vz[i]);
 
   const rasteriseTriangle = (a: number, b: number, c: number): void => {
     let l0 = lonOf(a);

@@ -6,6 +6,12 @@ import type { SimBody, SolarSystem } from '../core/system.ts';
 import type { TimeController } from '../core/time.ts';
 import type { SceneView } from '../render/scene.ts';
 
+/** The point on a body's surface directly beneath another body, in its rotating frame. */
+export interface SubPoint {
+  lonDeg: number;
+  latDeg: number;
+}
+
 /**
  * A small public handle on the running simulation.
  *
@@ -27,7 +33,7 @@ declare global {
       select: (key: string) => SimBody | null;
       goTo: (key: string) => SimBody | null;
       /** Sub-solar and sub-lunar longitude/latitude, for eclipse checks. */
-      subPoint: (bodyKey: string, targetKey: string) => { lonDeg: number; latDeg: number } | null;
+      subPoint: (bodyKey: string, targetKey: string) => SubPoint | null;
     };
   }
 }
@@ -51,17 +57,17 @@ export function installScriptingHandle(deps: ScriptingDeps): void {
     scale: deps.scale,
     scene: deps.scene,
     camera: deps.camera,
-    get focus() {
+    get focus(): SimBody {
       return deps.focused();
     },
-    select: (key) => {
+    select: (key): SimBody | null => {
       const body = system.byKey.get(key);
       if (body) {
         deps.select(body);
       }
       return body ?? null;
     },
-    goTo: (key) => {
+    goTo: (key): SimBody | null => {
       const body = system.byKey.get(key);
       if (body) {
         deps.select(body);
@@ -69,7 +75,7 @@ export function installScriptingHandle(deps: ScriptingDeps): void {
       }
       return body ?? null;
     },
-    subPoint: (bodyKey, targetKey) => {
+    subPoint: (bodyKey, targetKey): SubPoint | null => {
       const body = system.byKey.get(bodyKey);
       const target = system.byKey.get(targetKey);
       if (!body || !target) {
