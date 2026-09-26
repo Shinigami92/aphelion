@@ -4,6 +4,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { C, fetchText, GENERATED } from './io.ts';
 import { epochStringToJd, KNOWN_RADII, NOMINAL_RADIUS, num, tableRows } from './jpl.ts';
+import { repairFromHorizons } from './repair.ts';
 
 interface SatelliteRecord {
   name: string;
@@ -26,6 +27,9 @@ interface SatelliteRecord {
   radiusEstimated: boolean;
   gm: number | null;
   density: number | null;
+  meanMotion: number | null;
+  /** What had to come from Horizons instead of JPL's table, if anything. */
+  fromHorizons?: string;
 }
 
 /** A measurement cell reads "value sigma reference"; the value is its first token. */
@@ -111,6 +115,7 @@ export async function buildSatelliteData(): Promise<SatelliteRecord[] | null> {
       inc: num(row[11]) ?? 0,
       node: num(row[12]) ?? 0,
       period,
+      meanMotion: null,
       apsisPeriod: num(row[14]),
       nodePeriod: num(row[15]),
       poleRa: num(row[16]),
@@ -121,6 +126,7 @@ export async function buildSatelliteData(): Promise<SatelliteRecord[] | null> {
       density: p?.density ?? null,
     });
   }
+  await repairFromHorizons(records);
   return records;
 }
 
@@ -142,6 +148,7 @@ export async function writeSatelliteModule(records: SatelliteRecord[]): Promise<
   }
   const summary = [...byPlanet.entries()].map(([p, n]) => `${p} ${n}`).join(', ');
   const estimated = records.filter((r) => r.radiusEstimated).length;
+  const repaired = records.filter((r) => r.fromHorizons !== undefined).length;
 
   const lines = records.map((r) => {
     const fields = [
@@ -157,6 +164,7 @@ export async function writeSatelliteModule(records: SatelliteRecord[]): Promise<
       `inc: ${r6(r.inc)}`,
       `node: ${r6(r.node)}`,
       `period: ${r6(r.period)}`,
+      `meanMotion: ${orNull(r.meanMotion)}`,
       `apsisPeriod: ${orNull(r.apsisPeriod)}`,
       `nodePeriod: ${orNull(r.nodePeriod)}`,
       `poleRa: ${orNull(r.poleRa)}`,
@@ -166,7 +174,8 @@ export async function writeSatelliteModule(records: SatelliteRecord[]): Promise<
       `gm: ${orNull(r.gm)}`,
       `density: ${orNull(r.density)}`,
     ];
-    return `  { ${fields.join(', ')} },`;
+    const note = r.fromHorizons === undefined ? '' : ` // from ${r.fromHorizons}`;
+    return `  { ${fields.join(', ')} },${note}`;
   });
 
   const src = `/**
@@ -178,6 +187,11 @@ export async function writeSatelliteModule(records: SatelliteRecord[]): Promise<
  * ${records.length} satellites: ${summary}.
  * ${estimated} have no published radius and use a nominal size
  * (\`radiusEstimated: true\`).
+ *
+ * ${repaired} take their phase (node, periapsis, mean anomaly) or their mean
+ * motion from JPL Horizons, because the table's put them far from the ephemeris
+ * it names (see scripts/assets/repair.ts). Their shape, precession and plane
+ * are JPL's.
  *
  * Angles are degrees, distances kilometres, periods days (orbital) or years
  * (apsidal/nodal precession). \`frame\` selects the plane the angles refer to;
@@ -206,6 +220,8 @@ export interface SatelliteData {
   node: number
   /** Sidereal period, days. */
   period: number
+  /** Mean-anomaly rate fitted to Horizons, degrees per day; null for 360/period. */
+  meanMotion: number | null
   /** Apsidal precession period, years. */
   apsisPeriod: number | null
   /** Nodal regression period, years. */

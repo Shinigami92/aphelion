@@ -130,9 +130,9 @@ exports[`update > matches the golden snapshot in both scale modes 1`] = `
   },
   "explore moon:Io": {
     "helioKm": [
-      436784000,
-      608047000,
-      -12291500,
+      435972000,
+      608012000,
+      -12304400,
     ],
     "orientationZ": [
       -0.0142737,
@@ -140,9 +140,9 @@ exports[`update > matches the golden snapshot in both scale modes 1`] = `
       0.999259,
     ],
     "scene": [
-      231062,
-      318907,
-      -6444.77,
+      227297,
+      318742,
+      -6504.43,
     ],
     "sceneRadius": 10.9289,
   },
@@ -166,27 +166,27 @@ exports[`update > matches the golden snapshot in both scale modes 1`] = `
   },
   "explore moon:Titan": {
     "helioKm": [
-      1370030000,
-      -477909000,
-      -45692400,
+      1369520000,
+      -475796000,
+      -46731900,
     ],
     "orientationZ": [
-      0.0830093,
-      0.457101,
-      0.885533,
+      0.0875394,
+      0.455905,
+      0.885713,
     ],
     "scene": [
-      552324,
-      -195254,
-      -17055.8,
+      550854,
+      -189106,
+      -20081.4,
     ],
     "sceneRadius": 15.4486,
   },
   "explore moon:Titania": {
     "helioKm": [
-      1787760000,
-      2321830000,
-      -14585200,
+      1787770000,
+      2321820000,
+      -14657900,
     ],
     "orientationZ": [
       -0.211393,
@@ -194,9 +194,9 @@ exports[`update > matches the golden snapshot in both scale modes 1`] = `
       0.135997,
     ],
     "scene": [
-      542681,
-      706599,
-      -4516,
+      542708,
+      706561,
+      -4741.02,
     ],
     "sceneRadius": 4.7334,
   },
@@ -400,9 +400,9 @@ exports[`update > matches the golden snapshot in both scale modes 1`] = `
   },
   "true moon:Io": {
     "helioKm": [
-      436784000,
-      608047000,
-      -12291500,
+      435972000,
+      608012000,
+      -12304400,
     ],
     "orientationZ": [
       -0.0142737,
@@ -410,9 +410,9 @@ exports[`update > matches the golden snapshot in both scale modes 1`] = `
       0.999259,
     ],
     "scene": [
-      436784,
-      608047,
-      -12291.5,
+      435972,
+      608012,
+      -12304.4,
     ],
     "sceneRadius": 1.82149,
   },
@@ -436,27 +436,27 @@ exports[`update > matches the golden snapshot in both scale modes 1`] = `
   },
   "true moon:Titan": {
     "helioKm": [
-      1370030000,
-      -477909000,
-      -45692400,
+      1369520000,
+      -475796000,
+      -46731900,
     ],
     "orientationZ": [
-      0.0830093,
-      0.457101,
-      0.885533,
+      0.0875394,
+      0.455905,
+      0.885713,
     ],
     "scene": [
-      1370030,
-      -477909,
-      -45692.4,
+      1369520,
+      -475796,
+      -46731.9,
     ],
     "sceneRadius": 2.57476,
   },
   "true moon:Titania": {
     "helioKm": [
-      1787760000,
-      2321830000,
-      -14585200,
+      1787770000,
+      2321820000,
+      -14657900,
     ],
     "orientationZ": [
       -0.211393,
@@ -464,9 +464,9 @@ exports[`update > matches the golden snapshot in both scale modes 1`] = `
       0.135997,
     ],
     "scene": [
-      1787760,
-      2321830,
-      -14585.2,
+      1787770,
+      2321820,
+      -14657.9,
     ],
     "sceneRadius": 0.7889,
   },

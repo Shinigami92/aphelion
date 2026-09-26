@@ -10,8 +10,10 @@ import type { Elements, Vec3 } from '../src/astro/kepler.ts';
 import { describe, expect, it } from 'vitest';
 import {
   apoapsis,
+  meanMotion,
   periapsis,
   periodDays,
+  phaseFromState,
   positionAtTime,
   positionFromAngles,
   sampleOrbit,
@@ -183,5 +185,74 @@ describe('sampleOrbit', () => {
       expect(r).toBeGreaterThanOrEqual(periapsis(tiltedOrbit) - 1e-6);
       expect(r).toBeLessThanOrEqual(apoapsis(tiltedOrbit) + 1e-6);
     }
+  });
+});
+
+describe('phaseFromState', () => {
+  const gm = GM.saturn;
+  const SECONDS_PER_DAY = 86_400;
+  /** A Titan-sized orbit with every angle non-zero, and the state it produces. */
+  const orbit = (e: number, i: number): Elements => ({
+    a: 1_221_900,
+    e,
+    i,
+    node: 1.2,
+    argPeri: 2.3,
+    m0: 0.7,
+    epoch: J2000,
+    n: meanMotion(1_221_900, gm),
+  });
+  const stateOf = (el: Elements): { r: Vec3; v: Vec3 } => {
+    const v = velocityAtTime(el, el.epoch, vec());
+    return {
+      r: positionAtTime(el, el.epoch, vec()),
+      v: { x: v.x / SECONDS_PER_DAY, y: v.y / SECONDS_PER_DAY, z: v.z / SECONDS_PER_DAY },
+    };
+  };
+
+  it('recovers the angles of the orbit a state came from, prograde and retrograde', () => {
+    for (const i of [0.3, 2.8]) {
+      const el = orbit(0.3, i);
+      const { r, v } = stateOf(el);
+      const phase = phaseFromState(r, v, gm, el.e, false);
+      expect(phase.node).toBeCloseTo(el.node, 9);
+      expect(phase.argPeri).toBeCloseTo(el.argPeri, 9);
+      expect(phase.meanAnomaly).toBeCloseTo(el.m0, 9);
+    }
+  });
+
+  it('keeps the body on its ray from the primary on an orbit of another shape', () => {
+    const el = orbit(0.3, 0.3);
+    const { r, v } = stateOf(el);
+    const phase = phaseFromState(r, v, gm, 0.05, false);
+    const p = positionFromAngles(
+      el.a,
+      0.05,
+      el.i,
+      phase.node,
+      phase.argPeri,
+      phase.meanAnomaly,
+      vec(),
+    );
+    const cos =
+      (p.x * r.x + p.y * r.y + p.z * r.z) / (Math.hypot(p.x, p.y, p.z) * Math.hypot(r.x, r.y, r.z));
+    expect(cos).toBeCloseTo(1, 12);
+  });
+
+  it('measures a flat orbit from the x-axis, the way a zero node propagates', () => {
+    const el = orbit(0.3, 0);
+    const { r, v } = stateOf(el);
+    const phase = phaseFromState(r, v, gm, el.e, true);
+    expect(phase.node).toBe(0);
+    expect(phase.argPeri).toBeCloseTo(el.node + el.argPeri, 9);
+    expect(phase.meanAnomaly).toBeCloseTo(el.m0, 9);
+  });
+
+  it('puts the periapsis of a circular orbit at the node', () => {
+    const el = orbit(0, 0.3);
+    const { r, v } = stateOf(el);
+    const phase = phaseFromState(r, v, gm, 0, false);
+    expect(phase.argPeri).toBe(0);
+    expect(phase.meanAnomaly).toBeCloseTo(el.argPeri + el.m0, 9);
   });
 });

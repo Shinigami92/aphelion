@@ -1,9 +1,33 @@
 /** Orbital elements from the JPL satellite and MPC small-body tables. */
 
+import type { Basis, SpinModel } from '../../astro/frames.ts';
 import type { Elements } from '../../astro/kepler.ts';
 import type { SatelliteData } from '../../data/generated/satellites.ts';
 import type { SmallBodyData } from '../../data/generated/smallbodies.ts';
+import { basisForFrame, basisForPlanetEquator } from '../../astro/frames.ts';
 import { AU_KM, DEG, TWO_PI } from '../constants.ts';
+
+/**
+ * The plane a satellite's elements are referred to, in ecliptic J2000.
+ *
+ * JPL's "equatorial" frame means the *parent planet's* equator, not the ICRF
+ * equator, and the table leaves the pole columns blank for those rows. The data
+ * says so unambiguously: Titania and Charon are listed at inclination 0.1 and 0.0
+ * degrees, which is only true of Uranus's and Pluto's own equators — against the
+ * ICRF equator they would be ~75 and ~119 degrees. Reading it as the ICRF equator
+ * tipped all 11 affected moons (the classical Uranians and the whole Pluto
+ * system) out of their planet's plane, leaving Uranus's rings and its moons
+ * visibly non-coplanar.
+ *
+ * Which *end* of that axis is not a free choice either, and it is not the IAU
+ * pole: see `basisForPlanetEquator`. Reading it as the IAU pole had the six inner
+ * Uranian moons orbiting backwards, up to 1.09 million km out.
+ */
+export function satelliteBasis(sat: SatelliteData, parentSpin: SpinModel | null): Basis {
+  return sat.frame === 'equatorial' && parentSpin
+    ? basisForPlanetEquator(parentSpin)
+    : basisForFrame(sat.frame, sat.poleRa, sat.poleDec);
+}
 
 export function elementsFromSatellite(sat: SatelliteData): Elements {
   const retrograde = sat.inc > 90;
@@ -27,7 +51,7 @@ export function elementsFromSatellite(sat: SatelliteData): Elements {
     argPeri: sat.argPeri * DEG,
     m0: sat.m0 * DEG,
     epoch: sat.epoch,
-    n: TWO_PI / sat.period,
+    n: sat.meanMotion === null ? TWO_PI / sat.period : sat.meanMotion * DEG,
     argPeriDot: apsisRate,
     nodeDot: retrograde ? nodeRate : -nodeRate,
   };
