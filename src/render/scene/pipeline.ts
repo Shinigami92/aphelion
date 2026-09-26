@@ -4,6 +4,7 @@ import type { FrameState } from './state.ts';
 import type { PerspectiveCamera, Scene } from 'three';
 import {
   ACESFilmicToneMapping,
+  HalfFloatType,
   SRGBColorSpace,
   Vector2,
   WebGLRenderer,
@@ -14,6 +15,19 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { QUALITY } from './constants.ts';
+
+declare global {
+  interface Window {
+    /**
+     * Set by the screenshot suite before the app boots. SwiftShader, the CPU
+     * rasteriser it renders on, drops line primitives into a multisampled
+     * half-float target — every orbit in some views, and others only when the
+     * cores are shared — while real GPUs draw them fine. Rendering the suite
+     * without multisampling keeps the lines in its baselines.
+     */
+    __e2eNoMultisample?: boolean;
+  }
+}
 
 export class RenderPipeline {
   readonly renderer: WebGLRenderer;
@@ -56,9 +70,12 @@ export class RenderPipeline {
 
     this.disposeComposer();
 
+    // The scene is lit in linear HDR: the Sun's disc alone is six times white.
+    // An 8-bit target clamps that to 1 before bloom and ACES ever see it, so
+    // the chain runs in half floats and stays linear until the OutputPass.
     const target = new WebGLRenderTarget(width, height, {
-      samples: q.msaa,
-      colorSpace: SRGBColorSpace,
+      samples: window.__e2eNoMultisample === true ? 0 : q.msaa,
+      type: HalfFloatType,
     });
     const composer = new EffectComposer(this.renderer, target);
     // Every size handed to the composer is already in drawing-buffer pixels,
