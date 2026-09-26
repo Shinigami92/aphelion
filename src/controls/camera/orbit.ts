@@ -6,6 +6,68 @@ import { Vector3 } from 'three';
 import { MAX_ELEVATION, nearestAngle, orbitOffset } from './math.ts';
 
 /**
+ * Set the current orbit state from a position relative to the focus centre,
+ * deliberately leaving the targets alone: the easing then runs from where the
+ * camera genuinely is toward the new framing, instead of from angles left
+ * over from whatever it was orbiting before.
+ */
+export function adoptOrbitFrom(s: CameraState, p: Vector3): void {
+  s.distance = Math.max(p.length(), 1e-4);
+  // Azimuth is a running total, not a wrapped angle — dragging winds it past
+  // a turn and `setFocus` stores its target as whichever representative was
+  // nearest at the time, so `targetAzimuth` is regularly outside (-π, π].
+  // atan2 is not, and reading the arrival angle raw therefore left the two a
+  // whole turn apart while describing the same direction: the camera reached
+  // its destination and the orbit easing then spun it a full 360° about the
+  // body to unwind the difference. Choosing the representative nearest the
+  // target keeps the direction identical and makes "already there" read as
+  // nothing left to travel.
+  s.azimuth = nearestAngle(s.targetAzimuth, Math.atan2(p.y, p.x));
+  s.elevation = Math.asin(Math.max(-1, Math.min(1, p.z / s.distance)));
+}
+
+/** Re-derive azimuth, elevation and distance from the camera's position. */
+export function adoptOrbitFromPosition(s: CameraState): void {
+  adoptOrbitFrom(s, s.camera.position.clone().sub(s.panOffset));
+  s.targetDistance = s.distance;
+  s.targetAzimuth = s.azimuth;
+  s.targetElevation = s.elevation;
+}
+
+/**
+ * Abandon a flight in progress, keeping wherever the camera has reached.
+ *
+ * It lives here rather than with the flights because what it does is hand the
+ * camera back to the orbit controller, and focusing or framing has to be able
+ * to call it first.
+ */
+export function cancelFlight(s: CameraState): void {
+  if (!s.flight) {
+    return;
+  }
+  s.flight = null;
+  adoptOrbitFromPosition(s);
+  s.travelIntensity = 0;
+}
+
+/**
+ * Get the camera ready for a new orbit framing, from whatever it was doing.
+ *
+ * A flight left running would go on flying the camera to its own destination
+ * and overwrite the new framing when it arrived — the Home key and a direct
+ * refocus were both silently undone that way. And out of free flight, the
+ * angles have to come from where the camera actually is, or the easing starts
+ * from the stale orbit it had before V was pressed and the camera jumps there.
+ */
+export function takeOverForOrbit(s: CameraState): void {
+  cancelFlight(s);
+  if (s.mode === 'free') {
+    s.panOffset.set(0, 0, 0);
+    adoptOrbitFromPosition(s);
+  }
+}
+
+/**
  * Focus a body. The default framing puts the body at a comfortable few radii
  * so you can see it and some of its surroundings.
  *
@@ -31,6 +93,7 @@ export function setFocus(
     arriveFrom?: { x: number; y: number; z: number };
   } = {},
 ): void {
+  takeOverForOrbit(s);
   const previous = s.focus;
   s.focus = body;
 
@@ -60,37 +123,9 @@ export function setFocus(
   s.mode = 'orbit';
 }
 
-/**
- * Set the current orbit state from a position relative to the focus centre,
- * deliberately leaving the targets alone: the easing then runs from where the
- * camera genuinely is toward the new framing, instead of from angles left
- * over from whatever it was orbiting before.
- */
-export function adoptOrbitFrom(s: CameraState, p: Vector3): void {
-  s.distance = Math.max(p.length(), 1e-4);
-  // Azimuth is a running total, not a wrapped angle — dragging winds it past
-  // a turn and `setFocus` stores its target as whichever representative was
-  // nearest at the time, so `targetAzimuth` is regularly outside (-π, π].
-  // atan2 is not, and reading the arrival angle raw therefore left the two a
-  // whole turn apart while describing the same direction: the camera reached
-  // its destination and the orbit easing then spun it a full 360° about the
-  // body to unwind the difference. Choosing the representative nearest the
-  // target keeps the direction identical and makes "already there" read as
-  // nothing left to travel.
-  s.azimuth = nearestAngle(s.targetAzimuth, Math.atan2(p.y, p.x));
-  s.elevation = Math.asin(Math.max(-1, Math.min(1, p.z / s.distance)));
-}
-
-/** Re-derive azimuth, elevation and distance from the camera's position. */
-export function adoptOrbitFromPosition(s: CameraState): void {
-  adoptOrbitFrom(s, s.camera.position.clone().sub(s.panOffset));
-  s.targetDistance = s.distance;
-  s.targetAzimuth = s.azimuth;
-  s.targetElevation = s.elevation;
-}
-
 /** Frame a body and all of its satellites. */
 export function frameSystem(s: CameraState, body: SimBody, maxChildDistance: number): void {
+  takeOverForOrbit(s);
   s.focus = body;
   s.targetDistance = Math.max(body.sceneRadius * 3, maxChildDistance * 1.6);
   s.panOffset.set(0, 0, 0);
@@ -174,10 +209,8 @@ export function updateOrbit(s: CameraState, dt: number): void {
   s.roll += (s.targetRoll - s.roll) * k;
   s.focusTransition += (1 - s.focusTransition) * k;
 
-  const offset = orbitOffset(s.distance, s.azimuth, s.elevation);
-
   // The focus sits at the render-space origin.
-  s.camera.position.copy(offset).add(s.panOffset);
+  orbitOffset(s.distance, s.azimuth, s.elevation, s.camera.position).add(s.panOffset);
   s.camera.up.set(0, 0, 1);
   s.camera.lookAt(s.panOffset);
   // Roll about the view axis, applied after the look, which has just

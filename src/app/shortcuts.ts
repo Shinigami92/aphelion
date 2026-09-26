@@ -95,7 +95,11 @@ function modeShortcut(ev: KeyboardEvent, deps: KeyboardDeps): boolean {
       // Only reachable from a keyboard in the first place, so naming keys here
       // is safe — but it is the sort of message to re-read if free flight ever
       // gets a touch affordance.
-      toast.show(mode === 'free' ? 'Free flight — WASD to fly, V to return' : 'Orbit camera');
+      toast.show(
+        mode === 'free'
+          ? 'Free flight — WASD to fly, wheel for speed, V to return'
+          : 'Orbit camera',
+      );
       return true;
     }
     default:

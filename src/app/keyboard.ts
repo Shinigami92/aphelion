@@ -76,4 +76,10 @@ export function installKeyboard(deps: KeyboardDeps): void {
   window.addEventListener('blur', () => {
     releaseAllCameraKeys(camera);
   });
+
+  // The wheel sets the speed WASD flies at, which would otherwise be invisible
+  // until the next key press. Announced here, beside the keys it affects.
+  camera.onFreeSpeedChange = (factor): void => {
+    deps.toast.show(`Flight speed ×${factor.toPrecision(2)}`);
+  };
 }

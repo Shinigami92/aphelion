@@ -10,7 +10,8 @@
  *   free  — six-degree-of-freedom flight for getting between things.
  *
  * Input is unified across mouse and trackpad: drag to look, wheel/pinch to zoom
- * (or to move, in free mode), modifier-drag to pan. Every action also has a key.
+ * (the wheel sets flight speed, in free mode), modifier-drag to pan. Every
+ * action also has a key.
  *
  * `CameraController` is the public face. The state lives in one `CameraState`
  * and each concern — orbiting, free flight, cinematic flights, shared views,
@@ -21,10 +22,10 @@ import type { SimBody } from '../core/system.ts';
 import type { CameraKeyState } from './camera/keys.ts';
 import type { CameraMode } from './camera/state.ts';
 import type { PerspectiveCamera } from 'three';
-import { cancelFlight, flyTo, updateFlight } from './camera/flight.ts';
+import { flyTo, updateFlight } from './camera/flight.ts';
 import { lookAtFocus, toggleMode, updateFree } from './camera/free.ts';
 import { CameraInput } from './camera/input.ts';
-import { frameSystem, setFocus, updateOrbit } from './camera/orbit.ts';
+import { cancelFlight, frameSystem, setFocus, updateOrbit } from './camera/orbit.ts';
 import { updateProjection } from './camera/projection.ts';
 import { freeView, restoreFreeView, restoreView } from './camera/shared.ts';
 import { CameraState } from './camera/state.ts';
@@ -33,9 +34,14 @@ export class CameraController {
   private readonly s: CameraState;
   private readonly input: CameraInput;
 
+  /** Called with the new multiplier when the wheel changes free-flight speed. */
+  onFreeSpeedChange: ((factor: number) => void) | null = null;
+
   constructor(aspect: number) {
     this.s = new CameraState(aspect);
-    this.input = new CameraInput(this.s);
+    this.input = new CameraInput(this.s, (factor) => {
+      this.onFreeSpeedChange?.(factor);
+    });
   }
 
   get camera(): PerspectiveCamera {
@@ -123,15 +129,22 @@ export class CameraController {
    * True while the camera is still easing toward its target. The frame governor
    * uses this to keep drawing at full rate through a fly-to, and to stop as soon
    * as the motion has actually settled.
+   *
+   * Only orbit mode eases. Free flight leaves the orbit targets alone, so a
+   * drag still easing when V was pressed used to read as settling for as long
+   * as free flight lasted, and pinned the governor at full rate.
    */
   get isSettling(): boolean {
     const s = this.s;
+    if (s.flight) {
+      return true;
+    }
     return (
-      s.flight !== null ||
-      Math.abs(s.distance - s.targetDistance) > s.targetDistance * 1e-4 ||
-      Math.abs(s.azimuth - s.targetAzimuth) > 1e-4 ||
-      Math.abs(s.elevation - s.targetElevation) > 1e-4 ||
-      Math.abs(s.roll - s.targetRoll) > 1e-4
+      s.mode === 'orbit' &&
+      (Math.abs(s.distance - s.targetDistance) > s.targetDistance * 1e-4 ||
+        Math.abs(s.azimuth - s.targetAzimuth) > 1e-4 ||
+        Math.abs(s.elevation - s.targetElevation) > 1e-4 ||
+        Math.abs(s.roll - s.targetRoll) > 1e-4)
     );
   }
 
