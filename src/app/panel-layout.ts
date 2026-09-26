@@ -74,11 +74,15 @@ export class PanelLayout {
       makeCollapsible(need('toggles'), togglePanel.head, togglePanel.body, 'the view options'),
     ];
 
-    /**
-     * The phone layout: the clock docks across the top and the other four panels
-     * become bottom sheets driven by a tab bar. The panels themselves are re-used,
-     * so there is no second implementation of the browser or the info readouts.
-     */
+    this.installMobile();
+  }
+
+  /**
+   * The phone layout: the clock docks across the top and the other four panels
+   * become bottom sheets driven by a tab bar. The panels themselves are re-used,
+   * so there is no second implementation of the browser or the info readouts.
+   */
+  private installMobile(): void {
     installMobileShell(
       need('app'),
       [

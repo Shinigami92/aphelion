@@ -72,7 +72,6 @@ export function lagrangeOrbitRows(body: SimBody): FactRow[] {
 /** The physical section of a body: size, shape, relief, mass, rotation. */
 export function physicalRows(body: SimBody): FactRow[] {
   const rows: FactRow[] = [];
-  const facts = body.spec?.facts;
 
   const radius = body.radiusKm;
   rows.push(['Mean radius', `${fmt(radius, radius < 100 ? 2 : 1)} km`]);
@@ -97,6 +96,15 @@ export function physicalRows(body: SimBody): FactRow[] {
       true,
     ]);
   }
+  rows.push(...massRows(body));
+  return rows;
+}
+
+/** Mass and what follows from it, from whichever catalogue this body came from. */
+function massRows(body: SimBody): FactRow[] {
+  const rows: FactRow[] = [];
+  const facts = body.spec?.facts;
+  const radius = body.radiusKm;
   if (facts) {
     rows.push(
       ['Mass', formatMass(facts.mass)],
@@ -199,21 +207,7 @@ export function liveRows(
     const localKm = Math.hypot(body.localKm.x, body.localKm.y, body.localKm.z);
     rows.push([`Distance from ${body.parent.name}`, formatDistance(localKm)]);
   }
-  const earth = system.byKey.get('earth');
-  if (earth && body !== earth) {
-    const dx = body.helioKm.x - earth.helioKm.x;
-    const dy = body.helioKm.y - earth.helioKm.y;
-    const dz = body.helioKm.z - earth.helioKm.z;
-    const d = Math.hypot(dx, dy, dz);
-    // The parent row above has already given this distance for anything that
-    // belongs to Earth — the Moon, and all five Lagrange points — so only the
-    // light time, which it does not carry, is added on top. Printing the same
-    // figure twice under two headings reads as a bug even when both are right.
-    if (body.parent !== earth) {
-      rows.push(['Distance from Earth', formatDistance(d)]);
-    }
-    rows.push(['Light travel from Earth', formatLightTime(d)]);
-  }
+  rows.push(...earthRows(system, body));
   if (body.parent) {
     const speed = system.speedKmS(body);
     if (speed > 0) {
@@ -237,5 +231,26 @@ export function liveRows(
     }
   }
 
+  return rows;
+}
+
+/** Distance and light time from Earth, for anything that is not Earth. */
+function earthRows(system: SolarSystem, body: SimBody): FactRow[] {
+  const rows: FactRow[] = [];
+  const earth = system.byKey.get('earth');
+  if (earth && body !== earth) {
+    const dx = body.helioKm.x - earth.helioKm.x;
+    const dy = body.helioKm.y - earth.helioKm.y;
+    const dz = body.helioKm.z - earth.helioKm.z;
+    const d = Math.hypot(dx, dy, dz);
+    // The parent row above has already given this distance for anything that
+    // belongs to Earth — the Moon, and all five Lagrange points — so only the
+    // light time, which it does not carry, is added on top. Printing the same
+    // figure twice under two headings reads as a bug even when both are right.
+    if (body.parent !== earth) {
+      rows.push(['Distance from Earth', formatDistance(d)]);
+    }
+    rows.push(['Light travel from Earth', formatLightTime(d)]);
+  }
   return rows;
 }

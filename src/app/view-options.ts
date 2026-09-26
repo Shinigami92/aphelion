@@ -3,6 +3,7 @@
 import type { ScaleModel } from '../core/scale.ts';
 import type { SceneView } from '../render/scene.ts';
 import type { Toast } from '../ui/panels/toast.ts';
+import type { ToggleConfig } from '../ui/panels/toggle-panel.ts';
 import { TogglePanel } from '../ui/panels/toggle-panel.ts';
 
 export function createViewOptions(
@@ -18,60 +19,7 @@ export function createViewOptions(
   const { scene, scale, toast } = deps;
   const togglePanel = new TogglePanel(
     host,
-    [
-      {
-        label: 'labels',
-        get: () => scene.toggles.labels !== 'none',
-        set: (v) => {
-          scene.toggles.labels = v ? 'major' : 'none';
-        },
-      },
-      {
-        label: 'belts',
-        get: () => scene.toggles.belts,
-        set: (v) => {
-          scene.toggles.belts = v;
-        },
-      },
-      {
-        label: 'rings',
-        get: () => scene.toggles.rings,
-        set: (v) => {
-          scene.toggles.rings = v;
-        },
-      },
-      {
-        label: 'atmospheres',
-        get: () => scene.toggles.atmospheres,
-        set: (v) => {
-          scene.toggles.atmospheres = v;
-        },
-      },
-      // One switch for the whole backdrop — the deep sky and the catalogue stars
-      // are two layers of one thing. The URL parameter keeps its old name so
-      // links shared before the stars existed still resolve.
-      {
-        label: 'stars',
-        get: () => scene.toggles.milkyway,
-        set: (v) => {
-          scene.toggles.milkyway = v;
-        },
-      },
-      {
-        label: 'minor bodies',
-        get: () => scene.toggles.minorBodies,
-        set: (v) => {
-          scene.toggles.minorBodies = v;
-        },
-      },
-      {
-        label: 'Lagrange points',
-        get: () => scene.toggles.lagrange,
-        set: (v) => {
-          deps.setLagrange(v);
-        },
-      },
-    ],
+    layerToggles(scene, deps.setLagrange),
     {
       get: () => scene.toggles.orbits,
       set: (mode) => {
@@ -94,4 +42,47 @@ export function createViewOptions(
     repoUrl,
   );
   return togglePanel;
+}
+
+/** The layer checkboxes, each reading and writing one of the scene's toggles. */
+function layerToggles(scene: SceneView, setLagrange: (on: boolean) => void): ToggleConfig[] {
+  return [
+    {
+      label: 'labels',
+      get: () => scene.toggles.labels !== 'none',
+      set: (v) => {
+        scene.toggles.labels = v ? 'major' : 'none';
+      },
+    },
+    flag(scene, 'belts', 'belts'),
+    flag(scene, 'rings', 'rings'),
+    flag(scene, 'atmospheres', 'atmospheres'),
+    // One switch for the whole backdrop — the deep sky and the catalogue stars
+    // are two layers of one thing. The URL parameter keeps its old name so
+    // links shared before the stars existed still resolve.
+    flag(scene, 'stars', 'milkyway'),
+    flag(scene, 'minor bodies', 'minorBodies'),
+    {
+      label: 'Lagrange points',
+      get: () => scene.toggles.lagrange,
+      set: (v) => {
+        setLagrange(v);
+      },
+    },
+  ];
+}
+
+/** A checkbox bound straight to one of the scene's on/off toggles. */
+function flag(
+  scene: SceneView,
+  label: string,
+  key: 'belts' | 'rings' | 'atmospheres' | 'milkyway' | 'minorBodies',
+): ToggleConfig {
+  return {
+    label,
+    get: () => scene.toggles[key],
+    set: (v) => {
+      scene.toggles[key] = v;
+    },
+  };
 }

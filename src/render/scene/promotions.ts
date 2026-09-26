@@ -6,7 +6,7 @@ import type { TextureLibrary } from '../textures.ts';
 import type { VisualContext } from './body-visual-update.ts';
 import type { FrameState } from './state.ts';
 import type { BodyVisual, PromotionSlot } from './visual.ts';
-import type { BufferGeometry } from 'three';
+import type { BufferGeometry, PerspectiveCamera } from 'three';
 import { Group, Mesh, Vector3 } from 'three';
 import { RELIEF_EXAGGERATION } from '../../data/bodies/relief.ts';
 import { reliefFor } from '../../data/generated/relief.ts';
@@ -77,21 +77,7 @@ export class PromotionLayer {
       return;
     }
 
-    const wanted: Array<{ body: SimBody; apparent: number }> = [];
-    for (const body of minorBodies) {
-      tmpVec.set(body.scene.x, body.scene.y, body.scene.z).sub(this.state.origin);
-      const distance = Math.max(camera.position.distanceTo(tmpVec), 1e-9);
-      const apparent = (body.sceneRadius / distance) * this.state.viewport.y;
-      if (
-        apparent > SHAPE_APPARENT_PX ||
-        body === this.state.selected ||
-        body === this.state.focus
-      ) {
-        wanted.push({ body, apparent: body === this.state.focus ? 1e9 : apparent });
-      }
-    }
-    wanted.sort((a, b) => b.apparent - a.apparent);
-    const chosen = wanted.slice(0, PROMOTION_SLOTS);
+    const chosen = this.choose(minorBodies, camera);
     const chosenKeys = new Set(chosen.map((w) => w.body.key));
 
     // Release slots no longer wanted.
@@ -112,60 +98,94 @@ export class PromotionLayer {
       if (!slot) {
         break;
       }
-      // Claimed in place rather than copied: late texture loads hold on to this
-      // very object and compare its body to tell whether the slot moved on.
-      const visual: BodyVisual = Object.assign(slot, { body });
-      visual.group.visible = true;
-      // Flat colour now; the surface arrives on a later frame, so approaching a
-      // new rock never costs a dropped frame.
-      visual.material.uniforms.uMap.value = solidTexture(body.color);
-      visual.material.needsUpdate = true;
-
-      // Published shape, if this body has one — Phobos does. Cleared first:
-      // these slots are recycled, and a slot that has just finished being
-      // Phobos would otherwise hand its terrain to the next rock that lands in
-      // it, which would look entirely convincing.
-      visual.relief = null;
-      visual.reliefExaggeration = RELIEF_EXAGGERATION[body.key] ?? 1;
-      visual.material.uniforms.uHasRelief.value = 0;
-      const relief = reliefFor(body.key);
-      if (relief) {
-        const target = visual;
-        void whenLoaded(this.library.loadRelief(relief.file), (tex) => {
-          if (target.body !== body) {
-            return;
-          }
-          const u = target.material.uniforms;
-          u.uRelief.value = tex;
-          u.uReliefMinKm.value = relief.minKm;
-          u.uReliefSpanKm.value = relief.maxKm - relief.minKm;
-          u.uHasRelief.value = 1;
-          target.relief = relief;
-          target.material.needsUpdate = true;
-        });
-      }
-
-      const file = body.textureFile;
-      if (this.library.available(file)) {
-        // Real imagery exists for this one (Vesta, and any other minor planet we
-        // later find a map for) — always prefer it over a synthesised surface.
-        visual.pendingProcedural = false;
-        const target = visual;
-        void whenLoaded(this.library.load(file), (tex) => {
-          // The slot may have been reassigned while the texture decoded.
-          if (target.body === body) {
-            target.material.uniforms.uMap.value = tex;
-            target.material.needsUpdate = true;
-          }
-        });
-      } else {
-        visual.pendingProcedural = true;
-      }
-      this.promoted.set(body.key, visual);
+      this.promoted.set(body.key, this.claim(slot, body));
     }
 
     for (const visual of this.promoted.values()) {
       updateBodyVisual(visual, scale, sunSceneRadius, ctx);
+    }
+  }
+
+  /** The minor bodies that most deserve a slot, biggest on screen first. */
+  private choose(
+    minorBodies: ReadonlyArray<SimBody>,
+    camera: PerspectiveCamera,
+  ): Array<{ body: SimBody; apparent: number }> {
+    const wanted: Array<{ body: SimBody; apparent: number }> = [];
+    for (const body of minorBodies) {
+      tmpVec.set(body.scene.x, body.scene.y, body.scene.z).sub(this.state.origin);
+      const distance = Math.max(camera.position.distanceTo(tmpVec), 1e-9);
+      const apparent = (body.sceneRadius / distance) * this.state.viewport.y;
+      if (
+        apparent > SHAPE_APPARENT_PX ||
+        body === this.state.selected ||
+        body === this.state.focus
+      ) {
+        wanted.push({ body, apparent: body === this.state.focus ? 1e9 : apparent });
+      }
+    }
+    wanted.sort((a, b) => b.apparent - a.apparent);
+    return wanted.slice(0, PROMOTION_SLOTS);
+  }
+
+  private claim(slot: PromotionSlot, body: SimBody): BodyVisual {
+    // Claimed in place rather than copied: late texture loads hold on to this
+    // very object and compare its body to tell whether the slot moved on.
+    const visual: BodyVisual = Object.assign(slot, { body });
+    visual.group.visible = true;
+    // Flat colour now; the surface arrives on a later frame, so approaching a
+    // new rock never costs a dropped frame.
+    visual.material.uniforms.uMap.value = solidTexture(body.color);
+    visual.material.needsUpdate = true;
+    this.attachRelief(visual, body);
+    this.attachImagery(visual, body);
+    return visual;
+  }
+
+  /**
+   * Published shape, if this body has one — Phobos does. Cleared first:
+   * these slots are recycled, and a slot that has just finished being
+   * Phobos would otherwise hand its terrain to the next rock that lands in
+   * it, which would look entirely convincing.
+   */
+  private attachRelief(visual: BodyVisual, body: SimBody): void {
+    visual.relief = null;
+    visual.reliefExaggeration = RELIEF_EXAGGERATION[body.key] ?? 1;
+    visual.material.uniforms.uHasRelief.value = 0;
+    const relief = reliefFor(body.key);
+    if (relief) {
+      const target = visual;
+      void whenLoaded(this.library.loadRelief(relief.file), (tex) => {
+        if (target.body !== body) {
+          return;
+        }
+        const u = target.material.uniforms;
+        u.uRelief.value = tex;
+        u.uReliefMinKm.value = relief.minKm;
+        u.uReliefSpanKm.value = relief.maxKm - relief.minKm;
+        u.uHasRelief.value = 1;
+        target.relief = relief;
+        target.material.needsUpdate = true;
+      });
+    }
+  }
+
+  private attachImagery(visual: BodyVisual, body: SimBody): void {
+    const file = body.textureFile;
+    if (this.library.available(file)) {
+      // Real imagery exists for this one (Vesta, and any other minor planet we
+      // later find a map for) — always prefer it over a synthesised surface.
+      visual.pendingProcedural = false;
+      const target = visual;
+      void whenLoaded(this.library.load(file), (tex) => {
+        // The slot may have been reassigned while the texture decoded.
+        if (target.body === body) {
+          target.material.uniforms.uMap.value = tex;
+          target.material.needsUpdate = true;
+        }
+      });
+    } else {
+      visual.pendingProcedural = true;
     }
   }
 }

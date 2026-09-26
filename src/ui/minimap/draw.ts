@@ -53,18 +53,7 @@ export function drawLagrange(
     const sx = cx + point.helioKm.x * scale;
     const sy = cy - point.helioKm.y * scale;
     const isActive = point === selected || point === focus;
-
-    const colour = `#${point.color.toString(16).padStart(6, '0')}`;
-    ctx.strokeStyle = colour;
-    ctx.lineWidth = isActive ? 1.6 : 1;
-    ctx.globalAlpha = isActive ? 1 : 0.75;
-    ctx.beginPath();
-    ctx.arc(sx, sy, 3, 0, Math.PI * 2);
-    ctx.stroke();
-
-    ctx.fillStyle = colour;
-    ctx.fillText(point.name, sx, sy - 9);
-    ctx.globalAlpha = 1;
+    drawMarker(ctx, point, sx, sy, isActive);
 
     plotted.push({
       body: point,
@@ -75,6 +64,27 @@ export function drawLagrange(
       radius: 3,
     });
   }
+}
+
+/** One Lagrange point: a small ring with its name above it. */
+function drawMarker(
+  ctx: CanvasRenderingContext2D,
+  point: SimBody,
+  sx: number,
+  sy: number,
+  isActive: boolean,
+): void {
+  const colour = `#${point.color.toString(16).padStart(6, '0')}`;
+  ctx.strokeStyle = colour;
+  ctx.lineWidth = isActive ? 1.6 : 1;
+  ctx.globalAlpha = isActive ? 1 : 0.75;
+  ctx.beginPath();
+  ctx.arc(sx, sy, 3, 0, Math.PI * 2);
+  ctx.stroke();
+
+  ctx.fillStyle = colour;
+  ctx.fillText(point.name, sx, sy - 9);
+  ctx.globalAlpha = 1;
 }
 
 /** Reference-circle spacing for the heliocentric plan, in AU. */

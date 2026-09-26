@@ -5,6 +5,24 @@ import type { TextureLibrary } from '../render/textures.ts';
 import type { Toast } from '../ui/panels/toast.ts';
 import { need } from './dom.ts';
 
+/** The imagery on screen in the first seconds, worth holding the veil for. */
+const BOOT_TEXTURES = [
+  'sky_milkyway.jpg',
+  'sun.jpg',
+  'earth_day.jpg',
+  'earth_night.jpg',
+  'earth_clouds.jpg',
+  'moon.jpg',
+  'mars.jpg',
+  'jupiter.jpg',
+  'saturn.jpg',
+  'saturn_ring.png',
+  'venus_surface.jpg',
+  'mercury.jpg',
+  'uranus.jpg',
+  'neptune.jpg',
+];
+
 export function startBoot(
   library: TextureLibrary,
   system: SolarSystem,
@@ -17,22 +35,7 @@ export function startBoot(
 
   bootStatus.textContent = `${system.bodies.length} bodies · 459 satellites · 221 minor planets`;
 
-  void library.preload([
-    'sky_milkyway.jpg',
-    'sun.jpg',
-    'earth_day.jpg',
-    'earth_night.jpg',
-    'earth_clouds.jpg',
-    'moon.jpg',
-    'mars.jpg',
-    'jupiter.jpg',
-    'saturn.jpg',
-    'saturn_ring.png',
-    'venus_surface.jpg',
-    'mercury.jpg',
-    'uranus.jpg',
-    'neptune.jpg',
-  ]);
+  void library.preload(BOOT_TEXTURES);
 
   let booted = false;
   function finishBoot(): void {

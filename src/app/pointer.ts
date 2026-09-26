@@ -14,8 +14,7 @@ export function installPointerSelection(
     pointerDownAt = { x: ev.clientX, y: ev.clientY, t: performance.now() };
   });
 
-  /** Where and when the last tap landed, for reconstructing a double-tap. */
-  let lastTapAt = { x: 0, y: 0, t: 0 };
+  const isDoubleTap = doubleTapDetector();
 
   canvas.addEventListener('pointerup', (ev) => {
     const moved = Math.hypot(ev.clientX - pointerDownAt.x, ev.clientY - pointerDownAt.y);
@@ -37,17 +36,8 @@ export function installPointerSelection(
     if (ev.pointerType === 'mouse') {
       return;
     }
-    const now = performance.now();
-    const nearLast = Math.hypot(ev.clientX - lastTapAt.x, ev.clientY - lastTapAt.y) < 28;
-    if (nearLast && now - lastTapAt.t < 320) {
-      if (hit) {
-        goTo(hit);
-      }
-      // Reset rather than record, so a third tap does not chain into a second
-      // flight.
-      lastTapAt = { x: 0, y: 0, t: 0 };
-    } else {
-      lastTapAt = { x: ev.clientX, y: ev.clientY, t: now };
+    if (isDoubleTap(ev) && hit) {
+      goTo(hit);
     }
   });
 
@@ -59,4 +49,22 @@ export function installPointerSelection(
       goTo(hit);
     }
   });
+}
+
+/** Whether each tap completes a double-tap with the one before it. */
+function doubleTapDetector(): (ev: PointerEvent) => boolean {
+  /** Where and when the last tap landed, for reconstructing a double-tap. */
+  let lastTapAt = { x: 0, y: 0, t: 0 };
+  return (ev) => {
+    const now = performance.now();
+    const nearLast = Math.hypot(ev.clientX - lastTapAt.x, ev.clientY - lastTapAt.y) < 28;
+    if (nearLast && now - lastTapAt.t < 320) {
+      // Reset rather than record, so a third tap does not chain into a second
+      // flight.
+      lastTapAt = { x: 0, y: 0, t: 0 };
+      return true;
+    }
+    lastTapAt = { x: ev.clientX, y: ev.clientY, t: now };
+    return false;
+  };
 }

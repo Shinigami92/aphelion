@@ -40,6 +40,20 @@ export class TimePanel {
   }
 
   private build(): void {
+    const title = this.buildTitle();
+    this.host.append(title);
+    this.head = title;
+    const body = el('div', 'panel__body');
+    this.host.append(body);
+    this.body = body;
+
+    this.buildClock(body);
+    body.append(this.buildTransport());
+    body.append(this.buildRate());
+    body.append(this.note);
+  }
+
+  private buildTitle(): HTMLElement {
     const title = el('div', 'panel__title');
     title.append(el('span', undefined, 'Coordinated Universal Time'));
 
@@ -52,13 +66,11 @@ export class TimePanel {
       this.onHelp();
     });
     title.append(helpChip);
+    return title;
+  }
 
-    this.host.append(title);
-    this.head = title;
-    const body = el('div', 'panel__body');
-    this.host.append(body);
-    this.body = body;
-
+  /** The clock readout, and the field that replaces it while a date is typed. */
+  private buildClock(body: HTMLElement): void {
     this.clock.append(this.dateSpan, document.createTextNode('  '), this.timeSpan);
     const zone = el('span', 'clock__zone', 'UTC');
     this.clock.append(zone);
@@ -90,7 +102,10 @@ export class TimePanel {
     );
     this.hint.style.display = 'none';
     body.append(this.input, this.hint);
+  }
 
+  /** Step, direction, pause and now. */
+  private buildTransport(): HTMLElement {
     const transport = el('div', 'transport');
     this.stepBackBtn.title = 'Step back one rate unit (,)';
     this.reverseBtn.title = 'Run time backwards (J)';
@@ -131,8 +146,10 @@ export class TimePanel {
       this.time.setNow();
       this.time.resetRate();
     });
-    body.append(transport);
+    return transport;
+  }
 
+  private buildRate(): HTMLElement {
     const rate = el('div', 'rate');
     this.rateSlider.type = 'range';
     this.rateSlider.min = '0';
@@ -144,8 +161,7 @@ export class TimePanel {
       this.time.setRateIndex(Number(this.rateSlider.value));
     });
     rate.append(this.rateLabel, this.rateSlider);
-    body.append(rate);
-    body.append(this.note);
+    return rate;
   }
 
   private beginEdit(): void {

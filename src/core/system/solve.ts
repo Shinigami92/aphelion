@@ -32,69 +32,84 @@ const tmpB: Vec3 = { x: 0, y: 0, z: 0 };
  */
 export function updateLagrange(points: ReadonlyArray<SimBody>, scale: ScaleModel): void {
   for (const point of points) {
-    const info = point.lagrange!;
-    const primary = info.primary;
-    const secondary = info.secondary;
-
-    const rx = secondary.helioKm.x - primary.helioKm.x;
-    const ry = secondary.helioKm.y - primary.helioKm.y;
-    const rz = secondary.helioKm.z - primary.helioKm.z;
-    const R = Math.hypot(rx, ry, rz);
-    if (R < 1) {
-      continue;
+    if (placeLagrangePoint(point)) {
+      remapLagrangePoint(point, scale);
     }
-
-    const ux = rx / R;
-    const uy = ry / R;
-    const uz = rz / R;
-
-    const vx = secondary.velKm.x - primary.velKm.x;
-    const vy = secondary.velKm.y - primary.velKm.y;
-    const vz = secondary.velKm.z - primary.velKm.z;
-    const hx = ry * vz - rz * vy;
-    const hy = rz * vx - rx * vz;
-    const hz = rx * vy - ry * vx;
-    const h = Math.hypot(hx, hy, hz);
-    if (h < 1e-9) {
-      continue;
-    }
-    const nx = hx / h;
-    const ny = hy / h;
-    const nz = hz / h;
-
-    // In-plane, perpendicular to the radius, along the direction of travel.
-    const wx = ny * uz - nz * uy;
-    const wy = nz * ux - nx * uz;
-    const wz = nx * uy - ny * ux;
-
-    // The nondimensional frame has its origin at the barycentre, which for a
-    // Sun-planet pair sits just inside the Sun — but not at its centre, and
-    // the offset is exactly what puts L3 slightly beyond one orbit radius.
-    const bx = primary.helioKm.x + info.massRatio * rx;
-    const by = primary.helioKm.y + info.massRatio * ry;
-    const bz = primary.helioKm.z + info.massRatio * rz;
-
-    const g = info.rotating;
-    point.helioKm.x = bx + R * (g.x * ux + g.y * wx);
-    point.helioKm.y = by + R * (g.x * uy + g.y * wy);
-    point.helioKm.z = bz + R * (g.x * uz + g.y * wz);
-
-    point.localKm.x = point.helioKm.x - secondary.helioKm.x;
-    point.localKm.y = point.helioKm.y - secondary.helioKm.y;
-    point.localKm.z = point.helioKm.z - secondary.helioKm.z;
-
-    // Remapped as the heliocentric body it is, not as a satellite of its
-    // planet: L4 and L5 are a full orbit radius from the planet, and L3 is
-    // two. Going through the satellite law would compress them into the
-    // planet's lap. This also keeps L4 and L5 exactly on the planet's own
-    // drawn orbit, since the remap is radial and they share its radius.
-    const r = length(point.helioKm);
-    const f = r > 0 ? scale.heliocentricDistance(r) / r : 0;
-    point.scene.x = point.helioKm.x * f;
-    point.scene.y = point.helioKm.y * f;
-    point.scene.z = point.helioKm.z * f;
-    point.sceneRadius = scale.bodyRadius(point.radiusKm);
   }
+}
+
+/**
+ * Put a point where it belongs in its pair's rotating frame, in heliocentric
+ * km. Returns false when the pair is degenerate and the point cannot be placed.
+ */
+function placeLagrangePoint(point: SimBody): boolean {
+  const info = point.lagrange!;
+  const primary = info.primary;
+  const secondary = info.secondary;
+
+  const rx = secondary.helioKm.x - primary.helioKm.x;
+  const ry = secondary.helioKm.y - primary.helioKm.y;
+  const rz = secondary.helioKm.z - primary.helioKm.z;
+  const R = Math.hypot(rx, ry, rz);
+  if (R < 1) {
+    return false;
+  }
+
+  const ux = rx / R;
+  const uy = ry / R;
+  const uz = rz / R;
+
+  const vx = secondary.velKm.x - primary.velKm.x;
+  const vy = secondary.velKm.y - primary.velKm.y;
+  const vz = secondary.velKm.z - primary.velKm.z;
+  const hx = ry * vz - rz * vy;
+  const hy = rz * vx - rx * vz;
+  const hz = rx * vy - ry * vx;
+  const h = Math.hypot(hx, hy, hz);
+  if (h < 1e-9) {
+    return false;
+  }
+  const nx = hx / h;
+  const ny = hy / h;
+  const nz = hz / h;
+
+  // In-plane, perpendicular to the radius, along the direction of travel.
+  const wx = ny * uz - nz * uy;
+  const wy = nz * ux - nx * uz;
+  const wz = nx * uy - ny * ux;
+
+  // The nondimensional frame has its origin at the barycentre, which for a
+  // Sun-planet pair sits just inside the Sun — but not at its centre, and
+  // the offset is exactly what puts L3 slightly beyond one orbit radius.
+  const bx = primary.helioKm.x + info.massRatio * rx;
+  const by = primary.helioKm.y + info.massRatio * ry;
+  const bz = primary.helioKm.z + info.massRatio * rz;
+
+  const g = info.rotating;
+  point.helioKm.x = bx + R * (g.x * ux + g.y * wx);
+  point.helioKm.y = by + R * (g.x * uy + g.y * wy);
+  point.helioKm.z = bz + R * (g.x * uz + g.y * wz);
+  return true;
+}
+
+/** Derive the planet-relative and scene positions from the heliocentric one. */
+function remapLagrangePoint(point: SimBody, scale: ScaleModel): void {
+  const secondary = point.lagrange!.secondary;
+  point.localKm.x = point.helioKm.x - secondary.helioKm.x;
+  point.localKm.y = point.helioKm.y - secondary.helioKm.y;
+  point.localKm.z = point.helioKm.z - secondary.helioKm.z;
+
+  // Remapped as the heliocentric body it is, not as a satellite of its
+  // planet: L4 and L5 are a full orbit radius from the planet, and L3 is
+  // two. Going through the satellite law would compress them into the
+  // planet's lap. This also keeps L4 and L5 exactly on the planet's own
+  // drawn orbit, since the remap is radial and they share its radius.
+  const r = length(point.helioKm);
+  const f = r > 0 ? scale.heliocentricDistance(r) / r : 0;
+  point.scene.x = point.helioKm.x * f;
+  point.scene.y = point.helioKm.y * f;
+  point.scene.z = point.helioKm.z * f;
+  point.sceneRadius = scale.bodyRadius(point.radiusKm);
 }
 
 export function solvePosition(body: SimBody, sun: SimBody, jdTT: number): void {

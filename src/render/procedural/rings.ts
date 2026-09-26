@@ -28,11 +28,7 @@ export function proceduralRing(
   }
 
   const width = 1024;
-  const canvas = document.createElement('canvas');
-  canvas.width = width;
-  canvas.height = 1;
-  const ctx = canvas.getContext('2d')!;
-  const img = ctx.createImageData(width, 1);
+  const { canvas, ctx, img } = createStrip(width);
   const px = img.data;
 
   const rng = mulberry32(opts.seed);
@@ -40,16 +36,7 @@ export function proceduralRing(
   const g = ((opts.color >> 8) & 255) / 255;
   const b = (opts.color & 255) / 255;
 
-  // A handful of narrow, sharply bounded ringlets — the actual morphology of
-  // the Uranian and Neptunian systems.
-  const bands: Array<{ center: number; width: number; depth: number }> = [];
-  for (let i = 0; i < opts.gaps; i++) {
-    bands.push({
-      center: rng(),
-      width: 0.006 + rng() * 0.05,
-      depth: 0.35 + rng() * 0.65,
-    });
-  }
+  const bands = ringletBands(rng, opts.gaps);
 
   for (let i = 0; i < width; i++) {
     const t = i / (width - 1);
@@ -105,56 +92,14 @@ export function ringProfile(
 
   // Fine enough that Uranus's narrowest ring still lands inside a texel or two.
   const width = 4096;
-  const canvas = document.createElement('canvas');
-  canvas.width = width;
-  canvas.height = 1;
-  const ctx = canvas.getContext('2d')!;
-  const img = ctx.createImageData(width, 1);
+  const { canvas, ctx, img } = createStrip(width);
   const px = img.data;
 
   const spanKm = opts.outerKm - opts.innerKm;
   const texelKm = spanKm / width;
 
   for (let i = 0; i < width; i++) {
-    const loKm = opts.innerKm + i * texelKm;
-    const hiKm = loKm + texelKm;
-
-    // Optical depth averaged over this texel, and colour weighted by how much
-    // of the texel's opacity each band actually contributes.
-    let tau = 0;
-    let r = 0;
-    let g = 0;
-    let b = 0;
-    let weight = 0;
-    for (const band of opts.bands) {
-      const overlap = Math.min(hiKm, band.outerKm) - Math.max(loKm, band.innerKm);
-      if (overlap <= 0) {
-        continue;
-      }
-      const fraction = overlap / texelKm;
-      tau += band.tau * fraction;
-      const w = band.tau * fraction;
-      if (w > 0) {
-        r += ((band.color >> 16) & 255) * w;
-        g += ((band.color >> 8) & 255) * w;
-        b += (band.color & 255) * w;
-        weight += w;
-      }
-    }
-
-    // A ring that is there must not quantise to nothing. Optical depths this
-    // low — the E ring is 1e-5 — land far below one part in 255, so an 8-bit
-    // alpha channel rounds them to zero and every later brightness control is
-    // then multiplying zero. Floor anything with material in it to the
-    // smallest value the channel can hold and let the explore boost lift it.
-    const alpha = tau > 0 ? Math.max(1 - Math.exp(-tau), 1 / 255) : 0;
-    const o = i * 4;
-    if (weight > 0) {
-      px[o] = clamp255(r / weight);
-      px[o + 1] = clamp255(g / weight);
-      px[o + 2] = clamp255(b / weight);
-    }
-    px[o + 3] = clamp255(alpha * 255);
+    writeProfileTexel(px, i, opts, texelKm);
   }
   ctx.putImageData(img, 0, 0);
 
@@ -176,4 +121,85 @@ export function ringProfile(
   tex.needsUpdate = true;
   cache.set(cacheKey, tex);
   return tex;
+}
+
+/** A 1 x `width` canvas, its context and the pixel buffer to fill. */
+function createStrip(width: number): {
+  canvas: HTMLCanvasElement;
+  ctx: CanvasRenderingContext2D;
+  img: ImageData;
+} {
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = 1;
+  const ctx = canvas.getContext('2d')!;
+  const img = ctx.createImageData(width, 1);
+  return { canvas, ctx, img };
+}
+
+/**
+ * A handful of narrow, sharply bounded ringlets — the actual morphology of
+ * the Uranian and Neptunian systems.
+ */
+function ringletBands(
+  rng: () => number,
+  count: number,
+): Array<{ center: number; width: number; depth: number }> {
+  const bands: Array<{ center: number; width: number; depth: number }> = [];
+  for (let i = 0; i < count; i++) {
+    bands.push({
+      center: rng(),
+      width: 0.006 + rng() * 0.05,
+      depth: 0.35 + rng() * 0.65,
+    });
+  }
+  return bands;
+}
+
+/** Integrate the bands crossing texel `i` and write its colour and opacity. */
+function writeProfileTexel(
+  px: Uint8ClampedArray,
+  i: number,
+  opts: { bands: ReadonlyArray<RingBand>; innerKm: number },
+  texelKm: number,
+): void {
+  const loKm = opts.innerKm + i * texelKm;
+  const hiKm = loKm + texelKm;
+
+  // Optical depth averaged over this texel, and colour weighted by how much
+  // of the texel's opacity each band actually contributes.
+  let tau = 0;
+  let r = 0;
+  let g = 0;
+  let b = 0;
+  let weight = 0;
+  for (const band of opts.bands) {
+    const overlap = Math.min(hiKm, band.outerKm) - Math.max(loKm, band.innerKm);
+    if (overlap <= 0) {
+      continue;
+    }
+    const fraction = overlap / texelKm;
+    tau += band.tau * fraction;
+    const w = band.tau * fraction;
+    if (w > 0) {
+      r += ((band.color >> 16) & 255) * w;
+      g += ((band.color >> 8) & 255) * w;
+      b += (band.color & 255) * w;
+      weight += w;
+    }
+  }
+
+  // A ring that is there must not quantise to nothing. Optical depths this
+  // low — the E ring is 1e-5 — land far below one part in 255, so an 8-bit
+  // alpha channel rounds them to zero and every later brightness control is
+  // then multiplying zero. Floor anything with material in it to the
+  // smallest value the channel can hold and let the explore boost lift it.
+  const alpha = tau > 0 ? Math.max(1 - Math.exp(-tau), 1 / 255) : 0;
+  const o = i * 4;
+  if (weight > 0) {
+    px[o] = clamp255(r / weight);
+    px[o + 1] = clamp255(g / weight);
+    px[o + 2] = clamp255(b / weight);
+  }
+  px[o + 3] = clamp255(alpha * 255);
 }

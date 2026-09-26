@@ -1,5 +1,6 @@
 /** Building the body tree from the catalogues: planets, satellites, minor planets, Lagrange points. */
 
+import type { LagrangeId, RotatingPoint } from '../../astro/lagrange.ts';
 import type { BodySpec } from '../../data/body-spec.ts';
 import type { SmallBodyData } from '../../data/generated/smallbodies.ts';
 import type { SimBody } from '../system.ts';
@@ -181,39 +182,52 @@ export function addLagrangePoints(reg: BodyRegistry, sun: SimBody): void {
     const hillKm = planet.elements.a * hillFraction(massRatio);
 
     for (const id of LAGRANGE_IDS) {
-      const collinear = isCollinear(id);
-      const body = makeBody({
-        key: `lagrange:${planet.key}:${id}`,
-        name: id,
-        type: 'lagrange',
-        subtitle: `Sun–${planet.name} Lagrange point`,
-        parent: planet,
-        radiusKm: hillKm / MARKER_HILL_FRACTION,
-        flattening: 0,
-        spec: null,
-        // Warm for the three that need station-keeping, cool for the two that
-        // collect Trojans — the one thing about them worth reading at a glance.
-        color: collinear ? 0xffab6b : 0x74dfc0,
-        textureFile: null,
-        note: LAGRANGE_NOTES[`${planet.key}:${id}`] ?? null,
-        minor: true,
-      });
-      body.lagrange = {
-        id,
-        primary: sun,
-        secondary: planet,
-        massRatio,
-        rotating: geometry[id],
-        hillKm,
-        collinear,
-      };
-      // A 1:1 co-orbital: it goes round the Sun exactly as often as its planet.
-      body.periodDays = planet.periodDays;
-      body.depth = planet.depth + 1;
+      const body = lagrangePoint(sun, planet, id, massRatio, hillKm, geometry[id]);
       reg.lagrange.push(body);
       reg.byKey.set(body.key, body);
     }
   }
+}
+
+/** One Lagrange point of a Sun-planet pair, as a body like any other. */
+function lagrangePoint(
+  sun: SimBody,
+  planet: SimBody,
+  id: LagrangeId,
+  massRatio: number,
+  hillKm: number,
+  rotating: RotatingPoint,
+): SimBody {
+  const collinear = isCollinear(id);
+  const body = makeBody({
+    key: `lagrange:${planet.key}:${id}`,
+    name: id,
+    type: 'lagrange',
+    subtitle: `Sun–${planet.name} Lagrange point`,
+    parent: planet,
+    radiusKm: hillKm / MARKER_HILL_FRACTION,
+    flattening: 0,
+    spec: null,
+    // Warm for the three that need station-keeping, cool for the two that
+    // collect Trojans — the one thing about them worth reading at a glance.
+    color: collinear ? 0xffab6b : 0x74dfc0,
+    textureFile: null,
+    note: LAGRANGE_NOTES[`${planet.key}:${id}`] ?? null,
+    minor: true,
+  });
+  body.lagrange = {
+    id,
+    primary: sun,
+    secondary: planet,
+    massRatio,
+    rotating,
+    hillKm,
+    collinear,
+  };
+  // A 1:1 co-orbital: it goes round the Sun exactly as often as its planet.
+  body.periodDays = planet.periodDays;
+  body.depth = planet.depth + 1;
+  return body;
 }
 
 function register(reg: BodyRegistry, body: SimBody, parent: SimBody | null): void {

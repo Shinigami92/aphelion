@@ -20,6 +20,18 @@ import { drawLagrange, drawOrbit, formatShort, gridStepAu, moonGridStep } from '
 import { OrbitSampler } from './minimap/orbit-sampler.ts';
 import { MinimapZoom } from './minimap/zoom.ts';
 
+/** Where and how big the plan is drawn this frame. */
+interface PlanView {
+  width: number;
+  height: number;
+  /** Canvas centre, CSS pixels. */
+  cx: number;
+  cy: number;
+  /** CSS pixels per km. */
+  scale: number;
+  heliocentric: boolean;
+}
+
 export class Minimap {
   private canvas: HTMLCanvasElement;
   private ctx: CanvasRenderingContext2D;
@@ -72,24 +84,7 @@ export class Minimap {
     this.ctx = ctx;
 
     this.canvas.addEventListener('click', (ev) => {
-      if (this.zoom.endsPinch()) {
-        return;
-      }
-      const rect = this.canvas.getBoundingClientRect();
-      const x = ev.clientX - rect.left;
-      const y = ev.clientY - rect.top;
-      let best: Plotted | null = null;
-      let bestDistance = 16;
-      for (const p of this.plotted) {
-        const d = Math.hypot(p.screenX - x, p.screenY - y);
-        if (d < bestDistance) {
-          bestDistance = d;
-          best = p;
-        }
-      }
-      if (best) {
-        this.onSelect(best.body);
-      }
+      this.pickAt(ev);
     });
 
     this.zoom = new MinimapZoom(this.canvas);
@@ -97,11 +92,84 @@ export class Minimap {
 
   /** Called each frame; cheap enough at this size. */
   update(focus: SimBody, selected: SimBody | null, showLagrange = false): void {
+    const size = this.prepareCanvas();
+    if (!size) {
+      return;
+    }
+    const { width, height } = size;
+    const ctx = this.ctx;
+
+    // Which system are we plotting?
+    const host = this.contextHost(focus);
+    const heliocentric = host === this.system.sun;
+    const bodies = this.bodiesFor(host);
+
+    this.fitSpan(bodies, heliocentric);
+
+    const view: PlanView = {
+      width,
+      height,
+      cx: width / 2,
+      cy: height / 2,
+      scale: Math.min(width, height) / 2 / this.span,
+      heliocentric,
+    };
+
+    this.titleContext.textContent = heliocentric ? 'heliocentric' : host.name;
+    this.plotted = [];
+
+    this.drawGrid(view);
+    this.drawCentre(host, view);
+
+    // Orbits, then bodies on top.
+    for (const body of bodies) {
+      drawOrbit(ctx, this.orbits, body, view.cx, view.cy, view.scale, body === selected);
+    }
+
+    // Lagrange points, under the bodies so a marker never hides a planet. This
+    // is the view the configuration was drawn in for two centuries — flat, from
+    // the north, with the 60 degrees plainly 60 degrees — so it is worth more
+    // here than the same five markers are in perspective.
+    if (showLagrange && heliocentric) {
+      drawLagrange(ctx, this.system, focus, selected, view.cx, view.cy, view.scale, this.plotted);
+    }
+    this.drawBodies(bodies, focus, selected, view);
+
+    const spanLabel = heliocentric
+      ? `${(this.span / AU_KM).toFixed(this.span / AU_KM < 10 ? 2 : 1)} AU radius`
+      : `${formatShort(this.span)} km radius`;
+    this.footer.textContent = `${spanLabel} · looking down the ecliptic`;
+  }
+
+  /** Match a click on the map to the nearest plotted body. */
+  private pickAt(ev: MouseEvent): void {
+    if (this.zoom.endsPinch()) {
+      return;
+    }
+    const rect = this.canvas.getBoundingClientRect();
+    const x = ev.clientX - rect.left;
+    const y = ev.clientY - rect.top;
+    let best: Plotted | null = null;
+    let bestDistance = 16;
+    for (const p of this.plotted) {
+      const d = Math.hypot(p.screenX - x, p.screenY - y);
+      if (d < bestDistance) {
+        bestDistance = d;
+        best = p;
+      }
+    }
+    if (best) {
+      this.onSelect(best.body);
+    }
+  }
+
+  /** Size the backing store to the element and clear it; null while the map has no size. */
+  private prepareCanvas(): { width: number; height: number } | null {
     const dpr = Math.min(window.devicePixelRatio, 2);
     const width = this.canvas.clientWidth;
     const height = this.canvas.clientHeight;
     if (width === 0 || height === 0) {
-      return;
+      return null;
     }
     if (this.canvas.width !== width * dpr || this.canvas.height !== height * dpr) {
       this.canvas.width = width * dpr;
@@ -113,13 +181,11 @@ export class Minimap {
     ctx.clearRect(0, 0, width, height);
     ctx.fillStyle = 'rgba(3, 5, 9, 0.85)';
     ctx.fillRect(0, 0, width, height);
+    return { width, height };
+  }
 
-    // Which system are we plotting?
-    const host = this.contextHost(focus);
-    const heliocentric = host === this.system.sun;
-    const bodies = this.bodiesFor(host);
-
-    // Fit the view to the widest orbit in the set.
+  /** Fit the view to the widest orbit in the set. */
+  private fitSpan(bodies: SimBody[], heliocentric: boolean): void {
     let maxRadius = 1;
     for (const body of bodies) {
       const r = heliocentric
@@ -129,50 +195,46 @@ export class Minimap {
       maxRadius = Math.max(maxRadius, Math.max(r, apo));
     }
     this.span = maxRadius * 1.12 * this.zoom.bias;
+  }
 
-    const cx = width / 2;
-    const cy = height / 2;
-    const scale = Math.min(width, height) / 2 / this.span;
-
-    this.titleContext.textContent = heliocentric ? 'heliocentric' : host.name;
-    this.plotted = [];
-
-    // Reference circles: 1 AU steps, or parent-radius steps for a moon system.
+  /** Reference circles: 1 AU steps, or parent-radius steps for a moon system. */
+  private drawGrid(view: PlanView): void {
+    const ctx = this.ctx;
     ctx.strokeStyle = 'rgba(150, 180, 220, 0.07)';
     ctx.lineWidth = 1;
-    const gridStep = heliocentric ? AU_KM * gridStepAu(this.span) : moonGridStep(this.span);
+    const gridStep = view.heliocentric ? AU_KM * gridStepAu(this.span) : moonGridStep(this.span);
     for (let r = gridStep; r <= this.span; r += gridStep) {
       ctx.beginPath();
-      ctx.arc(cx, cy, r * scale, 0, Math.PI * 2);
+      ctx.arc(view.cx, view.cy, r * view.scale, 0, Math.PI * 2);
       ctx.stroke();
     }
+  }
 
-    // Central body.
-    const centre = host;
-    ctx.fillStyle = heliocentric ? '#ffd68a' : `#${centre.color.toString(16).padStart(6, '0')}`;
+  /** The central body: the Sun, or the planet whose moons are shown. */
+  private drawCentre(centre: SimBody, view: PlanView): void {
+    const ctx = this.ctx;
+    ctx.fillStyle = view.heliocentric
+      ? '#ffd68a'
+      : `#${centre.color.toString(16).padStart(6, '0')}`;
     ctx.beginPath();
-    ctx.arc(cx, cy, heliocentric ? 3.5 : 4.5, 0, Math.PI * 2);
+    ctx.arc(view.cx, view.cy, view.heliocentric ? 3.5 : 4.5, 0, Math.PI * 2);
     ctx.fill();
-    this.plotted.push({ body: centre, x: 0, y: 0, screenX: cx, screenY: cy, radius: 4 });
+    this.plotted.push({ body: centre, x: 0, y: 0, screenX: view.cx, screenY: view.cy, radius: 4 });
+  }
 
-    // Orbits, then bodies on top.
+  private drawBodies(
+    bodies: SimBody[],
+    focus: SimBody,
+    selected: SimBody | null,
+    view: PlanView,
+  ): void {
+    const ctx = this.ctx;
     for (const body of bodies) {
-      drawOrbit(ctx, this.orbits, body, cx, cy, scale, body === selected);
-    }
-
-    // Lagrange points, under the bodies so a marker never hides a planet. This
-    // is the view the configuration was drawn in for two centuries — flat, from
-    // the north, with the 60 degrees plainly 60 degrees — so it is worth more
-    // here than the same five markers are in perspective.
-    if (showLagrange && heliocentric) {
-      drawLagrange(ctx, this.system, focus, selected, cx, cy, scale, this.plotted);
-    }
-    for (const body of bodies) {
-      const px = heliocentric ? body.helioKm.x : body.localKm.x;
-      const py = heliocentric ? body.helioKm.y : body.localKm.y;
-      const sx = cx + px * scale;
-      const sy = cy - py * scale;
-      if (sx < -8 || sy < -8 || sx > width + 8 || sy > height + 8) {
+      const px = view.heliocentric ? body.helioKm.x : body.localKm.x;
+      const py = view.heliocentric ? body.helioKm.y : body.localKm.y;
+      const sx = view.cx + px * view.scale;
+      const sy = view.cy - py * view.scale;
+      if (sx < -8 || sy < -8 || sx > view.width + 8 || sy > view.height + 8) {
         continue;
       }
 
@@ -194,11 +256,6 @@ export class Minimap {
       }
       this.plotted.push({ body, x: px, y: py, screenX: sx, screenY: sy, radius: r });
     }
-
-    const spanLabel = heliocentric
-      ? `${(this.span / AU_KM).toFixed(this.span / AU_KM < 10 ? 2 : 1)} AU radius`
-      : `${formatShort(this.span)} km radius`;
-    this.footer.textContent = `${spanLabel} · looking down the ecliptic`;
   }
 
   /** The body whose system should be shown. */

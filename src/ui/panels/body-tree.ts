@@ -79,19 +79,7 @@ export class BodyTree {
     this.rows.clear();
 
     if (view.query) {
-      const results = this.matches();
-      const group = el('div', 'group');
-      group.append(
-        el('div', 'group__head', `${results.length} match${results.length === 1 ? '' : 'es'}`),
-      );
-      for (const body of results) {
-        group.append(this.makeRow(body, 0, body.subtitle));
-      }
-      this.list.append(group);
-      if (results.length === 0) {
-        const empty = el('div', 'group__head', 'nothing found');
-        this.list.append(empty);
-      }
+      this.renderMatches();
       return;
     }
 
@@ -99,8 +87,34 @@ export class BodyTree {
     const sunGroup = el('div', 'group');
     sunGroup.append(this.makeRow(this.system.sun, 0));
     this.list.append(sunGroup);
+    this.list.append(this.planetGroup(view));
+    this.list.append(this.dwarfGroup(view));
+    this.list.append(this.minorGroup());
 
-    // Planets, each expandable to its moons.
+    if (this.selectedKey !== null) {
+      this.rows.get(this.selectedKey)?.classList.add('row--selected');
+    }
+  }
+
+  /** The flat result list shown while a search is active. */
+  private renderMatches(): void {
+    const results = this.matches();
+    const group = el('div', 'group');
+    group.append(
+      el('div', 'group__head', `${results.length} match${results.length === 1 ? '' : 'es'}`),
+    );
+    for (const body of results) {
+      group.append(this.makeRow(body, 0, body.subtitle));
+    }
+    this.list.append(group);
+    if (results.length === 0) {
+      const empty = el('div', 'group__head', 'nothing found');
+      this.list.append(empty);
+    }
+  }
+
+  /** Planets, each expandable to its moons. */
+  private planetGroup(view: TreeView): HTMLElement {
     const planets = this.system.sun.children.filter((b) => b.type === 'planet');
     const planetGroup = el('div', 'group');
     planetGroup.append(el('div', 'group__head', 'Planets'));
@@ -117,9 +131,11 @@ export class BodyTree {
         }
       }
     }
-    this.list.append(planetGroup);
+    return planetGroup;
+  }
 
-    // Dwarf planets (Pluto included, with its moons).
+  /** Dwarf planets (Pluto included, with its moons). */
+  private dwarfGroup(view: TreeView): HTMLElement {
     const dwarfs = this.system.sun.children.filter((b) => b.type === 'dwarf');
     const dwarfGroup = el('div', 'group');
     dwarfGroup.append(el('div', 'group__head', 'Dwarf planets'));
@@ -131,9 +147,11 @@ export class BodyTree {
         }
       }
     }
-    this.list.append(dwarfGroup);
+    return dwarfGroup;
+  }
 
-    // Minor planets, grouped by dynamical family.
+  /** Minor planets, grouped by dynamical family. */
+  private minorGroup(): HTMLElement {
     const minor = this.system.sun.children.filter((b) => b.type === 'asteroid');
     const families = new Map<string, SimBody[]>();
     for (const body of minor) {
@@ -168,11 +186,7 @@ export class BodyTree {
         }
       }
     }
-    this.list.append(minorGroup);
-
-    if (this.selectedKey !== null) {
-      this.rows.get(this.selectedKey)?.classList.add('row--selected');
-    }
+    return minorGroup;
   }
 
   private sortedMoons(key: string): SimBody[] {

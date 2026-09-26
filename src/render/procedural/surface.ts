@@ -14,7 +14,7 @@
  * instead of neat spheres.
  */
 
-import type { SurfaceClass } from './surface-class.ts';
+import type { SurfaceClass, SurfaceProfile } from './surface-class.ts';
 import type { Texture } from 'three';
 import {
   CanvasTexture,
@@ -24,6 +24,7 @@ import {
   SRGBColorSpace,
 } from 'three';
 import { cache, clamp255 } from './cache.ts';
+import { generateCraters, stampCraters } from './craters.ts';
 import { mulberry32, SphereNoise } from './noise.ts';
 import { PROFILES } from './surface-class.ts';
 
@@ -51,40 +52,6 @@ function resolutionFor(radiusKm: number): number {
   return 256;
 }
 
-interface Crater {
-  /** Unit vector of the crater centre. */
-  x: number;
-  y: number;
-  z: number;
-  /** Angular radius, radians. */
-  radius: number;
-  depth: number;
-  bright: number;
-}
-
-function generateCraters(rng: () => number, count: number, maxAngular: number): Crater[] {
-  const craters: Crater[] = [];
-  for (let i = 0; i < count; i++) {
-    // Uniform on the sphere.
-    const u = rng() * 2 - 1;
-    const phi = rng() * Math.PI * 2;
-    const s = Math.sqrt(Math.max(0, 1 - u * u));
-    // Power-law size distribution: many small, few large.
-    const t = Math.pow(rng(), 2.4);
-    craters.push({
-      x: s * Math.cos(phi),
-      y: s * Math.sin(phi),
-      z: u,
-      radius: maxAngular * (0.06 + 0.94 * t),
-      depth: 0.35 + rng() * 0.5,
-      bright: 0.6 + rng() * 0.8,
-    });
-  }
-  // Largest first so small craters overprint big ones, as in reality.
-  craters.sort((a, b) => b.radius - a.radius);
-  return craters;
-}
-
 /**
  * Build (and memoise) a procedural albedo map for a body.
  *
@@ -109,14 +76,25 @@ export function proceduralSurface(cacheKey: string, opts: ProceduralOptions): Te
   const maxAngular = opts.radiusKm > 200 ? 0.28 : 0.55;
   const craters = generateCraters(rng, craterCount, maxAngular);
 
-  // Irregular small bodies get strong low-frequency albedo variation, which is
-  // what actually makes an unresolved rock look like a rock.
-  const lumpiness = opts.radiusKm < 60 ? 1.0 : opts.radiusKm < 200 ? 0.6 : 0.35;
+  const { canvas, ctx } = createCanvas(width, height);
+  const img = ctx.createImageData(width, height);
+  const px = img.data;
 
-  const baseR = ((opts.color >> 16) & 255) / 255;
-  const baseG = ((opts.color >> 8) & 255) / 255;
-  const baseB = (opts.color & 255) / 255;
+  const shade = mottle(noise, width, height, opts.radiusKm, profile.contrast);
+  stampCraters(shade, width, height, craters, maxAngular, profile.ejecta);
+  writeAlbedo(px, shade, width, height, opts.color, profile);
 
+  ctx.putImageData(img, 0, 0);
+  const texture = albedoTexture(canvas);
+
+  cache.set(cacheKey, texture);
+  return texture;
+}
+
+function createCanvas(
+  width: number,
+  height: number,
+): { canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2D } {
   const canvas = document.createElement('canvas');
   canvas.width = width;
   canvas.height = height;
@@ -124,15 +102,25 @@ export function proceduralSurface(cacheKey: string, opts: ProceduralOptions): Te
   if (!ctx) {
     throw new Error('2D canvas unavailable for procedural texture generation');
   }
+  return { canvas, ctx };
+}
 
-  const img = ctx.createImageData(width, height);
-  const px = img.data;
+/** Pass 1: base albedo mottling. */
+function mottle(
+  noise: SphereNoise,
+  width: number,
+  height: number,
+  radiusKm: number,
+  contrast: number,
+): Float32Array {
+  // Irregular small bodies get strong low-frequency albedo variation, which is
+  // what actually makes an unresolved rock look like a rock.
+  const lumpiness = radiusKm < 60 ? 1.0 : radiusKm < 200 ? 0.6 : 0.35;
 
   // Pre-scale noise frequency so features are a similar *physical* size
   // regardless of body radius.
-  const freq = 2.2 + Math.min(6, Math.log10(Math.max(2, opts.radiusKm)) * 1.9);
+  const freq = 2.2 + Math.min(6, Math.log10(Math.max(2, radiusKm)) * 1.9);
 
-  // Pass 1: base albedo mottling.
   const shade = new Float32Array(width * height);
   for (let j = 0; j < height; j++) {
     // Latitude from -pi/2 to +pi/2.
@@ -147,77 +135,24 @@ export function proceduralSurface(cacheKey: string, opts: ProceduralOptions): Te
 
       const macro = noise.fbm(nx * 1.3 + 11, ny * 1.3 + 5, sinLat * 1.3 + 23, 3);
       const detail = noise.fbm(nx * freq, ny * freq, sinLat * freq, 5);
-      shade[j * width + i] =
-        1 + (detail - 0.5) * profile.contrast + (macro - 0.5) * lumpiness * 0.55;
+      shade[j * width + i] = 1 + (detail - 0.5) * contrast + (macro - 0.5) * lumpiness * 0.55;
     }
   }
+  return shade;
+}
 
-  // Pass 2: stamp the craters — a darkened floor, a bright rim and a fading
-  // ejecta blanket.
-  //
-  // Each crater touches only the pixels inside its own latitude/longitude
-  // extent. Testing every crater against every pixel is O(pixels x craters) and
-  // was by far the most expensive thing in the app; bounding them makes it
-  // O(total crater area), which is a 5-10x saving at these sizes.
-  for (const cr of craters) {
-    const reach = cr.radius * 2.1;
-    const latC = Math.asin(Math.max(-1, Math.min(1, cr.z)));
-    let lonC = Math.atan2(cr.y, cr.x);
-    if (lonC < 0) {
-      lonC += Math.PI * 2;
-    }
-
-    const jOf = (lat: number): number => (0.5 - lat / Math.PI) * height - 0.5;
-    const jStart = Math.max(0, Math.floor(jOf(Math.min(Math.PI / 2, latC + reach))));
-    const jEnd = Math.min(height - 1, Math.ceil(jOf(Math.max(-Math.PI / 2, latC - reach))));
-
-    for (let j = jStart; j <= jEnd; j++) {
-      const lat = (0.5 - (j + 0.5) / height) * Math.PI;
-      const cosLat = Math.cos(lat);
-      const sinLat = Math.sin(lat);
-
-      // Longitude half-width of the cap at this latitude. Close to the poles a
-      // small cap spans every longitude, so fall back to the whole row.
-      let halfSpan: number;
-      if (cosLat < 1e-4 || reach >= Math.PI / 2) {
-        halfSpan = Math.PI;
-      } else {
-        const ratio = Math.sin(reach) / cosLat;
-        halfSpan = ratio >= 1 ? Math.PI : Math.asin(ratio) * 1.15;
-      }
-      const iSpan = Math.min(width / 2, (halfSpan / (Math.PI * 2)) * width + 1);
-      const iCentre = (lonC / (Math.PI * 2)) * width - 0.5;
-
-      for (let ii = Math.floor(iCentre - iSpan); ii <= Math.ceil(iCentre + iSpan); ii++) {
-        const i = ((ii % width) + width) % width;
-        const lon = ((i + 0.5) / width) * Math.PI * 2;
-        const dotp = cosLat * Math.cos(lon) * cr.x + cosLat * Math.sin(lon) * cr.y + sinLat * cr.z;
-        if (dotp <= 0) {
-          continue; // far hemisphere
-        }
-        const ang = Math.acos(Math.min(1, dotp));
-        if (ang > reach) {
-          continue;
-        }
-
-        const t = ang / cr.radius;
-        const idx = j * width + i;
-        if (t < 0.82) {
-          // Floor: darkened, with a slight central peak for larger craters.
-          const floor = 1 - cr.depth * 0.42 * (1 - t * 0.5);
-          const peak = cr.radius > maxAngular * 0.45 && t < 0.16 ? 1.16 : 1;
-          shade[idx] = shade[idx] * floor * peak;
-        } else if (t < 1.06) {
-          shade[idx] = shade[idx] * (1 + 0.3 * cr.bright);
-        } else {
-          const f = 1 - (t - 1.06) / 1.04;
-          shade[idx] = shade[idx] * (1 + profile.ejecta * cr.bright * f * f * 0.6);
-        }
-      }
-    }
-  }
-
-  // Pass 3: polar frost on icy bodies, then clamp and write out.
+/** Pass 3: polar frost on icy bodies, then clamp and write out. */
+function writeAlbedo(
+  px: Uint8ClampedArray,
+  shade: Float32Array,
+  width: number,
+  height: number,
+  color: number,
+  profile: SurfaceProfile,
+): void {
+  const baseR = ((color >> 16) & 255) / 255;
+  const baseG = ((color >> 8) & 255) / 255;
+  const baseB = (color & 255) / 255;
   for (let j = 0; j < height; j++) {
     const lat = (0.5 - (j + 0.5) / height) * Math.PI;
     const frost =
@@ -232,9 +167,9 @@ export function proceduralSurface(cacheKey: string, opts: ProceduralOptions): Te
       px[o + 3] = 255;
     }
   }
+}
 
-  ctx.putImageData(img, 0, 0);
-
+function albedoTexture(canvas: HTMLCanvasElement): Texture {
   const texture = new CanvasTexture(canvas);
   texture.colorSpace = SRGBColorSpace;
   texture.wrapS = RepeatWrapping;
@@ -244,7 +179,5 @@ export function proceduralSurface(cacheKey: string, opts: ProceduralOptions): Te
   // Row 0 of the generated image is the north pole, matching the sphere's v.
   texture.flipY = false;
   texture.needsUpdate = true;
-
-  cache.set(cacheKey, texture);
   return texture;
 }

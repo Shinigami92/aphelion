@@ -113,6 +113,11 @@ export class LagrangeLayer {
     this.lagrangePoints = points;
     this.lagrangeMaterial = material;
 
+    this.buildFrame(world);
+  }
+
+  /** The diagram: one line-segment buffer, repositioned onto whichever planet is in play. */
+  private buildFrame(world: Group): void {
     const frameGeo = new BufferGeometry();
     frameGeo.setAttribute(
       'position',
@@ -148,6 +153,13 @@ export class LagrangeLayer {
     }
 
     const host = activeLagrangeHost(this.state);
+    this.updateMarkers(points, host);
+    if (host) {
+      this.updateFrame(frame, host);
+    }
+  }
+
+  private updateMarkers(points: Points, host: SimBody | null): void {
     const positions = plainAttribute(points.geometry, 'position');
     const fades = plainAttribute(points.geometry, 'aFade');
     const positionArray = float32Array(positions);
@@ -170,19 +182,19 @@ export class LagrangeLayer {
     if (this.lagrangeMaterial) {
       this.lagrangeMaterial.uniforms.uPixelRatio.value = this.state.pixelRatio;
     }
+  }
 
-    if (!host) {
-      return;
-    }
-
-    // The diagram spans two orbit radii, so from close in it is not a diagram —
-    // it is four lines passing through the camera and off every edge of the
-    // frame, and it turns a view of Earth into a view of streaks. It fades in
-    // as you pull back far enough for the configuration to have a shape, which
-    // is also the point at which the planet stops filling the view. Measured
-    // against the planet, not the focus, so arriving at one of its own points
-    // (a few dozen planet radii out) already shows the geometry that explains
-    // where you are.
+  /**
+   * The diagram spans two orbit radii, so from close in it is not a diagram —
+   * it is four lines passing through the camera and off every edge of the
+   * frame, and it turns a view of Earth into a view of streaks. It fades in
+   * as you pull back far enough for the configuration to have a shape, which
+   * is also the point at which the planet stops filling the view. Measured
+   * against the planet, not the focus, so arriving at one of its own points
+   * (a few dozen planet radii out) already shows the geometry that explains
+   * where you are.
+   */
+  private updateFrame(frame: LineSegments, host: SimBody): void {
     const camera = this.state.camera;
     if (!camera || host.sceneRadius <= 0) {
       return;

@@ -86,11 +86,46 @@ export function moonSpherical(jdTT: number): LunarState {
   // Eccentricity of Earth's orbit around the Sun, used to damp solar terms.
   const E = 1 - 0.002516 * T - 0.0000074 * T2;
 
-  const Dr = D * DEG;
-  const Mr = M * DEG;
-  const Mpr = Mp * DEG;
-  const Fr = F * DEG;
+  const { sumL, sumR, sumB } = periodicSums(T, E, {
+    Lpr: Lp * DEG,
+    Dr: D * DEG,
+    Mr: M * DEG,
+    Mpr: Mp * DEG,
+    Fr: F * DEG,
+  });
 
+  // Meeus returns coordinates of the mean equinox of date; rotate back to the
+  // J2000 equinox so the Moon shares the frame with everything else.
+  const lonOfDate = Lp + sumL / 1e6;
+  const longitude = (lonOfDate - PRECESSION_DEG_PER_CENTURY * T) * DEG;
+  const latitude = (sumB / 1e6) * DEG;
+  const distance = 385000.56 + sumR / 1000;
+
+  return { longitude, latitude, distance };
+}
+
+/**
+ * The fundamental arguments, radians: the Moon's mean longitude and mean
+ * elongation, the Sun's and the Moon's mean anomalies, and the argument of latitude.
+ */
+interface LunarArguments {
+  Lpr: number;
+  Dr: number;
+  Mr: number;
+  Mpr: number;
+  Fr: number;
+}
+
+/**
+ * The periodic series of Meeus chapter 47, plus the additive terms, in the
+ * table's own units: 1e-6 degrees for longitude and latitude, metres for distance.
+ */
+function periodicSums(
+  T: number,
+  E: number,
+  args: LunarArguments,
+): { sumL: number; sumR: number; sumB: number } {
+  const { Lpr, Dr, Mr, Mpr, Fr } = args;
   let sumL = 0;
   let sumR = 0;
   for (let k = 0; k < TERMS_LR.length; k += 6) {
@@ -114,7 +149,6 @@ export function moonSpherical(jdTT: number): LunarState {
   const A1 = (119.75 + 131.849 * T) * DEG;
   const A2 = (53.09 + 479264.29 * T) * DEG;
   const A3 = (313.45 + 481266.484 * T) * DEG;
-  const Lpr = Lp * DEG;
 
   sumL += 3958 * Math.sin(A1) + 1962 * Math.sin(Lpr - Fr) + 318 * Math.sin(A2);
   sumB +=
@@ -124,15 +158,7 @@ export function moonSpherical(jdTT: number): LunarState {
     175 * Math.sin(A1 + Fr) +
     127 * Math.sin(Lpr - Mpr) -
     115 * Math.sin(Lpr + Mpr);
-
-  // Meeus returns coordinates of the mean equinox of date; rotate back to the
-  // J2000 equinox so the Moon shares the frame with everything else.
-  const lonOfDate = Lp + sumL / 1e6;
-  const longitude = (lonOfDate - PRECESSION_DEG_PER_CENTURY * T) * DEG;
-  const latitude = (sumB / 1e6) * DEG;
-  const distance = 385000.56 + sumR / 1000;
-
-  return { longitude, latitude, distance };
+  return { sumL, sumR, sumB };
 }
 
 /** Geocentric ecliptic J2000 rectangular position of the Moon, km. */
