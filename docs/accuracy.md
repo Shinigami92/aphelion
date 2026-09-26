@@ -84,7 +84,11 @@ UI.
   1800–2050, and the UI says so when you scrub beyond it.
 - Small satellite orbits are propagated from mean elements with linear apsidal
   and nodal precession — good to arcminutes, not the arcseconds a full numerical
-  integration would give.
+  integration would give. The distant irregular moons are the exception: the Sun
+  perturbs them so strongly that mean elements only keep their orbits' shape and
+  orientation roughly right (`pnpm validate` holds Jupiter's apse lines to 30° a
+  decade out), while their place along the orbit drifts by tens of millions of
+  kilometres within a few years.
 - The sky stops at V = 8. Stars between there and Tycho-2's limit near V 11.5 are
   absent from both layers — individually invisible, but the faint background is
   fractionally smoother than the real one.
