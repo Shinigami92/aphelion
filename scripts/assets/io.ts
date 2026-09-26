@@ -43,6 +43,15 @@ export const QUEUE = path.join(CACHE, 'convert-queue.tsv');
 
 export const UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Aphelion/1.0';
 
+/**
+ * An honest tool identity, for hosts behind a bot wall.
+ *
+ * CDS now fronts its FTP mirror with Anubis, which answers anything claiming to
+ * be a browser with a JavaScript proof-of-work page (a 200, as text/html) instead
+ * of the file. A client that does not pretend to be one is let straight through.
+ */
+export const TOOL_UA = 'Aphelion/1.0 (+https://github.com/Shinigami92/aphelion)';
+
 // ---------------------------------------------------------------------------
 // Small utilities
 // ---------------------------------------------------------------------------
@@ -71,6 +80,13 @@ export async function exists(p: string): Promise<boolean> {
   }
 }
 
+export interface DownloadOptions {
+  /** A web page is what was asked for, so an HTML answer is not an error. */
+  html?: boolean;
+  /** Defaults to `UA`. */
+  userAgent?: string;
+}
+
 /**
  * Download to a cache path, skipping the request if it is already there.
  *
@@ -80,7 +96,7 @@ export async function download(
   url: string,
   dest: string,
   label: string,
-  html = false,
+  { html = false, userAgent = UA }: DownloadOptions = {},
 ): Promise<boolean> {
   if (await exists(dest)) {
     const st = await fs.stat(dest);
@@ -92,7 +108,7 @@ export async function download(
   await fs.mkdir(path.dirname(dest), { recursive: true });
   process.stdout.write(`  ${C.cyan('fetch  ')} ${label} ... `);
   try {
-    const res = await fetch(url, { headers: { 'User-Agent': UA } });
+    const res = await fetch(url, { headers: { 'User-Agent': userAgent } });
     if (!res.ok) {
       console.log(C.red(`HTTP ${res.status}`));
       return false;
@@ -121,7 +137,7 @@ export async function fetchText(
   const dest = path.join(CACHE, cacheName);
   // The JPL satellite tables are web pages, and refusing them left the satellite
   // module impossible to regenerate.
-  if (!(await download(url, dest, label, true))) {
+  if (!(await download(url, dest, label, { html: true }))) {
     return null;
   }
   return fs.readFile(dest, 'utf8');

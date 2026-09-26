@@ -18,6 +18,11 @@ export function checkRegularMoons(): void {
     // Mean elements can do no better than a few per cent of the orbit here, and
     // Phobos, whose orbit is decaying, not quite that. The failure this catches
     // is fifty times larger.
+    //
+    // Triton is the node check. The page halves its nodal period, which put it
+    // 100,000 km out here and 690,000 km out by 1900. With the period Horizons
+    // regresses at, it holds a steady 25,000 km (4°) from 1900 to 2080: its
+    // epoch phase sits that far off, under the threshold that re-derives one.
     const HORIZONS: Record<string, [number, number, number]> = {
       Phobos: [3724.8, 8572.1, -1138.0],
       Deimos: [19325.1, 10251.1, -8458.0],
@@ -35,6 +40,7 @@ export function checkRegularMoons(): void {
       Titania: [-424890.5, 86097.0, -50942.0],
       Oberon: [-530989.7, 82756.5, -230003.9],
       Miranda: [54758.5, -5861.2, 117406.3],
+      Triton: [-227319.9, -262652.0, -72165.5],
     };
     const system = new SolarSystem();
     system.update(2456256.725, new ScaleModel());
@@ -49,7 +55,7 @@ export function checkRegularMoons(): void {
         body.localKm.y - ref[1],
         body.localKm.z - ref[2],
       );
-      const tol = (name === 'Phobos' ? 0.1 : 0.03) * body.sat.a;
+      const tol = (name === 'Phobos' || name === 'Triton' ? 0.1 : 0.03) * body.sat.a;
       ok(
         `${name} matches its Horizons position 13 years on`,
         d < tol,

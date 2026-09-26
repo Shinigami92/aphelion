@@ -2,7 +2,7 @@
 
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { C, CACHE, download } from './io.ts';
+import { C, CACHE, download, TOOL_UA } from './io.ts';
 
 // ---------------------------------------------------------------------------
 // 6. Hipparcos star catalogue  (ESA 1997, via CDS)
@@ -122,7 +122,8 @@ function colourFromTemperature(kelvin: number): [number, number, number] {
 
 export async function buildStarCatalogue(): Promise<Star[] | null> {
   const dest = path.join(CACHE, 'hip_main.dat');
-  if (!(await download(HIPPARCOS_URL, dest, 'Hipparcos main catalogue (I/239)'))) {
+  const label = 'Hipparcos main catalogue (I/239)';
+  if (!(await download(HIPPARCOS_URL, dest, label, { userAgent: TOOL_UA }))) {
     return null;
   }
   const text = await fs.readFile(dest, 'utf8');
