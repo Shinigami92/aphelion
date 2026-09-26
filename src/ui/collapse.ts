@@ -44,21 +44,6 @@ function caret(): SVGSVGElement {
   return svg;
 }
 
-/**
- * @param panel  the `.panel` element
- * @param head   the row that stays visible
- * @param body   everything that collapses
- * @param label  used for the button's accessible name, e.g. "time controls"
- */
-export function makeCollapsible(
-  panel: HTMLElement,
-  head: HTMLElement,
-  body: HTMLElement,
-  label: string,
-): Collapsible {
-  return new CollapsiblePanel(panel, head, body, label);
-}
-
 class CollapsiblePanel implements Collapsible {
   private isCollapsed = false;
   private timer: number | undefined;
@@ -158,6 +143,21 @@ class CollapsiblePanel implements Collapsible {
       }
     }, DURATION_MS + 30);
   }
+}
+
+/**
+ * @param panel  the `.panel` element
+ * @param head   the row that stays visible
+ * @param body   everything that collapses
+ * @param label  used for the button's accessible name, e.g. "time controls"
+ */
+export function makeCollapsible(
+  panel: HTMLElement,
+  head: HTMLElement,
+  body: HTMLElement,
+  label: string,
+): Collapsible {
+  return new CollapsiblePanel(panel, head, body, label);
 }
 
 /**

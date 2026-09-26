@@ -26,18 +26,6 @@ export interface MobileShell {
   closeSheet(): void;
 }
 
-/**
- * @param onModeChange fires whenever the layout switches, so the rest of the
- *   app can stand its desktop-only measuring down and back up again.
- */
-export function installMobileShell(
-  app: HTMLElement,
-  tabs: MobileTab[],
-  onModeChange: (mobile: boolean) => void,
-): MobileShell {
-  return new PhoneShell(app, tabs, onModeChange);
-}
-
 class PhoneShell implements MobileShell {
   private readonly bar = document.createElement('nav');
   private readonly buttons = new Map<string, HTMLButtonElement>();
@@ -126,4 +114,16 @@ class PhoneShell implements MobileShell {
     }
     this.onModeChange(this.mobile);
   }
+}
+
+/**
+ * @param onModeChange fires whenever the layout switches, so the rest of the
+ *   app can stand its desktop-only measuring down and back up again.
+ */
+export function installMobileShell(
+  app: HTMLElement,
+  tabs: MobileTab[],
+  onModeChange: (mobile: boolean) => void,
+): MobileShell {
+  return new PhoneShell(app, tabs, onModeChange);
 }
