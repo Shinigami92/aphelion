@@ -112,12 +112,12 @@ camera.attach(canvas);
 /** Canonical home for source, data provenance and licences. */
 const REPO_URL = 'https://github.com/Shinigami92/aphelion';
 
+const help = new HelpOverlay(need('help'), REPO_URL);
 const timePanel = new TimePanel(need('time-panel'), time, () => {
   help.toggle();
 });
 const infoPanel = new InfoPanel(need('info'));
 const toast = new Toast(need('toast'));
-const help = new HelpOverlay(need('help'), REPO_URL);
 
 const browser = new BodyBrowser(
   need('browser'),
