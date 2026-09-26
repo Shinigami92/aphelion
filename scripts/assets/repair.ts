@@ -26,12 +26,22 @@
  * is then fitted to Horizons across the whole window, and replaces the table's
  * where it at least halves the worst error there: a regular moon's rate fits to a
  * fraction of a degree in 40 years, while an irregular's osculating longitude is
- * too noisy to beat its mean one. Every other row keeps JPL's mean elements
- * untouched, and the shape, the precession and the plane are always JPL's.
+ * too noisy to beat its mean one.
+ *
+ * The node. Triton's nodal period on the page is 340.379 years, exactly half the
+ * 677.4 its ephemeris regresses at, which had it 58–97° out 40 to 60 years from
+ * the epoch. So the node rate is fitted the same way, before the mean motion it
+ * feeds into, and kept where it too at least halves the worst error. That gate
+ * is judged inside the fitted window, so it was checked outside it: at 40 and 60
+ * years either side, 54 of the 57 rows it changes land closer to Horizons, and
+ * the three that do not were over 80° out already.
+ *
+ * Every other row keeps JPL's mean elements untouched, and the shape, the
+ * apsidal precession and the plane are always JPL's.
  */
 
 import type { Basis } from '../../src/astro/frames.ts';
-import type { Vec3 } from '../../src/astro/kepler.ts';
+import type { Phase, Vec3 } from '../../src/astro/kepler.ts';
 import type { SatelliteData } from '../../src/data/generated/satellites.ts';
 import type { StateVector } from './horizons.ts';
 import { applyBasis } from '../../src/astro/frames.ts';
@@ -128,39 +138,91 @@ function repairPhase(sat: RepairedSatellite, frame: Frame, state: StateVector): 
 }
 
 /**
- * The mean-anomaly rate, degrees per day, that gives the mean longitude Horizons'
- * rate once the table's precession is added back on.
+ * How fast an osculating angle moves, radians per day.
  *
- * The osculating mean longitude is unwrapped outward from the epoch, predicting
- * each sample from a least-squares line through the ones before it. The first
- * guess is 2π/P, P being the sidereal period JPL's page says it is. Where it is
- * not, it is still within a degree a day, which is all the first period-long step
- * needs; the propagator's own rate is not, since Tethys's tabulated apsidal period
- * of 0.005 years adds 197° a day to it.
+ * The angle is unwrapped outward from the epoch, predicting each sample from a
+ * least-squares line through the ones before it, so `guess` only has to be close
+ * enough not to lose a turn over the first, shortest step.
  */
-function fitMeanMotion(sat: SatelliteData, frame: Frame, states: StateVector[]): number {
-  const el = elementsFromSatellite(sat);
-  const precession = (el.argPeriDot ?? 0) + (el.nodeDot ?? 0);
-  const longitude = (s: StateVector): number => {
-    const p = phaseFromState(frame.toPlane(s.r), frame.toPlane(s.v), frame.gm, null, sat.inc === 0);
-    return p.node + p.argPeri + p.meanAnomaly;
-  };
+function fitRate(
+  sat: SatelliteData,
+  states: StateVector[],
+  angle: (s: StateVector) => number,
+  guess: number,
+): number {
   const byReach = states.toSorted(
     (a, b) => Math.abs(a.jd - sat.epoch) - Math.abs(b.jd - sat.epoch),
   );
-  const l0 = longitude(byReach[0]);
+  const a0 = angle(byReach[0]);
   const pts = [{ t: 0, l: 0 }];
-  let rate = TWO_PI / sat.period;
+  let rate = guess;
   for (const s of byReach.slice(1)) {
     const t = s.jd - sat.epoch;
-    pts.push({ t, l: rate * t + wrapPi(longitude(s) - l0 - rate * t) });
+    pts.push({ t, l: rate * t + wrapPi(angle(s) - a0 - rate * t) });
     const tMean = pts.reduce((acc, p) => acc + p.t, 0) / pts.length;
     const lMean = pts.reduce((acc, p) => acc + p.l, 0) / pts.length;
     const num = pts.reduce((acc, p) => acc + (p.t - tMean) * (p.l - lMean), 0);
     const den = pts.reduce((acc, p) => acc + (p.t - tMean) ** 2, 0);
     rate = num / den;
   }
+  return rate;
+}
+
+const phaseIn = (sat: SatelliteData, frame: Frame, s: StateVector): Phase =>
+  phaseFromState(frame.toPlane(s.r), frame.toPlane(s.v), frame.gm, null, sat.inc === 0);
+
+/**
+ * The mean-anomaly rate, degrees per day, that gives the mean longitude Horizons'
+ * rate once the table's precession is added back on.
+ *
+ * The first guess is 2π/P, P being the sidereal period JPL's page says it is.
+ * Where it is not, it is still within a degree a day, which is all the first
+ * period-long step needs; the propagator's own rate is not, since Tethys's
+ * tabulated apsidal period of 0.005 years adds 197° a day to it.
+ */
+function fitMeanMotion(sat: SatelliteData, frame: Frame, states: StateVector[]): number {
+  const el = elementsFromSatellite(sat);
+  const precession = (el.argPeriDot ?? 0) + (el.nodeDot ?? 0);
+  const rate = fitRate(
+    sat,
+    states,
+    (s) => {
+      const p = phaseIn(sat, frame, s);
+      return p.node + p.argPeri + p.meanAnomaly;
+    },
+    TWO_PI / sat.period,
+  );
   return Math.round(((rate - precession) / DEG) * 1e6) / 1e6;
+}
+
+/**
+ * The nodal precession period, years, that Horizons' node moves at, or null
+ * where there is none to fit or the fit runs the wrong way.
+ *
+ * Only the period is replaced, like the table's own unsigned one: the direction
+ * is the physics' (see `elementsFromSatellite`), and a fit that disagrees with it
+ * is noise, not a measurement.
+ */
+function fitNodePeriod(sat: SatelliteData, frame: Frame, states: StateVector[]): number | null {
+  const tabulated = elementsFromSatellite(sat).nodeDot ?? 0;
+  if (sat.inc === 0 || tabulated === 0) {
+    return null;
+  }
+  const rate = fitRate(sat, states, (s) => phaseIn(sat, frame, s).node, tabulated);
+  if (Math.sign(rate) !== Math.sign(tabulated)) {
+    return null;
+  }
+  return Math.round((TWO_PI / Math.abs(rate) / 365.25) * 1e3) / 1e3;
+}
+
+/**
+ * The worst error once the rate is refitted as well. A node rate moves the mean
+ * longitude too, so judging a new one on the old rate would hold it to a
+ * longitude the fitted rate is about to correct anyway.
+ */
+function errorWithRate(sat: SatelliteData, frame: Frame, states: StateVector[]): number {
+  const refitted = { ...sat, meanMotion: fitMeanMotion(sat, frame, states) };
+  return Math.min(worstError(sat, frame, states), worstError(refitted, frame, states));
 }
 
 type Outcome = 'kept' | 'repaired' | 'unchecked';
@@ -181,6 +243,15 @@ async function repair(sat: RepairedSatellite): Promise<Outcome> {
   if (phaseError > MAX_ERROR_DEG) {
     repairPhase(sat, frame, atEpoch);
     notes.push(`phase ${phaseError.toFixed(0)}° out`);
+  }
+  const nodePeriod = fitNodePeriod(sat, frame, states);
+  if (nodePeriod !== null) {
+    const before = errorWithRate(sat, frame, states);
+    const after = errorWithRate({ ...sat, nodePeriod }, frame, states);
+    if (after < before / 2) {
+      notes.push(`node period ${sat.nodePeriod} → ${nodePeriod} yr`);
+      sat.nodePeriod = nodePeriod;
+    }
   }
   const drift = worstError(sat, frame, states);
   const fitted = { ...sat, meanMotion: fitMeanMotion(sat, frame, states) };

@@ -7,13 +7,16 @@ Positions come from real theory, not from decoration:
 - **The Moon** — the full 60-term Meeus/ELP-2000 abridgement, ~10 arcseconds.
 - **459 satellites** — JPL published mean elements, including the local Laplace
   plane each inner moon's angles are referred to, plus apsidal and nodal
-  precession. Where the table's phase or mean motion does not reproduce the JPL
-  ephemeris it names, that part is taken from JPL Horizons instead, which puts
+  precession. Where the table's phase, nodal period or mean motion does not
+  reproduce the JPL ephemeris it names, that part is taken from JPL Horizons
+  instead (Triton's nodal period, for one, is listed at half its value), which puts
   the regular moons within a few hundred to a few thousand km of Horizons a
   decade from the epoch.
 - **221 minor planets** — Minor Planet Center osculating elements.
 - **Orientation** — IAU pole and prime-meridian models; satellites oriented from
-  tidal locking, which is what tidal locking physically means.
+  tidal locking, which is what tidal locking physically means. Eris, Haumea and
+  Makemake have no IAU model: their periods are measured, their poles estimated
+  (see ATTRIBUTION.md).
 - **40 Lagrange points** — the five equilibria of each Sun-planet pair, solved
   rather than approximated. See below.
 

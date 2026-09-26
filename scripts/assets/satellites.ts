@@ -188,10 +188,10 @@ export async function writeSatelliteModule(records: SatelliteRecord[]): Promise<
  * ${estimated} have no published radius and use a nominal size
  * (\`radiusEstimated: true\`).
  *
- * ${repaired} take their phase (node, periapsis, mean anomaly) or their mean
- * motion from JPL Horizons, because the table's put them far from the ephemeris
- * it names (see scripts/assets/repair.ts). Their shape, precession and plane
- * are JPL's.
+ * ${repaired} take their phase (node, periapsis, mean anomaly), their nodal
+ * period or their mean motion from JPL Horizons, because the table's put them
+ * far from the ephemeris it names (see scripts/assets/repair.ts). Their shape,
+ * apsidal precession and plane are JPL's.
  *
  * Angles are degrees, distances kilometres, periods days (orbital) or years
  * (apsidal/nodal precession). \`frame\` selects the plane the angles refer to;

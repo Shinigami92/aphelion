@@ -39,7 +39,9 @@ export const DWARF_PLANETS: BodySpec[] = [
       gravity: 0.62,
       escapeVelocity: 1.21,
       rotationHours: -153.2928,
-      axialTilt: 122.53,
+      // What the IAU pole above makes of Pluto's orbit; the 122.53° still found
+      // in fact sheets predates it.
+      axialTilt: 119.61,
       temperatureC: -229,
       albedo: 0.52,
       composition: 'Nitrogen-ice surface over a large rocky core; ~70% rock by mass',
@@ -79,15 +81,19 @@ export const DWARF_PLANETS: BodySpec[] = [
     parent: 'sun',
     radiusKm: 1163,
     flattening: 0,
-    spin: { poleRa: 0, poleDec: 90, w0: 0, wDot: 22.6 },
+    // Eris turns once per orbit of its moon Dysnomia, 15.785899 days (Bernstein
+    // et al. 2023; Szakáts et al. 2023), so it is taken to spin about Dysnomia's
+    // orbit pole (Holler et al. 2021) as well, the way a tidally locked pair
+    // does. The prime meridian is arbitrary: no surface feature fixes it.
+    spin: { poleRa: 36.17, poleDec: 44.51, w0: 0, wDot: 22.805163 },
     color: 0xd8d2c8,
     textures: { map: 'eris.jpg' },
     facts: {
       mass: 1.6466e22,
       gravity: 0.82,
       escapeVelocity: 1.38,
-      rotationHours: 15.79,
-      axialTilt: 78,
+      rotationHours: 378.8616,
+      axialTilt: 78.29,
       temperatureC: -231,
       albedo: 0.96,
       composition: 'Methane-ice frost over rock; among the most reflective bodies known',
@@ -104,15 +110,18 @@ export const DWARF_PLANETS: BodySpec[] = [
     radiusKm: 816,
     // Spins so fast it is a triaxial ellipsoid, roughly 2100 x 1680 x 1074 km.
     flattening: 0.49,
-    spin: { poleRa: 285, poleDec: -12, w0: 0, wDot: 1057.9 },
+    // The pole of the ring, which lies in Haumea's equator and in the plane of
+    // Hi'iaka's orbit (Ortiz et al. 2017). The 126° often quoted as its tilt is
+    // Hi'iaka's inclination to the ecliptic; to Haumea's own orbit this is 87°.
+    spin: { poleRa: 285.1, poleDec: -10.6, w0: 0, wDot: 2206.704346 },
     color: 0xe0ded8,
     textures: { map: 'haumea.jpg' },
     facts: {
       mass: 4.006e21,
       gravity: 0.4,
       escapeVelocity: 0.91,
-      rotationHours: 3.9155,
-      axialTilt: 126,
+      rotationHours: 3.915341,
+      axialTilt: 87,
       temperatureC: -241,
       albedo: 0.51,
       composition: 'Crystalline water ice over a rocky interior',
@@ -128,14 +137,19 @@ export const DWARF_PLANETS: BodySpec[] = [
     parent: 'sun',
     radiusKm: 715,
     flattening: 0,
-    spin: { poleRa: 0, poleDec: 90, w0: 0, wDot: 31.3 },
+    // The period is Hromakina et al. (2019). The pole is unmeasured: the moon's
+    // orbit is seen edge-on (Bamberger 2025), which suggests we see Makemake from
+    // its equator, but not from which side. Spinning upright on its own orbit
+    // is the one guess that keeps that true from anywhere near the Sun, and it
+    // is what the zero tilt below says.
+    spin: { poleRa: 317.92, poleDec: 50.03, w0: 0, wDot: 378.505778 },
     color: 0xc9a086,
     textures: { map: 'makemake.jpg' },
     facts: {
       mass: 3.1e21,
       gravity: 0.5,
       escapeVelocity: 0.8,
-      rotationHours: 22.83,
+      rotationHours: 22.8266,
       axialTilt: 0,
       temperatureC: -239,
       albedo: 0.81,

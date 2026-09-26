@@ -183,7 +183,7 @@ Phobos and Vesta that is faithful: those bodies really are close to neutral grey
 Pluto is the exception, and it gets one deliberate intervention. Its butterscotch
 colour is the most recognisable thing about it, so rendering the panchromatic
 mosaic raw would misinform as badly as a fake surface. Aphelion multiplies it by a
-fixed tint (`textureTint` in `data/bodies.ts`) matching Pluto's measured global
+fixed tint (`textureTint` in `src/data/bodies/dwarf-planets.ts`) matching Pluto's measured global
 colour. **The detail is real New Horizons data; the hue is applied.** No other body
 is tinted.
 
@@ -526,7 +526,23 @@ so they are estimates, not measurements.
 
 IAU Working Group on Cartographic Coordinates and Rotational Elements — pole
 right ascension/declination, prime meridian `W₀` and rotation rate `Ẇ` for the
-Sun, planets and Pluto, hard-coded in `src/data/bodies.ts`.
+Sun, planets, Pluto and Ceres, hard-coded in `src/data/bodies.ts` and
+`src/data/bodies/`.
+
+The IAU has no rotation model for the other three dwarf planets, so theirs are
+assembled from the literature and are **estimates**. None has a surface feature
+to fix a prime meridian, so all three start at `W₀ = 0`.
+
+- **Haumea**: 3.915341 h (Ortiz et al. 2017, _Nature_ 550, 219), about the
+  pole of its ring, (285.1°, −10.6°), which coincides with Hi'iaka's orbit pole.
+- **Eris**: 15.785899 days, synchronous with Dysnomia's orbit (Bernstein et al.
+  2023, _PSJ_ 4, 115; Szakáts et al. 2023), about Dysnomia's orbit pole,
+  (36.17°, 44.51°) (Holler et al. 2021, _Icarus_ 355, 114130). That the two
+  poles coincide is assumed, as it is for any tidally locked pair.
+- **Makemake**: 22.8266 h (Hromakina et al. 2019, _A&A_ 625, A46). The pole is
+  unmeasured. Its moon's orbit is seen nearly edge-on (Bamberger 2025,
+  arXiv:2509.05880), so Makemake is probably seen from its equator, and it is
+  given zero obliquity, the one choice that keeps that true from Earth.
 
 Satellites are oriented from geometry instead: a tidally locked moon's prime
 meridian faces its parent and its pole is the orbit normal. That _is_ what tidal
@@ -587,9 +603,10 @@ All shaders in `src/render/shaders/` are original to this project.
 | -------------------------------- | ------------------------------------------------------------------- |
 | Planet positions                 | Real theory, ~arcminute accuracy 1800–2050                          |
 | Moon position                    | Real theory, ~10 arcsecond accuracy                                 |
-| Satellite orbits                 | Real published mean elements; 333 of 459 repaired from Horizons     |
+| Satellite orbits                 | Real published mean elements; 350 of 459 repaired from Horizons     |
 | Minor planet orbits              | Real published osculating elements, 221 bodies                      |
-| Rotation / axial tilts           | Real IAU values for Sun, planets, Pluto                             |
+| Rotation / axial tilts           | Real IAU values for Sun, planets, Pluto, Ceres                      |
+| Eris, Haumea, Makemake rotation  | Published periods; poles **estimated** (Makemake's assumed)         |
 | Satellite rotation               | Derived from tidal locking (physically correct)                     |
 | Eclipse geometry                 | Computed from the above; umbra verified to ~130 km                  |
 | Planet / major moon surfaces     | Real spacecraft imagery                                             |
