@@ -159,33 +159,7 @@ export class HelpOverlay {
     // Attribution lives in the running app, not only in the repository's
     // ATTRIBUTION.md: the Solar System Scope maps are CC BY 4.0, and someone
     // using a deployed build never sees the source tree.
-    const credits = el('div', 'help__credits');
-    credits.append(el('div', 'help__group', 'Data and imagery'));
-
-    credits.append(
-      creditLine('Planetary and dwarf planet maps by Solar System Scope, used under CC BY 4.0 —', {
-        label: 'solarsystemscope.com/textures',
-        href: 'https://www.solarsystemscope.com/textures/',
-      }),
-      creditLine(
-        'Io, Europa, Ganymede, Callisto and Enceladus mosaics courtesy NASA / JPL-Caltech / USGS Astrogeology.',
-      ),
-      creditLine(
-        'Planetary and satellite ephemerides from JPL Solar System Dynamics; minor planet orbits from the IAU Minor Planet Center; lunar theory after Meeus.',
-      ),
-      creditLine(
-        'The four dwarf planet maps are artistic, and ~450 small bodies have synthesised surfaces — no resolved imagery of them exists.',
-      ),
-    );
-    if (repoUrl !== undefined && repoUrl !== '') {
-      credits.append(
-        creditLine('Source, full provenance and licences —', {
-          label: repoUrl.replace(/^https?:\/\//u, ''),
-          href: repoUrl,
-        }),
-      );
-    }
-    panel.append(credits);
+    panel.append(creditsBlock(repoUrl));
 
     // Same treatment as the two reference lists: both hints exist and the
     // stylesheet picks one, so the overlay never tells a phone to press Esc.
@@ -218,4 +192,35 @@ export class HelpOverlay {
   toggle(): void {
     this.host.hidden = this.host.hidden === false;
   }
+}
+
+/** The data and imagery credits, and the repository link when there is one. */
+function creditsBlock(repoUrl: string | undefined): HTMLElement {
+  const credits = el('div', 'help__credits');
+  credits.append(el('div', 'help__group', 'Data and imagery'));
+
+  credits.append(
+    creditLine('Planetary and dwarf planet maps by Solar System Scope, used under CC BY 4.0 —', {
+      label: 'solarsystemscope.com/textures',
+      href: 'https://www.solarsystemscope.com/textures/',
+    }),
+    creditLine(
+      'Io, Europa, Ganymede, Callisto and Enceladus mosaics courtesy NASA / JPL-Caltech / USGS Astrogeology.',
+    ),
+    creditLine(
+      'Planetary and satellite ephemerides from JPL Solar System Dynamics; minor planet orbits from the IAU Minor Planet Center; lunar theory after Meeus.',
+    ),
+    creditLine(
+      'The four dwarf planet maps are artistic, and ~450 small bodies have synthesised surfaces — no resolved imagery of them exists.',
+    ),
+  );
+  if (repoUrl !== undefined && repoUrl !== '') {
+    credits.append(
+      creditLine('Source, full provenance and licences —', {
+        label: repoUrl.replace(/^https?:\/\//u, ''),
+        href: repoUrl,
+      }),
+    );
+  }
+  return credits;
 }

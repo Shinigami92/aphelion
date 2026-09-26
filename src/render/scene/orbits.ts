@@ -47,6 +47,20 @@ export class OrbitLayer {
     }
     this.orbitRebuildTimer = 0.25;
 
+    const wanted = this.collectOrbits(system, scale);
+
+    for (const [key, entry] of this.orbitLines) {
+      if (!wanted.has(key)) {
+        this.orbitGroup.remove(entry.line);
+        entry.line.geometry.dispose();
+        entry.material.dispose();
+        this.orbitLines.delete(key);
+      }
+    }
+  }
+
+  /** Make sure every orbit worth drawing exists, and return their keys. */
+  private collectOrbits(system: SolarSystem, scale: ScaleModel): Set<string> {
     const wanted = new Set<string>();
     const consider = (body: SimBody, opacity: number): void => {
       if (!body.elements && body.key !== 'moon:Moon') {
@@ -88,15 +102,7 @@ export class OrbitLayer {
     if (this.state.selected) {
       consider(this.state.selected, 0.55);
     }
-
-    for (const [key, entry] of this.orbitLines) {
-      if (!wanted.has(key)) {
-        this.orbitGroup.remove(entry.line);
-        entry.line.geometry.dispose();
-        entry.material.dispose();
-        this.orbitLines.delete(key);
-      }
-    }
+    return wanted;
   }
 
   private ensureOrbit(

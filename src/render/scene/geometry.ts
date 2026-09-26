@@ -34,7 +34,6 @@ export function createSphere(widthSegments: number, heightSegments: number): Buf
   const positions = new Float32Array(count * 3);
   const normals = new Float32Array(count * 3);
   const uvs = new Float32Array(count * 2);
-  const indices: number[] = [];
 
   let p = 0;
   for (let j = 0; j <= h; j++) {
@@ -60,6 +59,19 @@ export function createSphere(widthSegments: number, heightSegments: number): Buf
       p++;
     }
   }
+  const indices = sphereIndices(w, h);
+
+  const geo = new BufferGeometry();
+  geo.setAttribute('position', new BufferAttribute(positions, 3));
+  geo.setAttribute('normal', new BufferAttribute(normals, 3));
+  geo.setAttribute('uv', new BufferAttribute(uvs, 2));
+  geo.setIndex(indices);
+  return geo;
+}
+
+/** Triangles for the sphere grid, skipping the degenerate ones at the poles. */
+function sphereIndices(w: number, h: number): number[] {
+  const indices: number[] = [];
   for (let j = 0; j < h; j++) {
     for (let i = 0; i < w; i++) {
       const a = j * (w + 1) + i;
@@ -74,13 +86,7 @@ export function createSphere(widthSegments: number, heightSegments: number): Buf
       }
     }
   }
-
-  const geo = new BufferGeometry();
-  geo.setAttribute('position', new BufferAttribute(positions, 3));
-  geo.setAttribute('normal', new BufferAttribute(normals, 3));
-  geo.setAttribute('uv', new BufferAttribute(uvs, 2));
-  geo.setIndex(indices);
-  return geo;
+  return indices;
 }
 
 /**

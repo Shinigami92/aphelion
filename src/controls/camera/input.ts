@@ -102,16 +102,7 @@ export class CameraInput {
     // touch gesture at all before — on desktop it is shift-drag or a second
     // mouse button, and a phone has neither.
     if (this.activePointers.size === 2) {
-      const d = this.currentPinchDistance();
-      const centre = this.currentPinchCentre();
-      if (this.pinchDistance > 0 && d > 0) {
-        zoomBy(this.s, this.pinchDistance / d);
-        panByScreen(this.s, centre.x - this.pinchCentre.x, centre.y - this.pinchCentre.y);
-        this.s.interacted = true;
-        this.s.lastInputAt = performance.now();
-      }
-      this.pinchDistance = d;
-      this.pinchCentre = centre;
+      this.pinchMove();
       return;
     }
 
@@ -141,6 +132,20 @@ export class CameraInput {
     } else if (this.dragging === 'pan') {
       panByScreen(this.s, dx, dy);
     }
+  }
+
+  /** Zoom by how far the two fingers spread, and pan by how far their midpoint moved. */
+  private pinchMove(): void {
+    const d = this.currentPinchDistance();
+    const centre = this.currentPinchCentre();
+    if (this.pinchDistance > 0 && d > 0) {
+      zoomBy(this.s, this.pinchDistance / d);
+      panByScreen(this.s, centre.x - this.pinchCentre.x, centre.y - this.pinchCentre.y);
+      this.s.interacted = true;
+      this.s.lastInputAt = performance.now();
+    }
+    this.pinchDistance = d;
+    this.pinchCentre = centre;
   }
 
   private onPointerUp(ev: PointerEvent): void {

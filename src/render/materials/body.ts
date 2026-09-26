@@ -46,8 +46,24 @@ export function createBodyMaterial(opts: BodyMaterialOptions): ShaderMaterial {
     uRimStrength: { value: opts.rimColor ? (opts.rimStrength ?? 1) : 0 },
     uShininess: { value: opts.shininess ?? 60 },
     uAmbient: { value: 0.006 },
-    // Ring shadow cast onto the planet. Bounds are in true kilometres, matching
-    // the ring material, and the hit radius is converted back before lookup.
+    ...ringShadowUniforms(),
+    ...reliefUniforms(),
+  };
+
+  return new ShaderMaterial({
+    defines: { MAX_OCCLUDERS },
+    uniforms,
+    vertexShader: bodyVertexShader,
+    fragmentShader: bodyFragmentShader,
+  });
+}
+
+/**
+ * Ring shadow cast onto the planet. Bounds are in true kilometres, matching
+ * the ring material, and the hit radius is converted back before lookup.
+ */
+function ringShadowUniforms() {
+  return {
     uRingEnabled: { value: 0 },
     uRingTex: { value: null as Texture | null },
     uRingInnerKm: { value: 0 },
@@ -61,8 +77,15 @@ export function createBodyMaterial(opts: BodyMaterialOptions): ShaderMaterial {
     uSatKnee: { value: 3 },
     uScaleBlend: { value: 0 },
     uSceneUnitKm: { value: 1000 },
-    // Relief displacement. Off for every body without a published elevation
-    // grid, which is most of them.
+  };
+}
+
+/**
+ * Relief displacement. Off for every body without a published elevation
+ * grid, which is most of them.
+ */
+function reliefUniforms() {
+  return {
     uRelief: { value: null as Texture | null },
     uHasRelief: { value: 0 },
     uReliefMinKm: { value: 0 },
@@ -72,11 +95,4 @@ export function createBodyMaterial(opts: BodyMaterialOptions): ShaderMaterial {
     /** uv spacing of the drawn LOD's vertices, for the differenced normal. */
     uReliefStep: { value: new Vector2(1, 1) },
   };
-
-  return new ShaderMaterial({
-    defines: { MAX_OCCLUDERS },
-    uniforms,
-    vertexShader: bodyVertexShader,
-    fragmentShader: bodyFragmentShader,
-  });
 }

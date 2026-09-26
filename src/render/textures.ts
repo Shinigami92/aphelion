@@ -86,41 +86,21 @@ export class TextureLibrary {
       return Promise.resolve(null);
     }
 
-    this.requested++;
-    this.emit();
-
-    const promise = new Promise<Texture | null>((resolve) => {
-      this.loader.load(
-        BASE + file,
-        (tex) => {
-          tex.wrapS = RepeatWrapping;
-          tex.minFilter = LinearMipmapLinearFilter;
-          tex.anisotropy = this.anisotropy;
-          tex.generateMipmaps = true;
-          // Our sphere's v runs from the north pole down, matching the row order
-          // of an equirectangular map, so Three's default vertical flip would
-          // put the Arctic in the south.
-          tex.flipY = false;
-          tex.needsUpdate = true;
-          this.cache.set(file, tex);
-          this.completed++;
-          this.emit();
-          resolve(tex);
-        },
-        undefined,
-        () => {
-          // A missing or corrupt file is not fatal: the caller keeps its
-          // procedural texture and the app carries on.
-          console.warn(`[aphelion] could not load texture ${file}; using procedural fallback`);
-          this.completed++;
-          this.emit();
-          resolve(null);
-        },
-      );
-    });
-
-    this.pending.set(file, promise);
-    return promise;
+    return this.request(
+      file,
+      BASE + file,
+      (tex) => {
+        tex.wrapS = RepeatWrapping;
+        tex.minFilter = LinearMipmapLinearFilter;
+        tex.anisotropy = this.anisotropy;
+        tex.generateMipmaps = true;
+        // Our sphere's v runs from the north pole down, matching the row order
+        // of an equirectangular map, so Three's default vertical flip would
+        // put the Arctic in the south.
+        tex.flipY = false;
+      },
+      `[aphelion] could not load texture ${file}; using procedural fallback`,
+    );
   }
 
   /**
@@ -144,30 +124,54 @@ export class TextureLibrary {
       return inFlight;
     }
 
+    return this.request(
+      RELIEF_BASE + file,
+      RELIEF_BASE + file,
+      (tex) => {
+        tex.wrapS = RepeatWrapping;
+        tex.minFilter = LinearFilter;
+        tex.magFilter = LinearFilter;
+        tex.generateMipmaps = false;
+        tex.anisotropy = 1;
+        tex.colorSpace = NoColorSpace;
+        // Same reason as the colour maps: our v runs from the north pole down.
+        tex.flipY = false;
+      },
+      `[aphelion] could not load relief ${file}; body stays an ellipsoid`,
+    );
+  }
+
+  /**
+   * Fetch `url` into the cache under `key`, counting it for the progress bar.
+   *
+   * `configure` sets the sampling a decoded texture needs; `failure` is the
+   * warning printed when the file is missing or broken.
+   */
+  private request(
+    key: string,
+    url: string,
+    configure: (tex: Texture) => void,
+    failure: string,
+  ): Promise<Texture | null> {
     this.requested++;
     this.emit();
 
     const promise = new Promise<Texture | null>((resolve) => {
       this.loader.load(
-        RELIEF_BASE + file,
+        url,
         (tex) => {
-          tex.wrapS = RepeatWrapping;
-          tex.minFilter = LinearFilter;
-          tex.magFilter = LinearFilter;
-          tex.generateMipmaps = false;
-          tex.anisotropy = 1;
-          tex.colorSpace = NoColorSpace;
-          // Same reason as the colour maps: our v runs from the north pole down.
-          tex.flipY = false;
+          configure(tex);
           tex.needsUpdate = true;
-          this.cache.set(RELIEF_BASE + file, tex);
+          this.cache.set(key, tex);
           this.completed++;
           this.emit();
           resolve(tex);
         },
         undefined,
         () => {
-          console.warn(`[aphelion] could not load relief ${file}; body stays an ellipsoid`);
+          // A missing or corrupt file is not fatal: the caller keeps its
+          // procedural texture and the app carries on.
+          console.warn(failure);
           this.completed++;
           this.emit();
           resolve(null);
@@ -175,7 +179,7 @@ export class TextureLibrary {
       );
     });
 
-    this.pending.set(RELIEF_BASE + file, promise);
+    this.pending.set(key, promise);
     return promise;
   }
 

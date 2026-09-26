@@ -35,87 +35,95 @@ export function installMobileShell(
   tabs: MobileTab[],
   onModeChange: (mobile: boolean) => void,
 ): MobileShell {
-  const bar = document.createElement('nav');
-  bar.className = 'tabbar';
-  bar.setAttribute('aria-label', 'Panels');
+  return new PhoneShell(app, tabs, onModeChange);
+}
 
-  let openId: string | null = null;
-  const buttons = new Map<string, HTMLButtonElement>();
+class PhoneShell implements MobileShell {
+  private readonly bar = document.createElement('nav');
+  private readonly buttons = new Map<string, HTMLButtonElement>();
+  private openId: string | null = null;
+  private mobile = false;
 
-  const setOpen = (id: string | null): void => {
-    openId = id;
-    for (const tab of tabs) {
+  constructor(
+    private readonly app: HTMLElement,
+    private readonly tabs: MobileTab[],
+    private readonly onModeChange: (mobile: boolean) => void,
+  ) {
+    this.bar.className = 'tabbar';
+    this.bar.setAttribute('aria-label', 'Panels');
+    for (const tab of this.tabs) {
+      const button = document.createElement('button');
+      button.className = 'tabbar__btn';
+      button.type = 'button';
+      button.textContent = tab.label;
+      button.setAttribute('aria-expanded', 'false');
+      button.addEventListener('click', () => {
+        this.toggle(tab.id);
+      });
+      this.buttons.set(tab.id, button);
+      this.bar.append(button);
+    }
+
+    const media = window.matchMedia(MOBILE_QUERY);
+    this.applyMode(media.matches);
+    media.addEventListener('change', (ev) => {
+      this.applyMode(ev.matches);
+    });
+  }
+
+  get active(): boolean {
+    return this.mobile;
+  }
+
+  closeSheet(): void {
+    this.setOpen(null);
+  }
+
+  private setOpen(id: string | null): void {
+    this.openId = id;
+    for (const tab of this.tabs) {
       const on = tab.id === id;
       tab.panel.classList.toggle('is-sheet-open', on);
-      const button = buttons.get(tab.id);
+      const button = this.buttons.get(tab.id);
       button?.classList.toggle('is-active', on);
       button?.setAttribute('aria-expanded', String(on));
       // A closed sheet is off the layout entirely, so its contents cannot be
       // reached by tabbing behind the scene.
       tab.panel.inert = !on;
     }
-  };
-
-  // Tapping the open tab again closes it, so the scene can be seen whole
-  // without hunting for a dismiss control. Declared outside the loop so the
-  // per-button listeners only close over their own tab, not the mutable state.
-  const toggle = (id: string): void => {
-    setOpen(openId === id ? null : id);
-  };
-
-  for (const tab of tabs) {
-    const button = document.createElement('button');
-    button.className = 'tabbar__btn';
-    button.type = 'button';
-    button.textContent = tab.label;
-    button.setAttribute('aria-expanded', 'false');
-    button.addEventListener('click', () => {
-      toggle(tab.id);
-    });
-    buttons.set(tab.id, button);
-    bar.append(button);
   }
 
-  const media = window.matchMedia(MOBILE_QUERY);
-  let mobile = false;
+  /**
+   * Tapping the open tab again closes it, so the scene can be seen whole
+   * without hunting for a dismiss control.
+   */
+  private toggle(id: string): void {
+    this.setOpen(this.openId === id ? null : id);
+  }
 
-  const applyMode = (next: boolean): void => {
-    if (next === mobile) {
+  private applyMode(next: boolean): void {
+    if (next === this.mobile) {
       return;
     }
-    mobile = next;
-    document.body.classList.toggle('is-mobile', mobile);
-    if (mobile) {
-      app.append(bar);
-      setOpen(null);
+    this.mobile = next;
+    document.body.classList.toggle('is-mobile', this.mobile);
+    if (this.mobile) {
+      this.app.append(this.bar);
+      this.setOpen(null);
     } else {
-      bar.remove();
+      this.bar.remove();
       // Hand every panel back to the desktop layout: no sheet state, nothing
       // inert, and no leftover open sheet.
-      for (const tab of tabs) {
+      for (const tab of this.tabs) {
         tab.panel.classList.remove('is-sheet-open');
         tab.panel.inert = false;
       }
-      openId = null;
-      for (const button of buttons.values()) {
+      this.openId = null;
+      for (const button of this.buttons.values()) {
         button.classList.remove('is-active');
         button.setAttribute('aria-expanded', 'false');
       }
     }
-    onModeChange(mobile);
-  };
-
-  applyMode(media.matches);
-  media.addEventListener('change', (ev) => {
-    applyMode(ev.matches);
-  });
-
-  return {
-    get active() {
-      return mobile;
-    },
-    closeSheet: () => {
-      setOpen(null);
-    },
-  };
+    this.onModeChange(this.mobile);
+  }
 }

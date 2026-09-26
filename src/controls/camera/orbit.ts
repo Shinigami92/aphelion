@@ -104,45 +104,8 @@ export function updateOrbit(s: CameraState, dt: number): void {
   // Keyboard orbiting and zoom.
   const speed = s.keys.precise ? 0.25 : s.keys.boost ? 3 : 1;
   const rate = 1.5 * dt * speed;
-  if (s.keys.orbitLeft) {
-    s.targetAzimuth -= rate;
-  }
-  if (s.keys.orbitRight) {
-    s.targetAzimuth += rate;
-  }
-  if (s.keys.orbitUp) {
-    s.targetElevation = Math.min(MAX_ELEVATION, s.targetElevation + rate);
-  }
-  if (s.keys.orbitDown) {
-    s.targetElevation = Math.max(-MAX_ELEVATION, s.targetElevation - rate);
-  }
   const zoomRate = Math.exp((s.keys.boost ? 2.4 : 1.1) * dt);
-  if (s.keys.zoomIn) {
-    s.targetDistance /= zoomRate;
-  }
-  if (s.keys.zoomOut) {
-    s.targetDistance *= zoomRate;
-  }
-
-  // Also let WASD drive the orbit, so one hand can do everything.
-  if (s.keys.forward) {
-    s.targetDistance /= zoomRate;
-  }
-  if (s.keys.back) {
-    s.targetDistance *= zoomRate;
-  }
-  if (s.keys.left) {
-    s.targetAzimuth -= rate;
-  }
-  if (s.keys.right) {
-    s.targetAzimuth += rate;
-  }
-  if (s.keys.up) {
-    s.targetElevation = Math.min(MAX_ELEVATION, s.targetElevation + rate);
-  }
-  if (s.keys.down) {
-    s.targetElevation = Math.max(-MAX_ELEVATION, s.targetElevation - rate);
-  }
+  steerFromKeys(s, rate, zoomRate);
 
   // Q and E roll here as well as in free flight; they used to be ignored in
   // orbit mode, which made the horizon feel nailed down.
@@ -177,6 +140,50 @@ export function updateOrbit(s: CameraState, dt: number): void {
   }
   s.freePosition.copy(s.camera.position);
   s.freeQuaternion.copy(s.camera.quaternion);
+}
+
+/**
+ * Arrow keys orbit and +/- zoom; WASD, R and F drive the same controls, so
+ * one hand can do everything.
+ */
+function steerFromKeys(s: CameraState, rate: number, zoomRate: number): void {
+  if (s.keys.orbitLeft) {
+    s.targetAzimuth -= rate;
+  }
+  if (s.keys.orbitRight) {
+    s.targetAzimuth += rate;
+  }
+  if (s.keys.orbitUp) {
+    s.targetElevation = Math.min(MAX_ELEVATION, s.targetElevation + rate);
+  }
+  if (s.keys.orbitDown) {
+    s.targetElevation = Math.max(-MAX_ELEVATION, s.targetElevation - rate);
+  }
+  if (s.keys.zoomIn) {
+    s.targetDistance /= zoomRate;
+  }
+  if (s.keys.zoomOut) {
+    s.targetDistance *= zoomRate;
+  }
+
+  if (s.keys.forward) {
+    s.targetDistance /= zoomRate;
+  }
+  if (s.keys.back) {
+    s.targetDistance *= zoomRate;
+  }
+  if (s.keys.left) {
+    s.targetAzimuth -= rate;
+  }
+  if (s.keys.right) {
+    s.targetAzimuth += rate;
+  }
+  if (s.keys.up) {
+    s.targetElevation = Math.min(MAX_ELEVATION, s.targetElevation + rate);
+  }
+  if (s.keys.down) {
+    s.targetElevation = Math.max(-MAX_ELEVATION, s.targetElevation - rate);
+  }
 }
 
 export function clampDistance(s: CameraState): void {

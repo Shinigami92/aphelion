@@ -56,68 +56,69 @@ export function makeCollapsible(
   body: HTMLElement,
   label: string,
 ): Collapsible {
-  const button = document.createElement('button');
-  button.className = 'chip chip--collapse';
-  button.type = 'button';
-  button.append(caret());
-  head.append(button);
+  return new CollapsiblePanel(panel, head, body, label);
+}
 
-  let collapsed = false;
-  let timer: number | undefined;
+class CollapsiblePanel implements Collapsible {
+  private isCollapsed = false;
+  private timer: number | undefined;
+  private readonly button = document.createElement('button');
 
-  /**
-   * Height of the panel with only its header showing — measured by hiding the
-   * body and asking, rather than by adding up the header and the padding. The
-   * headers differ too much for arithmetic to be safe: two sit inside padded
-   * wrappers, and the info panel's is two stacked block elements.
-   *
-   * `bottom` is neutralised for the measurement because the browser panel is
-   * stretched between `top` and `bottom`; left alone it would report the
-   * stretched height and the panel would refuse to fold.
-   */
-  const collapsedHeight = (): number => {
-    const prevHeight = panel.style.height;
-    const prevBottom = panel.style.bottom;
-    const prevDisplay = body.style.display;
-    panel.style.height = '';
-    panel.style.bottom = 'auto';
-    body.style.display = 'none';
-    const measured = panel.getBoundingClientRect().height;
-    body.style.display = prevDisplay;
-    panel.style.bottom = prevBottom;
-    panel.style.height = prevHeight;
-    return measured;
-  };
+  constructor(
+    private readonly panel: HTMLElement,
+    head: HTMLElement,
+    private readonly body: HTMLElement,
+    private readonly label: string,
+  ) {
+    const button = this.button;
+    button.className = 'chip chip--collapse';
+    button.type = 'button';
+    button.append(caret());
+    head.append(button);
 
-  const settle = (): void => {
-    window.clearTimeout(timer);
-    timer = window.setTimeout(() => {
-      panel.classList.remove('is-animating');
-      // Expanded panels give their height back to the stylesheet; collapsed ones
-      // keep theirs pinned, since the header height is the whole point.
-      if (!collapsed) {
-        panel.style.height = '';
-      }
-    }, DURATION_MS + 30);
-  };
+    this.apply(false, false);
+    button.addEventListener('click', () => {
+      this.toggle();
+    });
+  }
 
-  const apply = (next: boolean, animate: boolean): void => {
-    collapsed = next;
-    const verb = collapsed ? 'Expand' : 'Collapse';
-    button.setAttribute('aria-expanded', String(!collapsed));
-    button.setAttribute('aria-label', `${verb} ${label}`);
-    button.title = `${verb} ${label}`;
+  get collapsed(): boolean {
+    return this.isCollapsed;
+  }
+
+  toggle(): void {
+    this.apply(!this.isCollapsed, !prefersReducedMotion());
+  }
+
+  remeasure(): void {
+    if (this.isCollapsed) {
+      this.panel.style.height = `${measureCollapsed(this.panel, this.body)}px`;
+    }
+  }
+
+  private apply(next: boolean, animate: boolean): void {
+    this.isCollapsed = next;
+    const verb = this.isCollapsed ? 'Expand' : 'Collapse';
+    this.button.setAttribute('aria-expanded', String(!this.isCollapsed));
+    this.button.setAttribute('aria-label', `${verb} ${this.label}`);
+    this.button.title = `${verb} ${this.label}`;
     // Hidden from assistive tech and from tab order, not merely from view: a
     // collapsed panel's search box must not still be focusable.
-    body.inert = collapsed;
+    this.body.inert = this.isCollapsed;
 
     if (!animate) {
-      panel.classList.toggle('is-collapsed', collapsed);
-      panel.style.height = collapsed ? `${collapsedHeight()}px` : '';
+      this.panel.classList.toggle('is-collapsed', this.isCollapsed);
+      this.panel.style.height = this.isCollapsed
+        ? `${measureCollapsed(this.panel, this.body)}px`
+        : '';
       return;
     }
+    this.animateTo(this.isCollapsed);
+  }
 
-    const from = panel.getBoundingClientRect().height;
+  /** Transition the panel's height from where it is now to its folded or unfolded height. */
+  private animateTo(collapsed: boolean): void {
+    const from = this.panel.getBoundingClientRect().height;
 
     // Work out the destination first, and with the end-state class applied so
     // the margins that close up are accounted for. Measuring has to come before
@@ -126,42 +127,59 @@ export function makeCollapsible(
     // which silently produces no animation at all.
     let to: number;
     if (collapsed) {
-      panel.classList.add('is-collapsed');
-      to = collapsedHeight();
-      panel.classList.remove('is-collapsed');
+      this.panel.classList.add('is-collapsed');
+      to = measureCollapsed(this.panel, this.body);
+      this.panel.classList.remove('is-collapsed');
     } else {
-      panel.classList.remove('is-collapsed');
-      panel.style.height = '';
-      to = panel.getBoundingClientRect().height;
+      this.panel.classList.remove('is-collapsed');
+      this.panel.style.height = '';
+      to = this.panel.getBoundingClientRect().height;
     }
 
-    panel.style.height = `${from}px`;
-    panel.classList.add('is-animating');
+    this.panel.style.height = `${from}px`;
+    this.panel.classList.add('is-animating');
     // Settle the layout at the starting height, so that is where the transition
     // begins.
-    void panel.offsetHeight;
+    void this.panel.offsetHeight;
 
-    panel.classList.toggle('is-collapsed', collapsed);
-    panel.style.height = `${to}px`;
-    settle();
-  };
+    this.panel.classList.toggle('is-collapsed', collapsed);
+    this.panel.style.height = `${to}px`;
+    this.settle();
+  }
 
-  apply(false, false);
-  button.addEventListener('click', () => {
-    apply(!collapsed, !prefersReducedMotion());
-  });
-
-  return {
-    get collapsed() {
-      return collapsed;
-    },
-    toggle: () => {
-      apply(!collapsed, !prefersReducedMotion());
-    },
-    remeasure: () => {
-      if (collapsed) {
-        panel.style.height = `${collapsedHeight()}px`;
+  private settle(): void {
+    window.clearTimeout(this.timer);
+    this.timer = window.setTimeout(() => {
+      this.panel.classList.remove('is-animating');
+      // Expanded panels give their height back to the stylesheet; collapsed ones
+      // keep theirs pinned, since the header height is the whole point.
+      if (!this.isCollapsed) {
+        this.panel.style.height = '';
       }
-    },
-  };
+    }, DURATION_MS + 30);
+  }
+}
+
+/**
+ * Height of the panel with only its header showing — measured by hiding the
+ * body and asking, rather than by adding up the header and the padding. The
+ * headers differ too much for arithmetic to be safe: two sit inside padded
+ * wrappers, and the info panel's is two stacked block elements.
+ *
+ * `bottom` is neutralised for the measurement because the browser panel is
+ * stretched between `top` and `bottom`; left alone it would report the
+ * stretched height and the panel would refuse to fold.
+ */
+function measureCollapsed(panel: HTMLElement, body: HTMLElement): number {
+  const prevHeight = panel.style.height;
+  const prevBottom = panel.style.bottom;
+  const prevDisplay = body.style.display;
+  panel.style.height = '';
+  panel.style.bottom = 'auto';
+  body.style.display = 'none';
+  const measured = panel.getBoundingClientRect().height;
+  body.style.display = prevDisplay;
+  panel.style.bottom = prevBottom;
+  panel.style.height = prevHeight;
+  return measured;
 }

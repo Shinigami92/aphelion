@@ -70,13 +70,18 @@
     "unicorn/prefer-query-selector": "off",
     // Hot numeric loops read clearer with a named callback than an inline arrow.
     "unicorn/no-array-callback-reference": "off",
-    // Material factories, the asset pipeline and the validation sections are
-    // long single functions by nature; splitting them by line count scatters
-    // one linear story.
-    "max-lines-per-function": "off",
     "import/max-dependencies": "off"
   },
   "overrides": [
+    {
+      // The asset pipeline stages, the validation sections and the spec
+      // `describe` blocks are each one linear story; splitting them by line
+      // count adds parameter passing without adding clarity.
+      "files": ["scripts/**/*.ts", "test/**/*.ts", "e2e/**/*.ts"],
+      "rules": {
+        "max-lines-per-function": "off"
+      }
+    },
     {
       "files": ["test/**/*.spec.ts"],
       "rules": {

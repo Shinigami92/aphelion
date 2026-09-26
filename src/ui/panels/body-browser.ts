@@ -49,7 +49,26 @@ export class BodyBrowser {
     title.append(count);
     head.append(title);
 
-    this.search.placeholder = `Search ${system.bodies.length} bodies…`;
+    this.wireSearch(system.bodies.length);
+    // The search box collapses with the list: a hidden panel should not still
+    // have a focusable input inside it.
+    const body = el('div', 'panel__body');
+    body.append(this.search, this.buildSortRow(), this.list);
+    this.host.append(head, body);
+    // The title row, not its padded wrapper: `.panel__title` is already a flex
+    // row with space-between, so the collapse control lands beside the count
+    // instead of stacking under it.
+    this.head = title;
+    this.body = body;
+
+    this.tree.expand('earth');
+    this.lagrangeShown = showLagrange();
+    this.render();
+  }
+
+  /** Filter as you type; Enter picks the best match and Escape clears the search. */
+  private wireSearch(bodyCount: number): void {
+    this.search.placeholder = `Search ${bodyCount} bodies…`;
     this.search.spellcheck = false;
     this.search.addEventListener('input', () => {
       this.query = this.search.value.trim().toLowerCase();
@@ -69,20 +88,6 @@ export class BodyBrowser {
         this.render();
       }
     });
-    // The search box collapses with the list: a hidden panel should not still
-    // have a focusable input inside it.
-    const body = el('div', 'panel__body');
-    body.append(this.search, this.buildSortRow(), this.list);
-    this.host.append(head, body);
-    // The title row, not its padded wrapper: `.panel__title` is already a flex
-    // row with space-between, so the collapse control lands beside the count
-    // instead of stacking under it.
-    this.head = title;
-    this.body = body;
-
-    this.tree.expand('earth');
-    this.lagrangeShown = showLagrange();
-    this.render();
   }
 
   /**

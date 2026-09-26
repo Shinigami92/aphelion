@@ -20,6 +20,12 @@ interface PickPoint {
   apparent: number;
 }
 
+/** A body the click could mean, and where it landed on screen. */
+interface Candidate {
+  body: SimBody;
+  point: PickPoint;
+}
+
 /** What the hit test needs from the scene. */
 export interface PickContext {
   readonly state: FrameState;
@@ -64,10 +70,59 @@ export function pickBody(
     return null;
   }
 
+  const { reachable, occluderDistance } = collectReachable(
+    clientX,
+    clientY,
+    system,
+    tolerance,
+    camera,
+    ctx,
+  );
+
+  let best: SimBody | null = null;
+  let bestScore = Infinity;
+  for (const { body, point } of reachable) {
+    // Compared against the occluder's centre rather than its near surface, so
+    // a moon skimming the limb stays clickable and only what is decisively
+    // round the back is dropped.
+    if (point.distance > occluderDistance) {
+      continue;
+    }
+
+    // What the click means may be the primary rather than the speck that
+    // caught it — and then it is scored from the primary's own position, not
+    // the speck's.
+    const target = clusterPrimary(body, point, camera, clientX, clientY, tolerance, ctx.state);
+    // Prefer whatever is closest to the cursor, breaking ties toward the
+    // nearer body so a moon in front of its planet wins.
+    const score =
+      Math.hypot(target.point.x - clientX, target.point.y - clientY) -
+      Math.min(target.point.apparent, 40) * 0.5 +
+      Math.log10(target.point.distance + 10) * 0.5;
+    if (score < bestScore) {
+      bestScore = score;
+      best = target.body;
+    }
+  }
+  return best;
+}
+
+/**
+ * Every aimable body within reach of the cursor, and the distance of the
+ * nearest solid disc under it.
+ */
+function collectReachable(
+  clientX: number,
+  clientY: number,
+  system: SolarSystem,
+  tolerance: number,
+  camera: PerspectiveCamera,
+  ctx: PickContext,
+): { reachable: Candidate[]; occluderDistance: number } {
   // Lagrange points are only worth walking while their layer is drawn.
   const groups = ctx.state.toggles.lagrange ? [system.bodies, ctx.lagrangeBodies] : [system.bodies];
 
-  const reachable: Array<{ body: SimBody; point: PickPoint }> = [];
+  const reachable: Candidate[] = [];
   // Nearest solid disc lying under the cursor. Whatever is drawn there hides
   // everything behind it, and the depth buffer already agrees — a sprite
   // eclipsed by a planet is not on screen to be clicked.
@@ -100,33 +155,7 @@ export function pickBody(
       }
     }
   }
-
-  let best: SimBody | null = null;
-  let bestScore = Infinity;
-  for (const { body, point } of reachable) {
-    // Compared against the occluder's centre rather than its near surface, so
-    // a moon skimming the limb stays clickable and only what is decisively
-    // round the back is dropped.
-    if (point.distance > occluderDistance) {
-      continue;
-    }
-
-    // What the click means may be the primary rather than the speck that
-    // caught it — and then it is scored from the primary's own position, not
-    // the speck's.
-    const target = clusterPrimary(body, point, camera, clientX, clientY, tolerance, ctx.state);
-    // Prefer whatever is closest to the cursor, breaking ties toward the
-    // nearer body so a moon in front of its planet wins.
-    const score =
-      Math.hypot(target.point.x - clientX, target.point.y - clientY) -
-      Math.min(target.point.apparent, 40) * 0.5 +
-      Math.log10(target.point.distance + 10) * 0.5;
-    if (score < bestScore) {
-      bestScore = score;
-      best = target.body;
-    }
-  }
-  return best;
+  return { reachable, occluderDistance };
 }
 
 /**
@@ -183,7 +212,7 @@ function clusterPrimary(
   clientY: number,
   tolerance: number,
   state: FrameState,
-): { body: SimBody; point: PickPoint } {
+): Candidate {
   let current = body;
   let currentPoint = point;
   while (current.parent && currentPoint.apparent < SHAPE_APPARENT_PX) {

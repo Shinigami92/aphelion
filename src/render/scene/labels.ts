@@ -2,6 +2,7 @@
 
 import type { SimBody, SolarSystem } from '../../core/system.ts';
 import type { FrameState } from './state.ts';
+import type { PerspectiveCamera } from 'three';
 import { Vector3 } from 'three';
 import { LAGRANGE_MARKER_PX, MAJOR_MOON_RADIUS } from './constants.ts';
 import { activeLagrangeHost } from './lagrange.ts';
@@ -34,6 +35,23 @@ export class LabelLayer {
       return;
     }
 
+    const candidates = this.candidates(system, lagrangeBodies);
+    let used = 0;
+    for (const body of candidates) {
+      if (used >= 120) {
+        break;
+      }
+      if (this.placeLabel(body, camera, used)) {
+        used++;
+      }
+    }
+    for (let i = used; i < this.labelPool.length; i++) {
+      this.labelPool[i].style.display = 'none';
+    }
+  }
+
+  /** The bodies that may get a label this frame. */
+  private candidates(system: SolarSystem, lagrangeBodies: ReadonlyArray<SimBody>): SimBody[] {
     const candidates: SimBody[] = [];
     for (const body of system.bodies) {
       if (body.type === 'star' || body.type === 'planet' || body.type === 'dwarf') {
@@ -64,51 +82,45 @@ export class LabelLayer {
         }
       }
     }
+    return candidates;
+  }
 
-    let used = 0;
-    const half = this.state.viewport.clone().multiplyScalar(0.5);
-    for (const body of candidates) {
-      if (used >= 120) {
-        break;
-      }
-      tmpVec.set(body.scene.x, body.scene.y, body.scene.z).sub(this.state.origin);
-      const distance = camera.position.distanceTo(tmpVec);
-      // Skip if behind the camera or absurdly far relative to the view.
-      tmpVec2.copy(tmpVec).project(camera);
-      if (tmpVec2.z > 1 || tmpVec2.z < -1) {
-        continue;
-      }
-      const x = (tmpVec2.x * 0.5 + 0.5) * this.state.viewport.x;
-      const y = (-tmpVec2.y * 0.5 + 0.5) * this.state.viewport.y;
-      if (x < -80 || y < -20 || x > this.state.viewport.x + 80 || y > this.state.viewport.y + 20) {
-        continue;
-      }
-
-      // Hide the label when the body fills the screen: you know where it is.
-      // A Lagrange point never does — its radius is a framing convention, not a
-      // size — so it is measured as the marker it is: a fixed handful of pixels.
-      const apparent =
-        body.type === 'lagrange'
-          ? LAGRANGE_MARKER_PX * 0.5
-          : (body.sceneRadius / Math.max(distance, 1e-9)) * this.state.viewport.y;
-      if (apparent > this.state.viewport.y * 0.75) {
-        continue;
-      }
-
-      const el = this.labelElement(used++);
-      el.style.display = 'block';
-      el.style.transform = `translate(-50%, -50%) translate(${x.toFixed(1)}px, ${(y - Math.min(apparent, 40) - 12).toFixed(1)}px)`;
-      const isSelected = body === this.state.selected;
-      el.textContent = body.name;
-      el.className = `label label--${body.type}${isSelected ? ' label--selected' : ''}`;
-      el.style.opacity = String(
-        isSelected ? 1 : body.type === 'moon' || body.type === 'asteroid' ? 0.62 : 0.9,
-      );
-      void half;
+  /** Show `body`'s label in pool slot `index`, or return false if it is off screen or not needed. */
+  private placeLabel(body: SimBody, camera: PerspectiveCamera, index: number): boolean {
+    tmpVec.set(body.scene.x, body.scene.y, body.scene.z).sub(this.state.origin);
+    const distance = camera.position.distanceTo(tmpVec);
+    // Skip if behind the camera or absurdly far relative to the view.
+    tmpVec2.copy(tmpVec).project(camera);
+    if (tmpVec2.z > 1 || tmpVec2.z < -1) {
+      return false;
     }
-    for (let i = used; i < this.labelPool.length; i++) {
-      this.labelPool[i].style.display = 'none';
+    const x = (tmpVec2.x * 0.5 + 0.5) * this.state.viewport.x;
+    const y = (-tmpVec2.y * 0.5 + 0.5) * this.state.viewport.y;
+    if (x < -80 || y < -20 || x > this.state.viewport.x + 80 || y > this.state.viewport.y + 20) {
+      return false;
     }
+
+    // Hide the label when the body fills the screen: you know where it is.
+    // A Lagrange point never does — its radius is a framing convention, not a
+    // size — so it is measured as the marker it is: a fixed handful of pixels.
+    const apparent =
+      body.type === 'lagrange'
+        ? LAGRANGE_MARKER_PX * 0.5
+        : (body.sceneRadius / Math.max(distance, 1e-9)) * this.state.viewport.y;
+    if (apparent > this.state.viewport.y * 0.75) {
+      return false;
+    }
+
+    const el = this.labelElement(index);
+    el.style.display = 'block';
+    el.style.transform = `translate(-50%, -50%) translate(${x.toFixed(1)}px, ${(y - Math.min(apparent, 40) - 12).toFixed(1)}px)`;
+    const isSelected = body === this.state.selected;
+    el.textContent = body.name;
+    el.className = `label label--${body.type}${isSelected ? ' label--selected' : ''}`;
+    el.style.opacity = String(
+      isSelected ? 1 : body.type === 'moon' || body.type === 'asteroid' ? 0.62 : 0.9,
+    );
+    return true;
   }
 
   private labelElement(index: number): HTMLElement {

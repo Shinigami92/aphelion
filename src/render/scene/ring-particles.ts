@@ -1,9 +1,8 @@
-/** Individual ring particles, in a patch around the camera when it is inside a ring. */
-
 import type { ScaleModel } from '../../core/scale.ts';
+import type { SimBody } from '../../core/system.ts';
 import type { FrameState } from './state.ts';
 import type { BodyVisual, RingVisual } from './visual.ts';
-import type { Group, ShaderMaterial } from 'three';
+import type { Group, PerspectiveCamera, ShaderMaterial } from 'three';
 import { Matrix4, Mesh, Vector3 } from 'three';
 import { SCENE_UNIT_KM } from '../../core/constants.ts';
 import { createRingParticleMaterial } from '../materials/ring-particle.ts';
@@ -42,6 +41,13 @@ const RING_FIELD_IN_PARTICLES = 400;
 
 /** Field half-thickness, in particle radii. A ring is a sheet, not a slab. */
 const RING_THICKNESS_IN_PARTICLES = 2.5;
+
+/** A ring the camera might be inside, with its distance from the camera in scene units. */
+interface NearestRing {
+  visual: BodyVisual;
+  ring: RingVisual;
+  distance: number;
+}
 
 // Scratch values, reused every frame so the hot paths do not allocate.
 const tmpMatrix = new Matrix4();
@@ -151,7 +157,42 @@ export class RingParticleLayer {
       return;
     }
 
-    let best: { visual: BodyVisual; ring: RingVisual; distance: number } | null = null;
+    const best = this.nearestRing(scale, visuals, camera);
+
+    // How wide a patch has to be to fill the view, and how big a particle must
+    // be drawn to be seen at all. Real ring particles are metres across, which
+    // at any scale this app can show is far below a pixel, so the size is an
+    // exaggeration — stated in the info panel, like the relief factor.
+    // Turn on only once the camera is inside the field's own reach, so the
+    // handover to the flat sheet happens exactly where the rocks run out
+    // rather than at an unrelated distance.
+    if (!best) {
+      mesh.visible = false;
+      return;
+    }
+    const outerUnits = scale.satelliteDistance(best.ring.spec.outerKm, best.visual.body.radiusKm);
+    const unitsPerKm = outerUnits / best.ring.spec.outerKm;
+    const reach = ringParticleSizeKm(best.ring.spec) * RING_FIELD_IN_PARTICLES * unitsPerKm;
+    if (best.distance > reach) {
+      mesh.visible = false;
+      return;
+    }
+
+    const { visual, ring } = best;
+    const body = visual.body;
+    mesh.visible = true;
+    this.seatPatch(mesh, material, body, ring, scale, camera);
+    this.shadePatch(material, body, ring, scale);
+    void sunSceneRadius;
+  }
+
+  /** The textured ring closest to the camera, and how far away it is in scene units. */
+  private nearestRing(
+    scale: ScaleModel,
+    visuals: ReadonlyMap<string, BodyVisual>,
+    camera: PerspectiveCamera,
+  ): NearestRing | null {
+    let best: NearestRing | null = null;
     if (this.state.toggles.rings) {
       for (const visual of visuals.values()) {
         for (const ring of visual.rings) {
@@ -181,30 +222,17 @@ export class RingParticleLayer {
         }
       }
     }
+    return best;
+  }
 
-    // How wide a patch has to be to fill the view, and how big a particle must
-    // be drawn to be seen at all. Real ring particles are metres across, which
-    // at any scale this app can show is far below a pixel, so the size is an
-    // exaggeration — stated in the info panel, like the relief factor.
-    // Turn on only once the camera is inside the field's own reach, so the
-    // handover to the flat sheet happens exactly where the rocks run out
-    // rather than at an unrelated distance.
-    if (!best) {
-      mesh.visible = false;
-      return;
-    }
-    const outerUnits = scale.satelliteDistance(best.ring.spec.outerKm, best.visual.body.radiusKm);
-    const unitsPerKm = outerUnits / best.ring.spec.outerKm;
-    const reach = ringParticleSizeKm(best.ring.spec) * RING_FIELD_IN_PARTICLES * unitsPerKm;
-    if (best.distance > reach) {
-      mesh.visible = false;
-      return;
-    }
-
-    const { visual, ring } = best;
-    const body = visual.body;
-    mesh.visible = true;
-
+  private seatPatch(
+    mesh: Mesh,
+    material: ShaderMaterial,
+    body: SimBody,
+    ring: RingVisual,
+    scale: ScaleModel,
+    camera: PerspectiveCamera,
+  ): void {
     // Sit the patch in the ring's own plane, then express the camera in that
     // frame: radius, angle and height, all in true kilometres.
     // The patch hangs off the world group, whose own position carries the
@@ -231,7 +259,15 @@ export class RingParticleLayer {
     u.uInnerKm.value = ring.spec.innerKm;
     u.uOuterKm.value = ring.spec.outerKm;
     vec3Uniform(u, 'uCamRing').set(camRadiusKm, camAngle, 0);
+  }
 
+  private shadePatch(
+    material: ShaderMaterial,
+    body: SimBody,
+    ring: RingVisual,
+    scale: ScaleModel,
+  ): void {
+    const u = material.uniforms;
     // Field extent and rock size are fixed in kilometres for a given ring, and
     // deliberately not tied to how far away the camera is. Sizing them by
     // distance is what made the rocks unreachable: the field shrank as you
@@ -258,6 +294,5 @@ export class RingParticleLayer {
     u.uSatKnee.value = scale.params.satelliteKnee;
     u.uScaleBlend.value = scale.blendAmount;
     u.uSceneUnitKm.value = SCENE_UNIT_KM;
-    void sunSceneRadius;
   }
 }

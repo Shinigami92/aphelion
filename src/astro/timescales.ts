@@ -64,6 +64,17 @@ export function taiMinusUtc(jdUTC: number): number {
 export function deltaTSeconds(year: number): number {
   const y = year;
 
+  if (y < 1600) {
+    return deltaTBeforeTelescopes(y);
+  }
+  if (y < 1900) {
+    return deltaTTelescopic(y);
+  }
+  return deltaTModern(y);
+}
+
+/** Before 1600: fits to ancient and medieval eclipse and occultation records. */
+function deltaTBeforeTelescopes(y: number): number {
   if (y < -500) {
     const u = (y - 1820) / 100;
     return -20 + 32 * u * u;
@@ -78,16 +89,17 @@ export function deltaTSeconds(year: number): number {
             (33.78311 + u * (-5.952053 + u * (-0.1798452 + u * (0.022174192 + u * 0.0090316521)))))
     );
   }
-  if (y < 1600) {
-    const u = (y - 1000) / 100;
-    return (
-      1574.2 +
-      u *
-        (-556.01 +
-          u *
-            (71.23472 + u * (0.319781 + u * (-0.8503463 + u * (-0.005050998 + u * 0.0083572073)))))
-    );
-  }
+  const u = (y - 1000) / 100;
+  return (
+    1574.2 +
+    u *
+      (-556.01 +
+        u * (71.23472 + u * (0.319781 + u * (-0.8503463 + u * (-0.005050998 + u * 0.0083572073)))))
+  );
+}
+
+/** 1600 to 1900: telescopic timings of occultations and transits. */
+function deltaTTelescopic(y: number): number {
   if (y < 1700) {
     const t = y - 1600;
     return 120 + t * (-0.9808 + t * (-0.01532 + t / 7129));
@@ -110,12 +122,14 @@ export function deltaTSeconds(year: number): number {
                     (-0.00037436 + t * (0.0000121272 + t * (-0.0000001699 + t * 0.000000000875))))))
     );
   }
-  if (y < 1900) {
-    const t = y - 1860;
-    return (
-      7.62 + t * (0.5737 + t * (-0.251754 + t * (0.01680668 + t * (-0.0004473624 + t / 233174))))
-    );
-  }
+  const t = y - 1860;
+  return (
+    7.62 + t * (0.5737 + t * (-0.251754 + t * (0.01680668 + t * (-0.0004473624 + t / 233174))))
+  );
+}
+
+/** From 1900: the modern record, and its extrapolation past 2050. */
+function deltaTModern(y: number): number {
   if (y < 1920) {
     const t = y - 1900;
     return -2.79 + t * (1.494119 + t * (-0.0598939 + t * (0.0061966 - t * 0.000197)));
