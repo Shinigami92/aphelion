@@ -71,10 +71,10 @@ export class TextureLibrary {
    * Load a texture. Resolves to null when the file is not in the manifest or
    * the decode fails, letting callers keep their procedural fallback.
    */
-  load(file: string): Promise<Texture | null> {
+  async load(file: string): Promise<Texture | null> {
     const cached = this.cache.get(file);
     if (cached) {
-      return Promise.resolve(cached);
+      return cached;
     }
 
     const inFlight = this.pending.get(file);
@@ -83,7 +83,7 @@ export class TextureLibrary {
     }
 
     if (!this.available(file)) {
-      return Promise.resolve(null);
+      return null;
     }
 
     return this.request(
@@ -113,10 +113,10 @@ export class TextureLibrary {
    * and an sRGB decode would regrade the bytes outright. Sampling happens in the
    * vertex stage at one fixed level, so nothing is lost by refusing them.
    */
-  loadRelief(file: string): Promise<Texture | null> {
+  async loadRelief(file: string): Promise<Texture | null> {
     const cached = this.cache.get(RELIEF_BASE + file);
     if (cached) {
-      return Promise.resolve(cached);
+      return cached;
     }
 
     const inFlight = this.pending.get(RELIEF_BASE + file);
@@ -147,7 +147,7 @@ export class TextureLibrary {
    * `configure` sets the sampling a decoded texture needs; `failure` is the
    * warning printed when the file is missing or broken.
    */
-  private request(
+  private async request(
     key: string,
     url: string,
     configure: (tex: Texture) => void,
@@ -185,7 +185,7 @@ export class TextureLibrary {
 
   /** Fire-and-forget preload of several files. */
   async preload(files: Array<string | null | undefined>): Promise<void> {
-    const jobs = files.filter((f): f is string => this.available(f)).map((f) => this.load(f));
+    const jobs = files.filter((f): f is string => this.available(f)).map(async (f) => this.load(f));
     await Promise.all(jobs);
   }
 

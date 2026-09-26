@@ -49,6 +49,12 @@
     "typescript/no-invalid-void-type": "error",
     "typescript/prefer-for-of": "error",
     "typescript/prefer-readonly-parameter-types": "off",
+    "typescript/promise-function-async": "error",
+    // Replaces the core `require-await` (pedantic), which flags every function
+    // that `promise-function-async` makes async only because it returns a promise.
+    // The type-aware version accepts an async function that returns a thenable.
+    "require-await": "off",
+    "typescript/require-await": "error",
 
     // --- unicorn ---
     "unicorn/import-style": "error",

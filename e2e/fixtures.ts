@@ -122,7 +122,7 @@ export async function settle(page: Page): Promise<void> {
     timeout: 30_000,
   });
   await page.evaluate(
-    (frames) =>
+    async (frames) =>
       new Promise<void>((resolve) => {
         const { scene } = window.aphelion;
         const render = scene.render.bind(scene);

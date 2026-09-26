@@ -49,8 +49,10 @@ sw.addEventListener('install', (event) => {
   event.waitUntil(
     caches
       .open(SHELL_CACHE)
-      .then((cache) => cache.addAll(SHELL.map((url) => new Request(url, { cache: 'reload' }))))
-      .then(() => sw.skipWaiting()),
+      .then(async (cache) =>
+        cache.addAll(SHELL.map((url) => new Request(url, { cache: 'reload' }))),
+      )
+      .then(async () => sw.skipWaiting()),
   );
 });
 
@@ -58,14 +60,14 @@ sw.addEventListener('activate', (event) => {
   event.waitUntil(
     caches
       .keys()
-      .then((names) =>
+      .then(async (names) =>
         Promise.all(
           names
             .filter((name) => name.startsWith('aphelion-shell-') && name !== SHELL_CACHE)
-            .map((name) => caches.delete(name)),
+            .map(async (name) => caches.delete(name)),
         ),
       )
-      .then(() => sw.clients.claim()),
+      .then(async () => sw.clients.claim()),
   );
 });
 

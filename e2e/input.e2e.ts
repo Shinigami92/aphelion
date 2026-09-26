@@ -35,9 +35,11 @@ function findOtherBody(avoid: string): { x: number; y: number; key: string } {
   throw new Error('no other body on screen');
 }
 
-const toast = (page: Page): Promise<string | null> => page.locator('#toast').textContent();
-const infoName = (page: Page): Promise<string | null> => page.locator('.info__name').textContent();
-const focusKey = (page: Page): Promise<string> => page.evaluate(() => window.aphelion.focus.key);
+const toast = async (page: Page): Promise<string | null> => page.locator('#toast').textContent();
+const infoName = async (page: Page): Promise<string | null> =>
+  page.locator('.info__name').textContent();
+const focusKey = async (page: Page): Promise<string> =>
+  page.evaluate(() => window.aphelion.focus.key);
 
 test('clock shortcuts', async ({ page }) => {
   await openEarth(page);
@@ -67,7 +69,7 @@ test('clock shortcuts', async ({ page }) => {
 
 test('display shortcuts', async ({ page }) => {
   await openEarth(page);
-  const toggles = (): Promise<Record<string, unknown>> =>
+  const toggles = async (): Promise<Record<string, unknown>> =>
     page.evaluate(() => ({ ...window.aphelion.scene.toggles }));
 
   await page.keyboard.press('o');
@@ -98,7 +100,9 @@ test('display shortcuts', async ({ page }) => {
   expect(await toast(page)).toBe('Quality: low');
 
   // The shareable URL catches up within its throttle.
-  await expect.poll(() => page.evaluate(() => window.location.search)).toContain('orbits=none');
+  await expect
+    .poll(async () => page.evaluate(() => window.location.search))
+    .toContain('orbits=none');
 });
 
 test('navigation shortcuts', async ({ page }) => {
