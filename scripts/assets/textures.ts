@@ -21,7 +21,7 @@ export function sssTextures(): TextureSpec[] {
   // Solar System Scope only publishes certain bodies at certain sizes, so each
   // entry degrades gracefully from the requested tier downward.
   const big = tier === 'lean' ? ['2k'] : tier === 'high' ? ['4k', '2k'] : ['8k', '4k', '2k'];
-  const pick = (stem: string, sizes = big) => sizes.map((s) => `${s}_${stem}`);
+  const pick = (stem: string, sizes = big): string[] => sizes.map((s) => `${s}_${stem}`);
 
   return [
     { out: 'sun.jpg', candidates: pick('sun.jpg') },

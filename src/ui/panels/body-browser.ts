@@ -36,7 +36,7 @@ export class BodyBrowser {
      * own: a point that is not on screen should not be offered as somewhere to
      * fly to, and clicking a row here does fly there.
      */
-    private showLagrange: () => boolean = () => true,
+    private showLagrange: () => boolean = (): boolean => true,
   ) {
     this.tree = new BodyTree(this.list, system, onSelect);
 

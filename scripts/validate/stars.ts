@@ -8,6 +8,15 @@ import { unpackStars } from '../../src/data/stars.ts';
 import { PUBLIC_DIR } from './assets.ts';
 import { ok, section } from './harness.ts';
 
+/** The catalogue entry nearest a published position. */
+interface StarMatch {
+  index: number;
+  arcsec: number;
+  mag: number;
+  rgb: readonly [number, number, number];
+  pm: number;
+}
+
 export function checkStarCatalogue(): void {
   section('Star catalogue');
 
@@ -27,7 +36,7 @@ export function checkStarCatalogue(): void {
 
       if (stars) {
         /** Nearest catalogue entry to a published position, and how far off it is. */
-        const find = (raDeg: number, decDeg: number) => {
+        const find = (raDeg: number, decDeg: number): StarMatch => {
           const ra = raDeg * DEG;
           const dec = decDeg * DEG;
           const t = [Math.cos(dec) * Math.cos(ra), Math.cos(dec) * Math.sin(ra), Math.sin(dec)];

@@ -171,12 +171,12 @@ export async function buildRelief(spec: ReliefSpec): Promise<ReliefResult | null
   // wider than a centre-registered grid of the same column count.
   const lonOfCol =
     spec.gridRegistered === true
-      ? (c: number) => spec.originLonEast + (c * 360) / (spec.width - 1)
-      : (c: number) => spec.originLonEast + ((c + 0.5) * 360) / spec.width;
+      ? (c: number): number => spec.originLonEast + (c * 360) / (spec.width - 1)
+      : (c: number): number => spec.originLonEast + ((c + 0.5) * 360) / spec.width;
   const latOfRow =
     spec.gridRegistered === true
-      ? (r: number) => 90 - (r * 180) / (spec.height - 1)
-      : (r: number) => 90 - ((r + 0.5) * 180) / spec.height;
+      ? (r: number): number => 90 - (r * 180) / (spec.height - 1)
+      : (r: number): number => 90 - ((r + 0.5) * 180) / spec.height;
 
   // Scatter every source sample into the output cell it falls in and average.
   // For a same-size grid this reduces to a pure roll — one sample per cell — so

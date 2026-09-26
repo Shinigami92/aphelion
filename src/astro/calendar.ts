@@ -13,8 +13,8 @@ export interface CalendarDate {
   ms: number;
 }
 
-const p2 = (n: number) => String(Math.abs(n)).padStart(2, '0');
-const p3 = (n: number) => String(Math.abs(n)).padStart(3, '0');
+const p2 = (n: number): string => String(Math.abs(n)).padStart(2, '0');
+const p3 = (n: number): string => String(Math.abs(n)).padStart(3, '0');
 
 /**
  * Julian Date -> proleptic Gregorian UTC calendar fields, via the standard

@@ -1,5 +1,6 @@
 /** The surface of every sphere-rendered planet, moon and dwarf planet. */
 
+import type { IUniform } from 'three';
 import { Color, ShaderMaterial, Texture, Vector2, Vector3, Vector4 } from 'three';
 import bodyFragmentShader from '../shaders/body.frag.glsl?raw';
 import bodyVertexShader from '../shaders/body.vert.glsl?raw';
@@ -62,7 +63,7 @@ export function createBodyMaterial(opts: BodyMaterialOptions): ShaderMaterial {
  * Ring shadow cast onto the planet. Bounds are in true kilometres, matching
  * the ring material, and the hit radius is converted back before lookup.
  */
-function ringShadowUniforms() {
+function ringShadowUniforms(): Record<string, IUniform> {
   return {
     uRingEnabled: { value: 0 },
     uRingTex: { value: null as Texture | null },
@@ -84,7 +85,7 @@ function ringShadowUniforms() {
  * Relief displacement. Off for every body without a published elevation
  * grid, which is most of them.
  */
-function reliefUniforms() {
+function reliefUniforms(): Record<string, IUniform> {
   return {
     uRelief: { value: null as Texture | null },
     uHasRelief: { value: 0 },
