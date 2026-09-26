@@ -36,6 +36,10 @@
     "curly": "error",
     // `eqeqeq` is already error via the `pedantic` category; this only sets the `null: ignore` option.
     "eqeqeq": ["error", "always", { "null": "ignore" }],
+    // Modules read top-down: the exported entry point first, its helpers below.
+    // Hoisted functions and classes referenced only from inside a function are
+    // safe; same-scope class use and every `let`/`const` stay checked (TDZ).
+    "no-use-before-define": ["error", { "functions": false, "classes": false }],
     "prefer-template": "error",
     "sort-imports": ["error", { "ignoreCase": true, "ignoreDeclarationSort": true }],
 
