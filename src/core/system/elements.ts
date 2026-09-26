@@ -7,9 +7,13 @@ import { AU_KM, DEG, TWO_PI } from '../constants.ts';
 
 export function elementsFromSatellite(sat: SatelliteData): Elements {
   const retrograde = sat.inc > 90;
-  // JPL quotes the apsidal and nodal precession as periods in years. Prograde
-  // satellites of an oblate primary have an advancing apsis and a regressing
-  // node; retrograde satellites are the other way round.
+  // JPL quotes the apsidal and nodal precession as unsigned periods in years, so
+  // the direction comes from the physics. Whether the torque is the primary's
+  // oblateness or the Sun's pull, the node precesses as -cos i and the apsis as
+  // 5cos²i - 1. The node therefore regresses on a prograde orbit and advances on
+  // a retrograde one, but the apsis advances on both: cos²i does not care which
+  // way round the moon goes. Precessing retrograde apsides backwards put the
+  // irregular moons' apse lines 76–141° off Horizons within a decade.
   const apsisRate =
     sat.apsisPeriod !== null && sat.apsisPeriod !== 0 ? TWO_PI / (sat.apsisPeriod * 365.25) : 0;
   const nodeRate =
@@ -24,7 +28,7 @@ export function elementsFromSatellite(sat: SatelliteData): Elements {
     m0: sat.m0 * DEG,
     epoch: sat.epoch,
     n: TWO_PI / sat.period,
-    argPeriDot: retrograde ? -apsisRate : apsisRate,
+    argPeriDot: apsisRate,
     nodeDot: retrograde ? nodeRate : -nodeRate,
   };
 }

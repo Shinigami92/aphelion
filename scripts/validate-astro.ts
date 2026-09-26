@@ -13,6 +13,7 @@
 
 import { checkTidalLocking } from './validate/frames.ts';
 import { report } from './validate/harness.ts';
+import { checkIrregularApsides } from './validate/irregulars.ts';
 import { checkSharedLinks } from './validate/links.ts';
 import {
   checkFloat32Orbits,
@@ -50,5 +51,6 @@ checkShapeModels();
 checkStarCatalogue();
 checkUranianSystem();
 checkUranianMosaics();
+checkIrregularApsides();
 
 report();
