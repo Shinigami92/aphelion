@@ -7,7 +7,11 @@ import { cancelFlight, panByScreen, zoomBy } from './orbit.ts';
 
 export class CameraInput {
   private dragging: 'none' | 'orbit' | 'pan' = 'none';
-  private lastPointer = { x: 0, y: 0 };
+  /**
+   * Where each pointer on the element last was, by pointer id. Each finger's
+   * motion is measured against its own last position; one shared position
+   * made the camera jump whenever a move came from a different finger.
+   */
   private activePointers = new Map<number, { x: number; y: number }>();
   private pinchDistance = 0;
   /** Midpoint of a two-finger gesture, which pans as it travels. */
@@ -81,12 +85,18 @@ export class CameraInput {
     // Touching the view takes control back; a flight that kept running would be
     // fighting the drag for the rest of its duration.
     cancelFlight(this.s);
+    // A primary pointer only goes down when no other of its kind is, so any
+    // pointer still recorded missed its pointerup and would turn every later
+    // drag into a pinch.
+    if (ev.isPrimary) {
+      this.activePointers.clear();
+    }
     this.activePointers.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
-    this.lastPointer = { x: ev.clientX, y: ev.clientY };
 
-    if (this.activePointers.size === 2) {
-      this.pinchDistance = this.currentPinchDistance();
-      this.pinchCentre = this.currentPinchCentre();
+    if (this.activePointers.size > 1) {
+      // A third finger leaves the pinch to the first two, which is still
+      // re-measured so it continues from where they are now.
+      this.startPinch();
       this.dragging = 'none';
       return;
     }
@@ -94,8 +104,14 @@ export class CameraInput {
     this.dragging = ev.button === 1 || ev.button === 2 || ev.shiftKey ? 'pan' : 'orbit';
   }
 
+  private startPinch(): void {
+    this.pinchDistance = this.currentPinchDistance();
+    this.pinchCentre = this.currentPinchCentre();
+  }
+
   private onPointerMove(ev: PointerEvent): void {
-    if (!this.activePointers.has(ev.pointerId)) {
+    const last = this.activePointers.get(ev.pointerId);
+    if (!last) {
       return;
     }
     this.activePointers.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
@@ -104,14 +120,13 @@ export class CameraInput {
     // between them zooms, and where their midpoint travels pans. Panning had no
     // touch gesture at all before — on desktop it is shift-drag or a second
     // mouse button, and a phone has neither.
-    if (this.activePointers.size === 2) {
+    if (this.activePointers.size > 1) {
       this.pinchMove();
       return;
     }
 
-    const dx = ev.clientX - this.lastPointer.x;
-    const dy = ev.clientY - this.lastPointer.y;
-    this.lastPointer = { x: ev.clientX, y: ev.clientY };
+    const dx = ev.clientX - last.x;
+    const dy = ev.clientY - last.y;
     if (dx === 0 && dy === 0) {
       return;
     }
@@ -158,6 +173,9 @@ export class CameraInput {
     this.activePointers.delete(ev.pointerId);
     if (this.activePointers.size < 2) {
       this.pinchDistance = 0;
+    } else {
+      // The pair the pinch measures may just have changed fingers.
+      this.startPinch();
     }
     if (this.activePointers.size === 0) {
       this.dragging = 'none';

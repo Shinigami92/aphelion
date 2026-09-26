@@ -20,29 +20,81 @@ function doubleTapDetector(): (ev: PointerEvent) => boolean {
   };
 }
 
+interface PointerDown {
+  x: number;
+  y: number;
+  t: number;
+}
+
+/**
+ * Which pointer releases are taps: short, still, and alone on the canvas. A
+ * pinch ends with each finger lifting close to where it landed, which would
+ * otherwise read as a tap and select whatever was under it.
+ */
+function tapTracker(): {
+  down: (ev: PointerEvent) => void;
+  /** Whether lifting this pointer ends a tap. */
+  up: (ev: PointerEvent) => boolean;
+} {
+  const downs = new Map<number, PointerDown>();
+  /** Whether the gesture under way has had two pointers down at once. */
+  let multiTouch = false;
+  return {
+    down: (ev): void => {
+      // A primary pointer only goes down when no other of its kind is, so
+      // anything still recorded missed its pointerup and must not keep the
+      // next tap from counting.
+      if (ev.isPrimary) {
+        downs.clear();
+        multiTouch = false;
+      }
+      downs.set(ev.pointerId, { x: ev.clientX, y: ev.clientY, t: performance.now() });
+      if (downs.size > 1) {
+        multiTouch = true;
+      }
+    },
+    up: (ev): boolean => {
+      const down = downs.get(ev.pointerId);
+      downs.delete(ev.pointerId);
+      const alone = !multiTouch;
+      if (downs.size === 0) {
+        multiTouch = false;
+      }
+      if (!down || !alone) {
+        return false;
+      }
+      // Only a pointer that basically stayed put makes a tap.
+      const moved = Math.hypot(ev.clientX - down.x, ev.clientY - down.y);
+      return moved <= 6 && performance.now() - down.t <= 500;
+    },
+  };
+}
+
 export function installPointerSelection(
   canvas: HTMLCanvasElement,
   pick: (x: number, y: number) => SimBody | null,
   select: (body: SimBody) => void,
   goTo: (body: SimBody) => void,
 ): void {
-  let pointerDownAt = { x: 0, y: 0, t: 0 };
-
+  const pickAt = (ev: MouseEvent): SimBody | null => {
+    const rect = canvas.getBoundingClientRect();
+    return pick(ev.clientX - rect.left, ev.clientY - rect.top);
+  };
+  const taps = tapTracker();
   canvas.addEventListener('pointerdown', (ev) => {
-    pointerDownAt = { x: ev.clientX, y: ev.clientY, t: performance.now() };
+    taps.down(ev);
+  });
+  canvas.addEventListener('pointercancel', (ev) => {
+    taps.up(ev);
   });
 
   const isDoubleTap = doubleTapDetector();
 
   canvas.addEventListener('pointerup', (ev) => {
-    const moved = Math.hypot(ev.clientX - pointerDownAt.x, ev.clientY - pointerDownAt.y);
-    const elapsed = performance.now() - pointerDownAt.t;
-    // Only treat it as a click if the pointer basically stayed put.
-    if (moved > 6 || elapsed > 500) {
+    if (!taps.up(ev)) {
       return;
     }
-    const rect = canvas.getBoundingClientRect();
-    const hit = pick(ev.clientX - rect.left, ev.clientY - rect.top);
+    const hit = pickAt(ev);
     if (hit) {
       select(hit);
     }
@@ -60,8 +112,7 @@ export function installPointerSelection(
   });
 
   canvas.addEventListener('dblclick', (ev) => {
-    const rect = canvas.getBoundingClientRect();
-    const hit = pick(ev.clientX - rect.left, ev.clientY - rect.top);
+    const hit = pickAt(ev);
     if (hit) {
       select(hit);
       goTo(hit);
