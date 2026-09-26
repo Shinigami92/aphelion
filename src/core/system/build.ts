@@ -4,7 +4,6 @@ import type { LagrangeId, RotatingPoint } from '../../astro/lagrange.ts';
 import type { BodySpec } from '../../data/body-spec.ts';
 import type { SmallBodyData } from '../../data/generated/smallbodies.ts';
 import type { SimBody } from '../system.ts';
-import { basisForFrame, basisForPlanetEquator } from '../../astro/frames.ts';
 import { hillFraction, isCollinear, LAGRANGE_IDS, lagrangeGeometry } from '../../astro/lagrange.ts';
 import { DWARF_PLANETS } from '../../data/bodies/dwarf-planets.ts';
 import { MOON_NOTES, MOON_TEXTURES, MOON_TINTS } from '../../data/bodies/moons.ts';
@@ -22,7 +21,7 @@ import {
   MARKER_HILL_FRACTION,
   romanFor,
 } from './catalogue.ts';
-import { elementsFromSatellite, elementsFromSmallBody } from './elements.ts';
+import { elementsFromSatellite, elementsFromSmallBody, satelliteBasis } from './elements.ts';
 
 /**
  * The collections a solar system is built into. `SolarSystem` is one; the builders
@@ -74,23 +73,7 @@ export function addSatellites(reg: BodyRegistry): void {
       continue;
     }
 
-    // JPL's "equatorial" frame means the *parent planet's* equator, not the
-    // ICRF equator, and the table leaves the pole columns blank for those
-    // rows. The data says so unambiguously: Titania and Charon are listed at
-    // inclination 0.1 and 0.0 degrees, which is only true of Uranus's and
-    // Pluto's own equators — against the ICRF equator they would be ~75 and
-    // ~119 degrees. Reading it as the ICRF equator tipped all 11 affected
-    // moons (the classical Uranians and the whole Pluto system) out of their
-    // planet's plane, leaving Uranus's rings and its moons visibly
-    // non-coplanar.
-    //
-    // Which *end* of that axis is not a free choice either, and it is not the
-    // IAU pole: see `basisForPlanetEquator`. Reading it as the IAU pole had the
-    // six inner Uranian moons orbiting backwards, up to 1.09 million km out.
-    const basis =
-      sat.frame === 'equatorial' && parent.spec
-        ? basisForPlanetEquator(parent.spec.spin)
-        : basisForFrame(sat.frame, sat.poleRa, sat.poleDec);
+    const basis = satelliteBasis(sat, parent.spec?.spin ?? null);
     const body = makeBody({
       key: `moon:${sat.name}`,
       name: sat.name,

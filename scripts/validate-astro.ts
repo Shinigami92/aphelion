@@ -29,6 +29,7 @@ import {
 import { checkReliefGrids } from './validate/relief-grids.ts';
 import { checkShapeModels } from './validate/relief-shapes.ts';
 import { checkRingRemap, checkRingStructure } from './validate/rings.ts';
+import { checkRegularMoons } from './validate/satellites.ts';
 import { checkStarCatalogue } from './validate/stars.ts';
 import { checkKepler, checkTimeScales } from './validate/time.ts';
 import { checkUranianMosaics, checkUranianSystem } from './validate/uranus.ts';
@@ -50,6 +51,7 @@ checkReliefGrids();
 checkShapeModels();
 checkStarCatalogue();
 checkUranianSystem();
+checkRegularMoons();
 checkUranianMosaics();
 checkIrregularApsides();
 

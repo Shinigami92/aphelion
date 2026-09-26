@@ -221,6 +221,75 @@ export function sampleOrbit(el: Elements, segments: number, jdTT: number): Float
   return pts;
 }
 
+// Local rather than frames.ts's, which imports this module's types.
+const crossOf = (a: Vec3, b: Vec3): Vec3 => ({
+  x: a.y * b.z - a.z * b.y,
+  y: a.z * b.x - a.x * b.z,
+  z: a.x * b.y - a.y * b.x,
+});
+
+const dotOf = (a: Vec3, b: Vec3): number => a.x * b.x + a.y * b.y + a.z * b.z;
+
+/** The three angles that say where on an orbit a body is and which way it faces. */
+export interface Phase {
+  node: number;
+  argPeri: number;
+  meanAnomaly: number;
+}
+
+/**
+ * The node, argument of periapsis and mean anomaly that put a body where a state
+ * vector says it is, on an orbit of eccentricity `e` rather than the state's own
+ * (or its own, osculating one when `e` is null).
+ *
+ * This is for mean elements whose shape is trusted and whose phase is not. The
+ * orbit plane and the apse line come from the state's angular momentum and
+ * eccentricity vector, and the mean anomaly is chosen so that the true anomaly on
+ * the given ellipse matches the body's actual direction. The body therefore lands
+ * on the right ray from its primary, at the mean orbit's distance, instead of
+ * somewhere else on its orbit.
+ *
+ * `r` and `v` are in the reference plane of the elements, in km and km/s with
+ * `gm` in km³/s². `planar` is for elements with zero inclination, whose node is
+ * undefined. It measures the argument of periapsis from the x-axis, as the
+ * propagator does with a zero node. A zero `e` does the same for the undefined
+ * periapsis. All three angles come back in radians in [0, 2π).
+ */
+export function phaseFromState(
+  r: Vec3,
+  v: Vec3,
+  gm: number,
+  shape: number | null,
+  planar: boolean,
+): Phase {
+  const h = crossOf(r, v);
+  const hLen = Math.hypot(h.x, h.y, h.z);
+  const node = planar ? 0 : Math.atan2(h.x, -h.y);
+  // The node line and the in-plane direction 90° ahead of it along the motion.
+  const n: Vec3 = { x: Math.cos(node), y: Math.sin(node), z: 0 };
+  const q = crossOf({ x: h.x / hLen, y: h.y / hLen, z: h.z / hLen }, n);
+
+  const rLen = Math.hypot(r.x, r.y, r.z);
+  const vh = crossOf(v, h);
+  const ecc: Vec3 = {
+    x: vh.x / gm - r.x / rLen,
+    y: vh.y / gm - r.y / rLen,
+    z: vh.z / gm - r.z / rLen,
+  };
+  const e = shape ?? Math.hypot(ecc.x, ecc.y, ecc.z);
+  const argLat = Math.atan2(dotOf(r, q), dotOf(r, n));
+  const argPeri = e === 0 ? 0 : Math.atan2(dotOf(ecc, q), dotOf(ecc, n));
+
+  const nu = argLat - argPeri;
+  const E =
+    2 * Math.atan2(Math.sqrt(1 - e) * Math.sin(nu / 2), Math.sqrt(1 + e) * Math.cos(nu / 2));
+  return {
+    node: wrap2pi(node),
+    argPeri: wrap2pi(argPeri),
+    meanAnomaly: wrap2pi(E - e * Math.sin(E)),
+  };
+}
+
 /** Periapsis distance, km. */
 export const periapsis = (el: Elements): number => el.a * (1 - el.e);
 /** Apoapsis distance, km. */

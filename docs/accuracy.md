@@ -7,7 +7,10 @@ Positions come from real theory, not from decoration:
 - **The Moon** — the full 60-term Meeus/ELP-2000 abridgement, ~10 arcseconds.
 - **459 satellites** — JPL published mean elements, including the local Laplace
   plane each inner moon's angles are referred to, plus apsidal and nodal
-  precession.
+  precession. Where the table's phase or mean motion does not reproduce the JPL
+  ephemeris it names, that part is taken from JPL Horizons instead, which puts
+  the regular moons within a few hundred to a few thousand km of Horizons a
+  decade from the epoch.
 - **221 minor planets** — Minor Planet Center osculating elements.
 - **Orientation** — IAU pole and prime-meridian models; satellites oriented from
   tidal locking, which is what tidal locking physically means.

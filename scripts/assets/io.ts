@@ -71,8 +71,17 @@ export async function exists(p: string): Promise<boolean> {
   }
 }
 
-/** Download to a cache path, skipping the request if it is already there. */
-export async function download(url: string, dest: string, label: string): Promise<boolean> {
+/**
+ * Download to a cache path, skipping the request if it is already there.
+ *
+ * An HTML answer is refused unless `html` says a web page is what was asked for.
+ */
+export async function download(
+  url: string,
+  dest: string,
+  label: string,
+  html = false,
+): Promise<boolean> {
   if (await exists(dest)) {
     const st = await fs.stat(dest);
     if (st.size > 0) {
@@ -91,7 +100,7 @@ export async function download(url: string, dest: string, label: string): Promis
     const ct = res.headers.get('content-type') ?? '';
     const buf = Buffer.from(await res.arrayBuffer());
     // Solar System Scope answers unknown filenames with a 200 HTML page.
-    if (/text\/html/iu.test(ct)) {
+    if (!html && /text\/html/iu.test(ct)) {
       console.log(C.red('got HTML, not an asset'));
       return false;
     }
@@ -110,7 +119,9 @@ export async function fetchText(
   label: string,
 ): Promise<string | null> {
   const dest = path.join(CACHE, cacheName);
-  if (!(await download(url, dest, label))) {
+  // The JPL satellite tables are web pages, and refusing them left the satellite
+  // module impossible to regenerate.
+  if (!(await download(url, dest, label, true))) {
     return null;
   }
   return fs.readFile(dest, 'utf8');

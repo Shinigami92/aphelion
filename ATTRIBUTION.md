@@ -472,6 +472,31 @@ and — for the inner satellites — the pole of the local Laplace plane the
 elements are referred to. The physical-parameters table covers the 46 moons with
 a measured GM.
 
+The table does not always describe the ephemeris it names, so `pnpm assets` checks
+every row against JPL Horizons (<https://ssd.jpl.nasa.gov/horizons/>, public
+domain) and repairs what is wrong from it:
+
+- **Phase.** For SAT441, the Saturnian solution behind Titan and the other main
+  moons, the source paper (Jacobson 2022, _AJ_ 164:199, Table 12) publishes a, e,
+  i and the periods but no node, periapsis or mean anomaly. The angles on the page
+  put Titan 2.39 million km from its Horizons position at the very epoch they are
+  quoted for. Several other solutions (JUP348, JUP349, SAT456, URA117, NEP104 and
+  Pluto's small moons) are similar. Where a row is more than 30° out at its epoch
+  (85 of them), the three angles are re-derived from the Horizons state on the
+  table's own orbit.
+- **Rate.** The page calls P the sidereal period, which it is for Saturn's,
+  Uranus's and Pluto's regular moons. For the Galileans it is the anomalistic
+  period, and Io's and Europa's periapses regress rather than advance. No single
+  reading keeps every moon in place, and the one Aphelion used had Dione, Ariel,
+  Io and Europa on the far side of their orbits within a decade. The mean-longitude
+  rate is therefore fitted to Horizons over 20 years either side of the epoch, and
+  replaces the table's where it at least halves the worst error there (304 rows).
+
+Semi-major axis, eccentricity, inclination, the precession periods and the
+Laplace poles are always JPL's table. Each repaired row says what it took from
+Horizons in `src/data/generated/satellites.ts`, and `pnpm validate` checks the
+regular moons against Horizons 13 years after their epoch.
+
 For the remaining satellites, published mean radii are hard-coded in
 `scripts/fetch-assets.ts` (`KNOWN_RADII`) from the discovery literature. Anything
 still unknown — mostly the recently discovered small outer irregulars — gets a
@@ -562,7 +587,7 @@ All shaders in `src/render/shaders/` are original to this project.
 | -------------------------------- | ------------------------------------------------------------------- |
 | Planet positions                 | Real theory, ~arcminute accuracy 1800–2050                          |
 | Moon position                    | Real theory, ~10 arcsecond accuracy                                 |
-| Satellite orbits                 | Real published mean elements, all 459                               |
+| Satellite orbits                 | Real published mean elements; 333 of 459 repaired from Horizons     |
 | Minor planet orbits              | Real published osculating elements, 221 bodies                      |
 | Rotation / axial tilts           | Real IAU values for Sun, planets, Pluto                             |
 | Satellite rotation               | Derived from tidal locking (physically correct)                     |
