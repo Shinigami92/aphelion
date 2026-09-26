@@ -60,14 +60,6 @@ export function setFocus(
   s.mode = 'orbit';
 }
 
-/** Re-derive azimuth, elevation and distance from the camera's position. */
-export function adoptOrbitFromPosition(s: CameraState): void {
-  adoptOrbitFrom(s, s.camera.position.clone().sub(s.panOffset));
-  s.targetDistance = s.distance;
-  s.targetAzimuth = s.azimuth;
-  s.targetElevation = s.elevation;
-}
-
 /**
  * Set the current orbit state from a position relative to the focus centre,
  * deliberately leaving the targets alone: the easing then runs from where the
@@ -89,57 +81,20 @@ export function adoptOrbitFrom(s: CameraState, p: Vector3): void {
   s.elevation = Math.asin(Math.max(-1, Math.min(1, p.z / s.distance)));
 }
 
+/** Re-derive azimuth, elevation and distance from the camera's position. */
+export function adoptOrbitFromPosition(s: CameraState): void {
+  adoptOrbitFrom(s, s.camera.position.clone().sub(s.panOffset));
+  s.targetDistance = s.distance;
+  s.targetAzimuth = s.azimuth;
+  s.targetElevation = s.elevation;
+}
+
 /** Frame a body and all of its satellites. */
 export function frameSystem(s: CameraState, body: SimBody, maxChildDistance: number): void {
   s.focus = body;
   s.targetDistance = Math.max(body.sceneRadius * 3, maxChildDistance * 1.6);
   s.panOffset.set(0, 0, 0);
   s.mode = 'orbit';
-}
-
-/** One frame of orbit mode: keys, easing, and placing the camera. */
-export function updateOrbit(s: CameraState, dt: number): void {
-  const k = 1 - Math.exp(-dt / 0.09);
-
-  // Keyboard orbiting and zoom.
-  const speed = s.keys.precise ? 0.25 : s.keys.boost ? 3 : 1;
-  const rate = 1.5 * dt * speed;
-  const zoomRate = Math.exp((s.keys.boost ? 2.4 : 1.1) * dt);
-  steerFromKeys(s, rate, zoomRate);
-
-  // Q and E roll here as well as in free flight; they used to be ignored in
-  // orbit mode, which made the horizon feel nailed down.
-  const rollRate = 1.4 * dt * speed;
-  if (s.keys.rollLeft) {
-    s.targetRoll -= rollRate;
-  }
-  if (s.keys.rollRight) {
-    s.targetRoll += rollRate;
-  }
-
-  clampDistance(s);
-
-  s.azimuth += (s.targetAzimuth - s.azimuth) * k;
-  s.elevation += (s.targetElevation - s.elevation) * k;
-  s.distance += (s.targetDistance - s.distance) * k;
-  s.roll += (s.targetRoll - s.roll) * k;
-  s.focusTransition += (1 - s.focusTransition) * k;
-
-  const offset = orbitOffset(s.distance, s.azimuth, s.elevation);
-
-  // The focus sits at the render-space origin.
-  s.camera.position.copy(offset).add(s.panOffset);
-  s.camera.up.set(0, 0, 1);
-  s.camera.lookAt(s.panOffset);
-  // Roll about the view axis, applied after the look, which has just
-  // discarded any previous rotation. Negated because the camera's local +z
-  // points *backward* along the view, so a positive rotation about it turns
-  // the opposite way to free flight, which rolls about the forward vector.
-  if (s.roll !== 0) {
-    s.camera.rotateZ(-s.roll);
-  }
-  s.freePosition.copy(s.camera.position);
-  s.freeQuaternion.copy(s.camera.quaternion);
 }
 
 /**
@@ -189,6 +144,51 @@ function steerFromKeys(s: CameraState, rate: number, zoomRate: number): void {
 export function clampDistance(s: CameraState): void {
   const minimum = s.focus ? s.focus.sceneRadius * 1.02 : 1e-4;
   s.targetDistance = Math.max(minimum, Math.min(s.targetDistance, 4e7));
+}
+
+/** One frame of orbit mode: keys, easing, and placing the camera. */
+export function updateOrbit(s: CameraState, dt: number): void {
+  const k = 1 - Math.exp(-dt / 0.09);
+
+  // Keyboard orbiting and zoom.
+  const speed = s.keys.precise ? 0.25 : s.keys.boost ? 3 : 1;
+  const rate = 1.5 * dt * speed;
+  const zoomRate = Math.exp((s.keys.boost ? 2.4 : 1.1) * dt);
+  steerFromKeys(s, rate, zoomRate);
+
+  // Q and E roll here as well as in free flight; they used to be ignored in
+  // orbit mode, which made the horizon feel nailed down.
+  const rollRate = 1.4 * dt * speed;
+  if (s.keys.rollLeft) {
+    s.targetRoll -= rollRate;
+  }
+  if (s.keys.rollRight) {
+    s.targetRoll += rollRate;
+  }
+
+  clampDistance(s);
+
+  s.azimuth += (s.targetAzimuth - s.azimuth) * k;
+  s.elevation += (s.targetElevation - s.elevation) * k;
+  s.distance += (s.targetDistance - s.distance) * k;
+  s.roll += (s.targetRoll - s.roll) * k;
+  s.focusTransition += (1 - s.focusTransition) * k;
+
+  const offset = orbitOffset(s.distance, s.azimuth, s.elevation);
+
+  // The focus sits at the render-space origin.
+  s.camera.position.copy(offset).add(s.panOffset);
+  s.camera.up.set(0, 0, 1);
+  s.camera.lookAt(s.panOffset);
+  // Roll about the view axis, applied after the look, which has just
+  // discarded any previous rotation. Negated because the camera's local +z
+  // points *backward* along the view, so a positive rotation about it turns
+  // the opposite way to free flight, which rolls about the forward vector.
+  if (s.roll !== 0) {
+    s.camera.rotateZ(-s.roll);
+  }
+  s.freePosition.copy(s.camera.position);
+  s.freeQuaternion.copy(s.camera.quaternion);
 }
 
 export function zoomBy(s: CameraState, factor: number): void {

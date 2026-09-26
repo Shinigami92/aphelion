@@ -24,28 +24,6 @@ export function sunIntensity(body: SimBody): number {
   return Math.min(3, Math.pow(AU_KM / rKm, 0.45));
 }
 
-/** Sunlight, distance falloff and eclipses for a body surface material. */
-export function applyLighting(
-  material: ShaderMaterial,
-  body: SimBody,
-  centre: Vector3,
-  sunRender: Vector3,
-  sunSceneRadius: number,
-): void {
-  const u = material.uniforms;
-  vec3Uniform(u, 'uSunPos').copy(sunRender);
-  u.uSunRadius.value = sunSceneRadius;
-  vec3Uniform(u, 'uBodyCentre').copy(centre);
-  u.uKmPerUnit.value = body.radiusKm / Math.max(body.sceneRadius, 1e-9);
-  u.uSunIntensity.value = sunIntensity(body);
-
-  // The Sun in body-centred kilometres.
-  vec3Uniform(u, 'uSunPosKm').set(-body.helioKm.x, -body.helioKm.y, -body.helioKm.z);
-  u.uSunRadiusKm.value = SUN_RADIUS_KM;
-
-  setEclipseUniforms(material, body);
-}
-
 /**
  * Pick the occluders that could actually eclipse this body and hand them to
  * the shader in body-centred kilometres.
@@ -96,4 +74,26 @@ export function setEclipseUniforms(material: ShaderMaterial, body: SimBody): voi
     const s = scored[i];
     slots[i].set(s.dx, s.dy, s.dz, s.c.radiusKm);
   }
+}
+
+/** Sunlight, distance falloff and eclipses for a body surface material. */
+export function applyLighting(
+  material: ShaderMaterial,
+  body: SimBody,
+  centre: Vector3,
+  sunRender: Vector3,
+  sunSceneRadius: number,
+): void {
+  const u = material.uniforms;
+  vec3Uniform(u, 'uSunPos').copy(sunRender);
+  u.uSunRadius.value = sunSceneRadius;
+  vec3Uniform(u, 'uBodyCentre').copy(centre);
+  u.uKmPerUnit.value = body.radiusKm / Math.max(body.sceneRadius, 1e-9);
+  u.uSunIntensity.value = sunIntensity(body);
+
+  // The Sun in body-centred kilometres.
+  vec3Uniform(u, 'uSunPosKm').set(-body.helioKm.x, -body.helioKm.y, -body.helioKm.z);
+  u.uSunRadiusKm.value = SUN_RADIUS_KM;
+
+  setEclipseUniforms(material, body);
 }

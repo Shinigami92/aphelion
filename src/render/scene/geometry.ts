@@ -12,6 +12,26 @@ import {
   Vector3,
 } from 'three';
 
+/** Triangles for the sphere grid, skipping the degenerate ones at the poles. */
+function sphereIndices(w: number, h: number): number[] {
+  const indices: number[] = [];
+  for (let j = 0; j < h; j++) {
+    for (let i = 0; i < w; i++) {
+      const a = j * (w + 1) + i;
+      const b = a + 1;
+      const c = a + (w + 1);
+      const d = c + 1;
+      if (j !== 0) {
+        indices.push(a, c, b);
+      }
+      if (j !== h - 1) {
+        indices.push(b, c, d);
+      }
+    }
+  }
+  return indices;
+}
+
 /**
  * Unit sphere with the rotation pole along +z and an equirectangular parameter-
  * isation: u runs eastward, v from the north pole down.
@@ -67,26 +87,6 @@ export function createSphere(widthSegments: number, heightSegments: number): Buf
   geo.setAttribute('uv', new BufferAttribute(uvs, 2));
   geo.setIndex(indices);
   return geo;
-}
-
-/** Triangles for the sphere grid, skipping the degenerate ones at the poles. */
-function sphereIndices(w: number, h: number): number[] {
-  const indices: number[] = [];
-  for (let j = 0; j < h; j++) {
-    for (let i = 0; i < w; i++) {
-      const a = j * (w + 1) + i;
-      const b = a + 1;
-      const c = a + (w + 1);
-      const d = c + 1;
-      if (j !== 0) {
-        indices.push(a, c, b);
-      }
-      if (j !== h - 1) {
-        indices.push(b, c, d);
-      }
-    }
-  }
-  return indices;
 }
 
 /**

@@ -52,45 +52,6 @@ function resolutionFor(radiusKm: number): number {
   return 256;
 }
 
-/**
- * Build (and memoise) a procedural albedo map for a body.
- *
- * Returns a CanvasTexture ready to drop into a material's `map` slot.
- */
-export function proceduralSurface(cacheKey: string, opts: ProceduralOptions): Texture {
-  const hit = cache.get(cacheKey);
-  if (hit) {
-    return hit;
-  }
-
-  const profile = PROFILES[opts.surface];
-  const width = resolutionFor(opts.radiusKm);
-  const height = width >> 1;
-
-  const rng = mulberry32(opts.seed);
-  const noise = new SphereNoise(rng);
-
-  // Crater count scales with surface area; big bodies also have big basins.
-  const areaFactor = Math.max(0.35, Math.min(3.2, Math.log10(Math.max(2, opts.radiusKm)) / 1.6));
-  const craterCount = Math.round(90 * profile.cratering * areaFactor * (width / 512));
-  const maxAngular = opts.radiusKm > 200 ? 0.28 : 0.55;
-  const craters = generateCraters(rng, craterCount, maxAngular);
-
-  const { canvas, ctx } = createCanvas(width, height);
-  const img = ctx.createImageData(width, height);
-  const px = img.data;
-
-  const shade = mottle(noise, width, height, opts.radiusKm, profile.contrast);
-  stampCraters(shade, width, height, craters, maxAngular, profile.ejecta);
-  writeAlbedo(px, shade, width, height, opts.color, profile);
-
-  ctx.putImageData(img, 0, 0);
-  const texture = albedoTexture(canvas);
-
-  cache.set(cacheKey, texture);
-  return texture;
-}
-
 function createCanvas(
   width: number,
   height: number,
@@ -179,5 +140,44 @@ function albedoTexture(canvas: HTMLCanvasElement): Texture {
   // Row 0 of the generated image is the north pole, matching the sphere's v.
   texture.flipY = false;
   texture.needsUpdate = true;
+  return texture;
+}
+
+/**
+ * Build (and memoise) a procedural albedo map for a body.
+ *
+ * Returns a CanvasTexture ready to drop into a material's `map` slot.
+ */
+export function proceduralSurface(cacheKey: string, opts: ProceduralOptions): Texture {
+  const hit = cache.get(cacheKey);
+  if (hit) {
+    return hit;
+  }
+
+  const profile = PROFILES[opts.surface];
+  const width = resolutionFor(opts.radiusKm);
+  const height = width >> 1;
+
+  const rng = mulberry32(opts.seed);
+  const noise = new SphereNoise(rng);
+
+  // Crater count scales with surface area; big bodies also have big basins.
+  const areaFactor = Math.max(0.35, Math.min(3.2, Math.log10(Math.max(2, opts.radiusKm)) / 1.6));
+  const craterCount = Math.round(90 * profile.cratering * areaFactor * (width / 512));
+  const maxAngular = opts.radiusKm > 200 ? 0.28 : 0.55;
+  const craters = generateCraters(rng, craterCount, maxAngular);
+
+  const { canvas, ctx } = createCanvas(width, height);
+  const img = ctx.createImageData(width, height);
+  const px = img.data;
+
+  const shade = mottle(noise, width, height, opts.radiusKm, profile.contrast);
+  stampCraters(shade, width, height, craters, maxAngular, profile.ejecta);
+  writeAlbedo(px, shade, width, height, opts.color, profile);
+
+  ctx.putImageData(img, 0, 0);
+  const texture = albedoTexture(canvas);
+
+  cache.set(cacheKey, texture);
   return texture;
 }

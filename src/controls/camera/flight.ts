@@ -8,6 +8,48 @@ import { ARRIVED_FRACTION, flightDuration, orbitOffset } from './math.ts';
 import { adoptOrbitFrom, adoptOrbitFromPosition, setFocus } from './orbit.ts';
 
 /**
+ * Where the camera is now, relative to the destination — captured before
+ * the focus changes, because that is the frame the flight is flown in.
+ * The renderer centres the world on the focus, so the camera's position is
+ * relative to `previous`; shifting by the gap between the two bodies puts it
+ * in the destination's frame, which is where the whole flight is computed.
+ */
+function startInDestinationFrame(s: CameraState, body: SimBody): Vector3 {
+  const previous = s.focus;
+  const from = s.camera.position.clone();
+  if (previous && previous !== body) {
+    from.x += previous.scene.x - body.scene.x;
+    from.y += previous.scene.y - body.scene.y;
+    from.z += previous.scene.z - body.scene.z;
+  }
+  return from;
+}
+
+/** Hand the camera to a flight from `from`, towards the framing `setFocus` just chose. */
+function beginFlight(
+  s: CameraState,
+  body: SimBody,
+  from: Vector3,
+  fromQuaternion: Quaternion,
+  trip: number,
+  onArrive: (() => void) | undefined,
+): void {
+  s.flight = {
+    elapsed: 0,
+    duration: flightDuration(trip / Math.max(body.sceneRadius, 1e-4)),
+    fromPosition: from,
+    fromQuaternion,
+    toDistance: s.targetDistance,
+    toAzimuth: s.targetAzimuth,
+    toElevation: s.targetElevation,
+    onArrive,
+  };
+  // Start the eased state at the far end so a cancelled flight does not snap.
+  s.distance = from.length();
+  s.mode = 'orbit';
+}
+
+/**
  * Fly to a body instead of cutting to it: turn toward it, cross the distance
  * over several seconds, and settle into the framing `setFocus` would have
  * chosen.
@@ -54,48 +96,6 @@ export function flyTo(
   beginFlight(s, body, from, fromQuaternion, trip, opts.onArrive);
 }
 
-/**
- * Where the camera is now, relative to the destination — captured before
- * the focus changes, because that is the frame the flight is flown in.
- * The renderer centres the world on the focus, so the camera's position is
- * relative to `previous`; shifting by the gap between the two bodies puts it
- * in the destination's frame, which is where the whole flight is computed.
- */
-function startInDestinationFrame(s: CameraState, body: SimBody): Vector3 {
-  const previous = s.focus;
-  const from = s.camera.position.clone();
-  if (previous && previous !== body) {
-    from.x += previous.scene.x - body.scene.x;
-    from.y += previous.scene.y - body.scene.y;
-    from.z += previous.scene.z - body.scene.z;
-  }
-  return from;
-}
-
-/** Hand the camera to a flight from `from`, towards the framing `setFocus` just chose. */
-function beginFlight(
-  s: CameraState,
-  body: SimBody,
-  from: Vector3,
-  fromQuaternion: Quaternion,
-  trip: number,
-  onArrive: (() => void) | undefined,
-): void {
-  s.flight = {
-    elapsed: 0,
-    duration: flightDuration(trip / Math.max(body.sceneRadius, 1e-4)),
-    fromPosition: from,
-    fromQuaternion,
-    toDistance: s.targetDistance,
-    toAzimuth: s.targetAzimuth,
-    toElevation: s.targetElevation,
-    onArrive,
-  };
-  // Start the eased state at the far end so a cancelled flight does not snap.
-  s.distance = from.length();
-  s.mode = 'orbit';
-}
-
 /** Abandon a flight in progress, keeping wherever the camera has reached. */
 export function cancelFlight(s: CameraState): void {
   if (!s.flight) {
@@ -104,6 +104,46 @@ export function cancelFlight(s: CameraState): void {
   s.flight = null;
   adoptOrbitFromPosition(s);
   s.travelIntensity = 0;
+}
+
+/**
+ * Interpolate the direction on the sphere and the radius in log space, so
+ * the crossing reads as steady progress rather than a sudden arrival.
+ *
+ * The direction has to be a genuine rotation. Lerping the two unit vectors
+ * and renormalising traces the same arc for a modest turn, but it sags
+ * through the middle as the angle opens — and a trip to a Lagrange point is
+ * a turn of well over a hundred degrees, because you arrive on the far side
+ * from the planet you set out from. At a half-turn the midpoint collapses
+ * onto the origin and the camera passes through what it is arriving at.
+ */
+function swingPosition(s: CameraState, fromPosition: Vector3, to: Vector3, ease: number): number {
+  const fromLength = Math.max(fromPosition.length(), 1e-6);
+  const toLength = Math.max(to.length(), 1e-6);
+  const direction = fromPosition.clone().divideScalar(fromLength);
+  const swing = new Quaternion().setFromUnitVectors(
+    direction.clone(),
+    to.clone().divideScalar(toLength),
+  );
+  direction.applyQuaternion(new Quaternion().slerp(swing, ease));
+  const radius = Math.exp(
+    Math.log(fromLength) + (Math.log(toLength) - Math.log(fromLength)) * ease,
+  );
+  s.camera.position.copy(direction).multiplyScalar(radius).add(s.panOffset);
+  return radius;
+}
+
+/** The flight is over: settle into orbit exactly where it ended. */
+function arrive(s: CameraState, f: Flight): void {
+  s.flight = null;
+  s.travelIntensity = 0;
+  s.roll = 0;
+  s.targetRoll = 0;
+  adoptOrbitFromPosition(s);
+  s.targetDistance = f.toDistance;
+  s.targetAzimuth = f.toAzimuth;
+  s.targetElevation = f.toElevation;
+  f.onArrive?.();
 }
 
 /**
@@ -147,44 +187,4 @@ export function updateFlight(s: CameraState, dt: number): void {
   if (t >= 1) {
     arrive(s, f);
   }
-}
-
-/**
- * Interpolate the direction on the sphere and the radius in log space, so
- * the crossing reads as steady progress rather than a sudden arrival.
- *
- * The direction has to be a genuine rotation. Lerping the two unit vectors
- * and renormalising traces the same arc for a modest turn, but it sags
- * through the middle as the angle opens — and a trip to a Lagrange point is
- * a turn of well over a hundred degrees, because you arrive on the far side
- * from the planet you set out from. At a half-turn the midpoint collapses
- * onto the origin and the camera passes through what it is arriving at.
- */
-function swingPosition(s: CameraState, fromPosition: Vector3, to: Vector3, ease: number): number {
-  const fromLength = Math.max(fromPosition.length(), 1e-6);
-  const toLength = Math.max(to.length(), 1e-6);
-  const direction = fromPosition.clone().divideScalar(fromLength);
-  const swing = new Quaternion().setFromUnitVectors(
-    direction.clone(),
-    to.clone().divideScalar(toLength),
-  );
-  direction.applyQuaternion(new Quaternion().slerp(swing, ease));
-  const radius = Math.exp(
-    Math.log(fromLength) + (Math.log(toLength) - Math.log(fromLength)) * ease,
-  );
-  s.camera.position.copy(direction).multiplyScalar(radius).add(s.panOffset);
-  return radius;
-}
-
-/** The flight is over: settle into orbit exactly where it ended. */
-function arrive(s: CameraState, f: Flight): void {
-  s.flight = null;
-  s.travelIntensity = 0;
-  s.roll = 0;
-  s.targetRoll = 0;
-  adoptOrbitFromPosition(s);
-  s.targetDistance = f.toDistance;
-  s.targetAzimuth = f.toAzimuth;
-  s.targetElevation = f.toElevation;
-  f.onArrive?.();
 }

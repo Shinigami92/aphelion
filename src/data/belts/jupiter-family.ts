@@ -55,6 +55,41 @@ function sampleMainBeltAxis(rng: () => number): number {
   return 2.7;
 }
 
+/**
+ * Trojan camps.
+ *
+ * Anchored so each particle's mean longitude sits 60 degrees ahead of (L4) or
+ * behind (L5) Jupiter, with a libration spread. Because their semi-major axes
+ * match Jupiter's, their mean motions do too, so the camps travel with the
+ * planet instead of smearing into a ring.
+ */
+function generateTrojans(
+  rng: () => number,
+  w: Writer,
+  color: [number, number, number],
+  count: number,
+  lagrangeOffsetDeg: number,
+): void {
+  for (let k = 0; k < count; k++) {
+    // Libration in semi-major axis and longitude are correlated in reality;
+    // a modest independent spread reproduces the observed cloud shape well.
+    const a = gaussian(rng, JUPITER_A, 0.055);
+    const e = Math.min(0.25, rayleigh(rng, 0.05));
+    const inc = Math.min(42 * DEG, rayleigh(rng, 10.5 * DEG));
+    const node = rng() * TWO_PI;
+    const argPeri = rng() * TWO_PI;
+
+    // Tangential libration: the clouds are elongated along the orbit.
+    const libration = gaussian(rng, 0, 13);
+    const meanLongitude = (JUPITER_L0 + lagrangeOffsetDeg + libration) * DEG;
+    // M = L - (node + argPeri)
+    const m0 = meanLongitude - (node + argPeri);
+
+    const [r, g, b] = jitterColor(rng, color, 0.4);
+    w.push(a, e, inc, node, argPeri, m0, 0.7 + rng() * 0.8, r, g, b);
+  }
+}
+
 export const JUPITER_FAMILY: PopulationSpec[] = [
   {
     name: 'Main belt',
@@ -129,38 +164,3 @@ export const JUPITER_FAMILY: PopulationSpec[] = [
     },
   },
 ];
-
-/**
- * Trojan camps.
- *
- * Anchored so each particle's mean longitude sits 60 degrees ahead of (L4) or
- * behind (L5) Jupiter, with a libration spread. Because their semi-major axes
- * match Jupiter's, their mean motions do too, so the camps travel with the
- * planet instead of smearing into a ring.
- */
-function generateTrojans(
-  rng: () => number,
-  w: Writer,
-  color: [number, number, number],
-  count: number,
-  lagrangeOffsetDeg: number,
-): void {
-  for (let k = 0; k < count; k++) {
-    // Libration in semi-major axis and longitude are correlated in reality;
-    // a modest independent spread reproduces the observed cloud shape well.
-    const a = gaussian(rng, JUPITER_A, 0.055);
-    const e = Math.min(0.25, rayleigh(rng, 0.05));
-    const inc = Math.min(42 * DEG, rayleigh(rng, 10.5 * DEG));
-    const node = rng() * TWO_PI;
-    const argPeri = rng() * TWO_PI;
-
-    // Tangential libration: the clouds are elongated along the orbit.
-    const libration = gaussian(rng, 0, 13);
-    const meanLongitude = (JUPITER_L0 + lagrangeOffsetDeg + libration) * DEG;
-    // M = L - (node + argPeri)
-    const m0 = meanLongitude - (node + argPeri);
-
-    const [r, g, b] = jitterColor(rng, color, 0.4);
-    w.push(a, e, inc, node, argPeri, m0, 0.7 + rng() * 0.8, r, g, b);
-  }
-}

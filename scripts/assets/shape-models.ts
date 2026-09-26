@@ -143,37 +143,6 @@ export const SHAPE_MODELS: ShapeModelSpec[] = [
 ];
 
 /**
- * Resample a Gaskell cube-quad shape model onto the equirectangular grid the
- * renderer already understands.
- *
- * The file is six square faces of (N+1)² vertices in body-fixed kilometres —
- * verified here rather than assumed, because a wrong row/column order would
- * still parse and would still produce a closed surface, just not this body's.
- * Each face's cells are split into triangles and scan-converted in latitude and
- * longitude, interpolating radius barycentrically; because the faces tile the
- * whole surface, every output pixel centre falls inside some triangle and the
- * map comes out hole-free except at the poles, where the projection is singular.
- *
- * Longitude here is measured from the model's own +x axis, matching the IAU
- * frame the colour mosaic uses, so relief and albedo stay registered with each
- * other whatever the render frame does with the pair.
- */
-export async function buildShapeModel(spec: ShapeModelSpec): Promise<ReliefResult | null> {
-  const cachePath = path.join(CACHE, path.basename(spec.url));
-  if (!(await download(spec.url, cachePath, `${spec.out} ${C.dim(spec.note)}`))) {
-    return null;
-  }
-
-  const text = await fs.readFile(cachePath, 'utf8');
-  const radii =
-    spec.format === 'lat-lon-table' ? sampleLatLonTable(spec, text) : rasteriseCubeQuad(spec, text);
-  if (!radii) {
-    return null;
-  }
-  return finishShape(spec, radii);
-}
-
-/**
  * Turn absolute radii into offsets from the body's mean radius and encode them.
  *
  * The reference must be the radius the app gives this body, not the model's own
@@ -227,4 +196,35 @@ async function finishShape(
     maxKm: max,
     credit: spec.credit,
   };
+}
+
+/**
+ * Resample a Gaskell cube-quad shape model onto the equirectangular grid the
+ * renderer already understands.
+ *
+ * The file is six square faces of (N+1)² vertices in body-fixed kilometres —
+ * verified here rather than assumed, because a wrong row/column order would
+ * still parse and would still produce a closed surface, just not this body's.
+ * Each face's cells are split into triangles and scan-converted in latitude and
+ * longitude, interpolating radius barycentrically; because the faces tile the
+ * whole surface, every output pixel centre falls inside some triangle and the
+ * map comes out hole-free except at the poles, where the projection is singular.
+ *
+ * Longitude here is measured from the model's own +x axis, matching the IAU
+ * frame the colour mosaic uses, so relief and albedo stay registered with each
+ * other whatever the render frame does with the pair.
+ */
+export async function buildShapeModel(spec: ShapeModelSpec): Promise<ReliefResult | null> {
+  const cachePath = path.join(CACHE, path.basename(spec.url));
+  if (!(await download(spec.url, cachePath, `${spec.out} ${C.dim(spec.note)}`))) {
+    return null;
+  }
+
+  const text = await fs.readFile(cachePath, 'utf8');
+  const radii =
+    spec.format === 'lat-lon-table' ? sampleLatLonTable(spec, text) : rasteriseCubeQuad(spec, text);
+  if (!radii) {
+    return null;
+  }
+  return finishShape(spec, radii);
 }

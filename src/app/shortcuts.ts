@@ -10,45 +10,6 @@ const LABEL_MODES: LabelMode[] = ['none', 'major', 'all'];
 const QUALITIES: Quality[] = ['low', 'medium', 'high'];
 let quality: Quality = 'high';
 
-/** Run the shortcut bound to this key, if there is one. */
-export function runShortcut(ev: KeyboardEvent, deps: KeyboardDeps): void {
-  if (timeShortcut(ev, deps) || modeShortcut(ev, deps) || layerShortcut(ev, deps)) {
-    return;
-  }
-  navigationShortcut(ev, deps);
-}
-
-/** Frame the entire solar system from above. */
-function frameEverything(deps: KeyboardDeps): void {
-  const { camera, system, toast } = deps;
-  camera.setFocus(system.sun, { immediate: false });
-  // Neptune's remapped orbit sets the useful extent.
-  const neptune = system.byKey.get('neptune');
-  const extent = neptune
-    ? Math.hypot(neptune.scene.x, neptune.scene.y, neptune.scene.z)
-    : (AU_KM * 30) / SCENE_UNIT_KM;
-  camera.frameSystem(system.sun, extent);
-  toast.show('Whole system');
-}
-
-function cyclePlanet(deps: KeyboardDeps, step: number): void {
-  // Walk up to the planet that owns whatever is focused — a moon's planet, or
-  // the planet a Lagrange point belongs to. Without the second case, tabbing
-  // away from L4 restarted at Mercury instead of continuing from its planet.
-  const current = deps.focused();
-  const anchor =
-    current.type === 'moon' || current.type === 'lagrange'
-      ? (current.parent?.key ?? 'earth')
-      : current.key;
-  const index = PLANET_ORDER.indexOf(anchor);
-  const next = PLANET_ORDER[(index + step + PLANET_ORDER.length) % PLANET_ORDER.length];
-  const body = deps.system.byKey.get(next);
-  if (body) {
-    deps.select(body);
-    deps.goTo(body);
-  }
-}
-
 /** Clock keys: pause, direction, rate and stepping. */
 function timeShortcut(ev: KeyboardEvent, deps: KeyboardDeps): boolean {
   const { time, toast } = deps;
@@ -181,6 +142,37 @@ function layerShortcut(ev: KeyboardEvent, deps: KeyboardDeps): boolean {
   }
 }
 
+/** Frame the entire solar system from above. */
+function frameEverything(deps: KeyboardDeps): void {
+  const { camera, system, toast } = deps;
+  camera.setFocus(system.sun, { immediate: false });
+  // Neptune's remapped orbit sets the useful extent.
+  const neptune = system.byKey.get('neptune');
+  const extent = neptune
+    ? Math.hypot(neptune.scene.x, neptune.scene.y, neptune.scene.z)
+    : (AU_KM * 30) / SCENE_UNIT_KM;
+  camera.frameSystem(system.sun, extent);
+  toast.show('Whole system');
+}
+
+function cyclePlanet(deps: KeyboardDeps, step: number): void {
+  // Walk up to the planet that owns whatever is focused — a moon's planet, or
+  // the planet a Lagrange point belongs to. Without the second case, tabbing
+  // away from L4 restarted at Mercury instead of continuing from its planet.
+  const current = deps.focused();
+  const anchor =
+    current.type === 'moon' || current.type === 'lagrange'
+      ? (current.parent?.key ?? 'earth')
+      : current.key;
+  const index = PLANET_ORDER.indexOf(anchor);
+  const next = PLANET_ORDER[(index + step + PLANET_ORDER.length) % PLANET_ORDER.length];
+  const body = deps.system.byKey.get(next);
+  if (body) {
+    deps.select(body);
+    deps.goTo(body);
+  }
+}
+
 /** Keys that move the selection or the camera somewhere, and the overlay keys. */
 function navigationShortcut(ev: KeyboardEvent, deps: KeyboardDeps): void {
   const { system, camera } = deps;
@@ -227,4 +219,12 @@ function navigationShortcut(ev: KeyboardEvent, deps: KeyboardDeps): void {
       }
       break;
   }
+}
+
+/** Run the shortcut bound to this key, if there is one. */
+export function runShortcut(ev: KeyboardEvent, deps: KeyboardDeps): void {
+  if (timeShortcut(ev, deps) || modeShortcut(ev, deps) || layerShortcut(ev, deps)) {
+    return;
+  }
+  navigationShortcut(ev, deps);
 }

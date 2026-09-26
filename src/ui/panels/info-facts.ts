@@ -69,37 +69,6 @@ export function lagrangeOrbitRows(body: SimBody): FactRow[] {
   ];
 }
 
-/** The physical section of a body: size, shape, relief, mass, rotation. */
-export function physicalRows(body: SimBody): FactRow[] {
-  const rows: FactRow[] = [];
-
-  const radius = body.radiusKm;
-  rows.push(['Mean radius', `${fmt(radius, radius < 100 ? 2 : 1)} km`]);
-  if (body.flattening > 0.001) {
-    rows.push(
-      ['Polar radius', `${fmt(radius * (1 - body.flattening), 1)} km`],
-      ['Flattening', `1 / ${fmt(1 / body.flattening, 1)}`],
-    );
-  }
-  // Terrain that has been exaggerated has to say so. The surface is real
-  // measured topography, but at explore scale its vertical scale is not, and
-  // an unlabelled 12x mountain is precisely the kind of convincing-but-wrong
-  // this project keeps having to guard against.
-  const relief = reliefFor(body.key);
-  if (relief) {
-    const factor = RELIEF_EXAGGERATION[body.key] ?? 1;
-    rows.push([
-      'Relief',
-      factor > 1
-        ? `${relief.credit.split('—')[0].trim()}, ×${factor} in explore scale`
-        : relief.credit.split('—')[0].trim(),
-      true,
-    ]);
-  }
-  rows.push(...massRows(body));
-  return rows;
-}
-
 /** Mass and what follows from it, from whichever catalogue this body came from. */
 function massRows(body: SimBody): FactRow[] {
   const rows: FactRow[] = [];
@@ -140,6 +109,37 @@ function massRows(body: SimBody): FactRow[] {
   return rows;
 }
 
+/** The physical section of a body: size, shape, relief, mass, rotation. */
+export function physicalRows(body: SimBody): FactRow[] {
+  const rows: FactRow[] = [];
+
+  const radius = body.radiusKm;
+  rows.push(['Mean radius', `${fmt(radius, radius < 100 ? 2 : 1)} km`]);
+  if (body.flattening > 0.001) {
+    rows.push(
+      ['Polar radius', `${fmt(radius * (1 - body.flattening), 1)} km`],
+      ['Flattening', `1 / ${fmt(1 / body.flattening, 1)}`],
+    );
+  }
+  // Terrain that has been exaggerated has to say so. The surface is real
+  // measured topography, but at explore scale its vertical scale is not, and
+  // an unlabelled 12x mountain is precisely the kind of convincing-but-wrong
+  // this project keeps having to guard against.
+  const relief = reliefFor(body.key);
+  if (relief) {
+    const factor = RELIEF_EXAGGERATION[body.key] ?? 1;
+    rows.push([
+      'Relief',
+      factor > 1
+        ? `${relief.credit.split('—')[0].trim()}, ×${factor} in explore scale`
+        : relief.credit.split('—')[0].trim(),
+      true,
+    ]);
+  }
+  rows.push(...massRows(body));
+  return rows;
+}
+
 /** The orbit section of a body: what it orbits, the elements, discovery, moons. */
 export function orbitRows(body: SimBody): FactRow[] {
   const rows: FactRow[] = [];
@@ -177,6 +177,27 @@ export function orbitRows(body: SimBody): FactRow[] {
   const moons = body.children.filter((c) => c.type === 'moon').length;
   if (moons) {
     rows.push(['Known moons', String(moons)]);
+  }
+  return rows;
+}
+
+/** Distance and light time from Earth, for anything that is not Earth. */
+function earthRows(system: SolarSystem, body: SimBody): FactRow[] {
+  const rows: FactRow[] = [];
+  const earth = system.byKey.get('earth');
+  if (earth && body !== earth) {
+    const dx = body.helioKm.x - earth.helioKm.x;
+    const dy = body.helioKm.y - earth.helioKm.y;
+    const dz = body.helioKm.z - earth.helioKm.z;
+    const d = Math.hypot(dx, dy, dz);
+    // The parent row above has already given this distance for anything that
+    // belongs to Earth — the Moon, and all five Lagrange points — so only the
+    // light time, which it does not carry, is added on top. Printing the same
+    // figure twice under two headings reads as a bug even when both are right.
+    if (body.parent !== earth) {
+      rows.push(['Distance from Earth', formatDistance(d)]);
+    }
+    rows.push(['Light travel from Earth', formatLightTime(d)]);
   }
   return rows;
 }
@@ -231,26 +252,5 @@ export function liveRows(
     }
   }
 
-  return rows;
-}
-
-/** Distance and light time from Earth, for anything that is not Earth. */
-function earthRows(system: SolarSystem, body: SimBody): FactRow[] {
-  const rows: FactRow[] = [];
-  const earth = system.byKey.get('earth');
-  if (earth && body !== earth) {
-    const dx = body.helioKm.x - earth.helioKm.x;
-    const dy = body.helioKm.y - earth.helioKm.y;
-    const dz = body.helioKm.z - earth.helioKm.z;
-    const d = Math.hypot(dx, dy, dz);
-    // The parent row above has already given this distance for anything that
-    // belongs to Earth — the Moon, and all five Lagrange points — so only the
-    // light time, which it does not carry, is added on top. Printing the same
-    // figure twice under two headings reads as a bug even when both are right.
-    if (body.parent !== earth) {
-      rows.push(['Distance from Earth', formatDistance(d)]);
-    }
-    rows.push(['Light travel from Earth', formatLightTime(d)]);
-  }
   return rows;
 }

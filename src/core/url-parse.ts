@@ -13,24 +13,6 @@ import {
 } from './url-state.ts';
 // ---------------------------------------------------------------------------
 
-/**
- * Read a shared view out of a query string.
- *
- * Every field is optional and every malformed field is ignored rather than
- * throwing: a hand-edited or truncated link should still open the app, just with
- * fewer things restored.
- */
-export function parseView(search: string): Partial<SharedView> {
-  const q = new URLSearchParams(search);
-  const out: Partial<SharedView> = {};
-
-  readClock(q, out);
-  readSelection(q, out);
-  readCamera(q, out);
-  readDisplay(q, out);
-  return out;
-}
-
 /** The instant, the rate and whether the clock is running. */
 function readClock(q: URLSearchParams, out: Partial<SharedView>): void {
   const t = q.get('t');
@@ -70,6 +52,29 @@ function readSelection(q: URLSearchParams, out: Partial<SharedView>): void {
   if (mode !== null && isOneOf(SCALE_MODES, mode)) {
     out.scaleMode = mode;
   }
+}
+
+/** A finite number, or undefined if the parameter is missing or is anything else. */
+function numberParam(q: URLSearchParams, name: string): number | undefined {
+  const raw = q.get(name);
+  if (raw === null) {
+    return undefined;
+  }
+  const value = Number(raw);
+  return Number.isFinite(value) ? value : undefined;
+}
+
+/** A fixed-length list of finite numbers, or undefined if it is anything else. */
+function vectorParam(q: URLSearchParams, name: string, length: number): number[] | undefined {
+  const raw = q.get(name);
+  if (raw === null) {
+    return undefined;
+  }
+  const parts = raw.split(',').map(Number);
+  if (parts.length !== length || parts.some((n) => !Number.isFinite(n))) {
+    return undefined;
+  }
+  return parts;
 }
 
 /** Where the camera is: orbit angles and range, or a free-flight pose. */
@@ -141,25 +146,20 @@ function readDisplay(q: URLSearchParams, out: Partial<SharedView>): void {
   }
 }
 
-/** A finite number, or undefined if the parameter is missing or is anything else. */
-function numberParam(q: URLSearchParams, name: string): number | undefined {
-  const raw = q.get(name);
-  if (raw === null) {
-    return undefined;
-  }
-  const value = Number(raw);
-  return Number.isFinite(value) ? value : undefined;
-}
+/**
+ * Read a shared view out of a query string.
+ *
+ * Every field is optional and every malformed field is ignored rather than
+ * throwing: a hand-edited or truncated link should still open the app, just with
+ * fewer things restored.
+ */
+export function parseView(search: string): Partial<SharedView> {
+  const q = new URLSearchParams(search);
+  const out: Partial<SharedView> = {};
 
-/** A fixed-length list of finite numbers, or undefined if it is anything else. */
-function vectorParam(q: URLSearchParams, name: string, length: number): number[] | undefined {
-  const raw = q.get(name);
-  if (raw === null) {
-    return undefined;
-  }
-  const parts = raw.split(',').map(Number);
-  if (parts.length !== length || parts.some((n) => !Number.isFinite(n))) {
-    return undefined;
-  }
-  return parts;
+  readClock(q, out);
+  readSelection(q, out);
+  readCamera(q, out);
+  readDisplay(q, out);
+  return out;
 }

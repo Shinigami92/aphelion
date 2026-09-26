@@ -33,6 +33,30 @@ export interface StarData {
 const RA_SCALE = (Math.PI * 2) / 65536;
 const DEC_SCALE = Math.PI / 2 / 32767;
 
+/** The star count from the header, or null if this is not the catalogue the build expects. */
+function catalogueCount(buffer: ArrayBuffer): number | null {
+  if (buffer.byteLength < STAR_CATALOGUE.headerBytes) {
+    return null;
+  }
+  const header = new DataView(buffer);
+  if (header.getUint32(0, true) !== STAR_CATALOGUE.magic) {
+    return null;
+  }
+  if (header.getUint32(4, true) !== STAR_CATALOGUE.version) {
+    return null;
+  }
+  const count = header.getUint32(8, true);
+  // The generated module and the binary are written in the same pass, so a
+  // disagreement means one of them is stale.
+  if (count !== STAR_CATALOGUE.count) {
+    return null;
+  }
+  if (buffer.byteLength < STAR_CATALOGUE.headerBytes + count * BYTES_PER_STAR) {
+    return null;
+  }
+  return count;
+}
+
 /**
  * Unpack public/sky/stars.bin.
  *
@@ -92,28 +116,4 @@ export function unpackStars(buffer: ArrayBuffer): StarData | null {
   }
 
   return { count, direction, properMotion, magnitude, colour: rgb };
-}
-
-/** The star count from the header, or null if this is not the catalogue the build expects. */
-function catalogueCount(buffer: ArrayBuffer): number | null {
-  if (buffer.byteLength < STAR_CATALOGUE.headerBytes) {
-    return null;
-  }
-  const header = new DataView(buffer);
-  if (header.getUint32(0, true) !== STAR_CATALOGUE.magic) {
-    return null;
-  }
-  if (header.getUint32(4, true) !== STAR_CATALOGUE.version) {
-    return null;
-  }
-  const count = header.getUint32(8, true);
-  // The generated module and the binary are written in the same pass, so a
-  // disagreement means one of them is stale.
-  if (count !== STAR_CATALOGUE.count) {
-    return null;
-  }
-  if (buffer.byteLength < STAR_CATALOGUE.headerBytes + count * BYTES_PER_STAR) {
-    return null;
-  }
-  return count;
 }

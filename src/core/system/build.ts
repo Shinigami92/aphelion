@@ -34,6 +34,15 @@ export interface BodyRegistry {
   readonly lagrange: SimBody[];
 }
 
+function register(reg: BodyRegistry, body: SimBody, parent: SimBody | null): void {
+  reg.bodies.push(body);
+  reg.byKey.set(body.key, body);
+  if (parent) {
+    parent.children.push(body);
+    body.depth = parent.depth + 1;
+  }
+}
+
 export function addSpec(reg: BodyRegistry, spec: BodySpec, parent: SimBody | null): SimBody {
   const body = makeBody({
     key: spec.key,
@@ -147,48 +156,6 @@ export function addMinorPlanets(
   }
 }
 
-/**
- * The five Lagrange points of each Sun-planet pair.
- *
- * Registered by hand rather than through `register`, because they must not
- * join `bodies` (see the field's comment) and must not join their planet's
- * `children` either: `children` is what the depth-first update order walks,
- * and a marker solved as if it were a satellite would be pushed through the
- * satellite scale remap and land somewhere it has no business being. Their
- * `parent` is still the planet, because that is the body every readout wants
- * to measure them against.
- *
- * Only the eight planets get them. The mass ratio of any dwarf planet is so
- * small that its points are indistinguishable from its own orbit, and nothing
- * is known to occupy them.
- */
-export function addLagrangePoints(reg: BodyRegistry, sun: SimBody): void {
-  for (const planet of sun.children) {
-    if (planet.type !== 'planet' || !planet.spec || !planet.elements) {
-      continue;
-    }
-    const gm = hasGm(planet.spec.key) ? GM[planet.spec.key] : undefined;
-    if (gm === undefined) {
-      continue;
-    }
-
-    // The planet's own GM, not the planet-plus-moons figure. It is the
-    // geocentre that Aphelion draws and that the marker is placed against, so
-    // this keeps the mass and the geometry describing the same body. For
-    // Earth — the only case where it is even arguable — folding the Moon in
-    // would move L1 and L2 outward by 0.4%, or 6,000 km in 1.5 million.
-    const massRatio = gm / (GM.sun + gm);
-    const geometry = lagrangeGeometry(massRatio);
-    const hillKm = planet.elements.a * hillFraction(massRatio);
-
-    for (const id of LAGRANGE_IDS) {
-      const body = lagrangePoint(sun, planet, id, massRatio, hillKm, geometry[id]);
-      reg.lagrange.push(body);
-      reg.byKey.set(body.key, body);
-    }
-  }
-}
-
 /** One Lagrange point of a Sun-planet pair, as a body like any other. */
 function lagrangePoint(
   sun: SimBody,
@@ -230,11 +197,44 @@ function lagrangePoint(
   return body;
 }
 
-function register(reg: BodyRegistry, body: SimBody, parent: SimBody | null): void {
-  reg.bodies.push(body);
-  reg.byKey.set(body.key, body);
-  if (parent) {
-    parent.children.push(body);
-    body.depth = parent.depth + 1;
+/**
+ * The five Lagrange points of each Sun-planet pair.
+ *
+ * Registered by hand rather than through `register`, because they must not
+ * join `bodies` (see the field's comment) and must not join their planet's
+ * `children` either: `children` is what the depth-first update order walks,
+ * and a marker solved as if it were a satellite would be pushed through the
+ * satellite scale remap and land somewhere it has no business being. Their
+ * `parent` is still the planet, because that is the body every readout wants
+ * to measure them against.
+ *
+ * Only the eight planets get them. The mass ratio of any dwarf planet is so
+ * small that its points are indistinguishable from its own orbit, and nothing
+ * is known to occupy them.
+ */
+export function addLagrangePoints(reg: BodyRegistry, sun: SimBody): void {
+  for (const planet of sun.children) {
+    if (planet.type !== 'planet' || !planet.spec || !planet.elements) {
+      continue;
+    }
+    const gm = hasGm(planet.spec.key) ? GM[planet.spec.key] : undefined;
+    if (gm === undefined) {
+      continue;
+    }
+
+    // The planet's own GM, not the planet-plus-moons figure. It is the
+    // geocentre that Aphelion draws and that the marker is placed against, so
+    // this keeps the mass and the geometry describing the same body. For
+    // Earth — the only case where it is even arguable — folding the Moon in
+    // would move L1 and L2 outward by 0.4%, or 6,000 km in 1.5 million.
+    const massRatio = gm / (GM.sun + gm);
+    const geometry = lagrangeGeometry(massRatio);
+    const hillKm = planet.elements.a * hillFraction(massRatio);
+
+    for (const id of LAGRANGE_IDS) {
+      const body = lagrangePoint(sun, planet, id, massRatio, hillKm, geometry[id]);
+      reg.lagrange.push(body);
+      reg.byKey.set(body.key, body);
+    }
   }
 }

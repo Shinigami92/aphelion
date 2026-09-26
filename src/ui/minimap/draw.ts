@@ -15,6 +15,44 @@ export interface Plotted {
   radius: number;
 }
 
+/** The planet whose Lagrange configuration a given body implies, if any. */
+export function lagrangeHost(body: SimBody | null): SimBody | null {
+  if (!body) {
+    return null;
+  }
+  if (body.type === 'lagrange') {
+    return body.lagrange!.secondary;
+  }
+  if (body.type === 'planet') {
+    return body;
+  }
+  if (body.type === 'moon' && body.parent?.type === 'planet') {
+    return body.parent;
+  }
+  return null;
+}
+
+/** One Lagrange point: a small ring with its name above it. */
+function drawMarker(
+  ctx: CanvasRenderingContext2D,
+  point: SimBody,
+  sx: number,
+  sy: number,
+  isActive: boolean,
+): void {
+  const colour = `#${point.color.toString(16).padStart(6, '0')}`;
+  ctx.strokeStyle = colour;
+  ctx.lineWidth = isActive ? 1.6 : 1;
+  ctx.globalAlpha = isActive ? 1 : 0.75;
+  ctx.beginPath();
+  ctx.arc(sx, sy, 3, 0, Math.PI * 2);
+  ctx.stroke();
+
+  ctx.fillStyle = colour;
+  ctx.fillText(point.name, sx, sy - 9);
+  ctx.globalAlpha = 1;
+}
+
 /**
  * The five points of whichever planet is in play, as small labelled rings.
  *
@@ -64,27 +102,6 @@ export function drawLagrange(
       radius: 3,
     });
   }
-}
-
-/** One Lagrange point: a small ring with its name above it. */
-function drawMarker(
-  ctx: CanvasRenderingContext2D,
-  point: SimBody,
-  sx: number,
-  sy: number,
-  isActive: boolean,
-): void {
-  const colour = `#${point.color.toString(16).padStart(6, '0')}`;
-  ctx.strokeStyle = colour;
-  ctx.lineWidth = isActive ? 1.6 : 1;
-  ctx.globalAlpha = isActive ? 1 : 0.75;
-  ctx.beginPath();
-  ctx.arc(sx, sy, 3, 0, Math.PI * 2);
-  ctx.stroke();
-
-  ctx.fillStyle = colour;
-  ctx.fillText(point.name, sx, sy - 9);
-  ctx.globalAlpha = 1;
 }
 
 /** Reference-circle spacing for the heliocentric plan, in AU. */
@@ -146,23 +163,6 @@ export function drawOrbit(
   }
   ctx.closePath();
   ctx.stroke();
-}
-
-/** The planet whose Lagrange configuration a given body implies, if any. */
-export function lagrangeHost(body: SimBody | null): SimBody | null {
-  if (!body) {
-    return null;
-  }
-  if (body.type === 'lagrange') {
-    return body.lagrange!.secondary;
-  }
-  if (body.type === 'planet') {
-    return body;
-  }
-  if (body.type === 'moon' && body.parent?.type === 'planet') {
-    return body.parent;
-  }
-  return null;
 }
 
 export function formatShort(km: number): string {

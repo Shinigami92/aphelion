@@ -111,18 +111,6 @@ export function periodDays(aKm: number, gm: number): number {
 }
 
 /**
- * Position in the elements' reference plane at a given TT Julian Date.
- * Writes into `out` to keep the per-frame allocation count at zero.
- */
-export function positionAtTime(el: Elements, jdTT: number, out: Vec3): Vec3 {
-  const dt = jdTT - el.epoch;
-  const M = el.m0 + el.n * dt;
-  const argPeri = el.argPeri + (el.argPeriDot ?? 0) * dt;
-  const node = el.node + (el.nodeDot ?? 0) * dt;
-  return positionFromAngles(el.a, el.e, el.i, node, argPeri, M, out);
-}
-
-/**
  * Position from explicit angles — the core rotation used everywhere.
  *
  * Perifocal coordinates rotated by R_z(node) R_x(i) R_z(argPeri), expanded
@@ -153,6 +141,18 @@ export function positionFromAngles(
   out.y = (cosW * sinO + sinW * cosO * cosI) * xp + (-sinW * sinO + cosW * cosO * cosI) * yp;
   out.z = sinW * sinI * xp + cosW * sinI * yp;
   return out;
+}
+
+/**
+ * Position in the elements' reference plane at a given TT Julian Date.
+ * Writes into `out` to keep the per-frame allocation count at zero.
+ */
+export function positionAtTime(el: Elements, jdTT: number, out: Vec3): Vec3 {
+  const dt = jdTT - el.epoch;
+  const M = el.m0 + el.n * dt;
+  const argPeri = el.argPeri + (el.argPeriDot ?? 0) * dt;
+  const node = el.node + (el.nodeDot ?? 0) * dt;
+  return positionFromAngles(el.a, el.e, el.i, node, argPeri, M, out);
 }
 
 /**

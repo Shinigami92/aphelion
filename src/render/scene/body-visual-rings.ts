@@ -50,6 +50,24 @@ export function shadeRings(
 }
 
 /**
+ * The ring that casts the shadow worth drawing.
+ *
+ * Only one ring can be handed to the body shader, and the list order is
+ * inward-out, not densest-first. Jupiter's rings[0] is the Halo — a dust
+ * sheet you can see stars through — while the Main ring five times denser
+ * sits behind it in the list.
+ */
+function densestRing(visual: BodyVisual): RingVisual | null {
+  let best: RingVisual | null = null;
+  for (const ring of visual.rings) {
+    if (!best || ring.spec.opacity > best.spec.opacity) {
+      best = ring;
+    }
+  }
+  return best;
+}
+
+/**
  * Ring shadow cast onto the planet itself.
  *
  * Pick the ring that actually blocks light rather than rings[0]: for
@@ -81,22 +99,4 @@ export function shadeRingShadow(visual: BodyVisual, scale: ScaleModel, ctx: Visu
   } else {
     visual.material.uniforms.uRingEnabled.value = 0;
   }
-}
-
-/**
- * The ring that casts the shadow worth drawing.
- *
- * Only one ring can be handed to the body shader, and the list order is
- * inward-out, not densest-first. Jupiter's rings[0] is the Halo — a dust
- * sheet you can see stars through — while the Main ring five times denser
- * sits behind it in the list.
- */
-function densestRing(visual: BodyVisual): RingVisual | null {
-  let best: RingVisual | null = null;
-  for (const ring of visual.rings) {
-    if (!best || ring.spec.opacity > best.spec.opacity) {
-      best = ring;
-    }
-  }
-  return best;
 }

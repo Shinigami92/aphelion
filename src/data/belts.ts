@@ -69,49 +69,6 @@ const POPULATIONS = [...JUPITER_FAMILY, ...KUIPER_BELT];
 
 let cached: SwarmData | null = null;
 
-/** Build (once) the full background swarm dataset. */
-export function buildSwarms(seed = 0x5eed1234): SwarmData {
-  if (cached) {
-    return cached;
-  }
-
-  const total = POPULATIONS.reduce((sum, p) => sum + p.count, 0);
-  const data = allocateSwarms(total);
-  const writer = swarmWriter(data);
-
-  // One RNG stream per population so tweaking one leaves the others identical.
-  let streamSeed = seed;
-  for (const pop of POPULATIONS) {
-    const offset = writer.written;
-    pop.generate(
-      mulberry32((streamSeed = (streamSeed * 1664525 + 1013904223) >>> 0)),
-      writer,
-      pop.color,
-    );
-
-    // Apply the population's size multiplier over the range it just wrote. The
-    // outer populations need it: the Kuiper belt spreads a tenth as many bodies
-    // over a hundred times the area, so at equal point size it all but vanishes
-    // next to the main belt.
-    if (pop.sizeScale !== 1) {
-      for (let k = offset; k < writer.written; k++) {
-        data.size[k] = data.size[k] * pop.sizeScale;
-      }
-    }
-
-    data.groups.push({
-      name: pop.name,
-      color: pop.color,
-      sizeScale: pop.sizeScale,
-      count: writer.written - offset,
-      offset,
-    });
-  }
-
-  cached = data;
-  return data;
-}
-
 function allocateSwarms(total: number): SwarmData {
   return {
     a: new Float32Array(total),
@@ -153,6 +110,49 @@ function swarmWriter(data: SwarmData): Writer & { readonly written: number } {
       i++;
     },
   };
+}
+
+/** Build (once) the full background swarm dataset. */
+export function buildSwarms(seed = 0x5eed1234): SwarmData {
+  if (cached) {
+    return cached;
+  }
+
+  const total = POPULATIONS.reduce((sum, p) => sum + p.count, 0);
+  const data = allocateSwarms(total);
+  const writer = swarmWriter(data);
+
+  // One RNG stream per population so tweaking one leaves the others identical.
+  let streamSeed = seed;
+  for (const pop of POPULATIONS) {
+    const offset = writer.written;
+    pop.generate(
+      mulberry32((streamSeed = (streamSeed * 1664525 + 1013904223) >>> 0)),
+      writer,
+      pop.color,
+    );
+
+    // Apply the population's size multiplier over the range it just wrote. The
+    // outer populations need it: the Kuiper belt spreads a tenth as many bodies
+    // over a hundred times the area, so at equal point size it all but vanishes
+    // next to the main belt.
+    if (pop.sizeScale !== 1) {
+      for (let k = offset; k < writer.written; k++) {
+        data.size[k] = data.size[k] * pop.sizeScale;
+      }
+    }
+
+    data.groups.push({
+      name: pop.name,
+      color: pop.color,
+      sizeScale: pop.sizeScale,
+      count: writer.written - offset,
+      offset,
+    });
+  }
+
+  cached = data;
+  return data;
 }
 
 /** Summary for the UI: what the belts are made of. */

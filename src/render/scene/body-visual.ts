@@ -38,58 +38,6 @@ export interface VisualDeps {
   readonly world: Group;
 }
 
-/** Build a full sphere visual (mesh + optional clouds, atmosphere, rings). */
-export function createBodyVisual(body: SimBody, deps: VisualDeps): BodyVisual {
-  const group = new Group();
-
-  // Start flat, in the body's own colour, so nothing is ever black and boot
-  // never blocks. Real imagery is swapped in when it downloads; bodies with no
-  // imagery get a procedural surface synthesised lazily (see updateVisual).
-  const spec = body.spec;
-  // Satellites carry no BodySpec, so Titan — the one moon with an atmosphere
-  // thick enough to see — reaches its own shell through a separate table.
-  const atmo = spec?.atmosphere ?? (body.type === 'moon' ? MOON_ATMOSPHERES[body.name] : undefined);
-  const material = createBodyMaterial({
-    map: solidTexture(body.color),
-    // Only set where a panchromatic source needs colourising.
-    tint: spec?.textureTint ?? 0xffffff,
-    rimColor: atmo ? atmo.groundTint : null,
-    rimStrength: atmo ? 0.5 : 0,
-    shininess: 70,
-  });
-  const mesh = new Mesh(deps.lodGeometries[1], material);
-  group.add(mesh);
-
-  const visual: BodyVisual = {
-    body,
-    group,
-    mesh,
-    material,
-    clouds: null,
-    cloudMaterial: null,
-    cloudDrift: spec?.cloudDriftDegPerDay ?? 0,
-    atmosphere: null,
-    atmosphereMaterial: null,
-    rings: [],
-    lod: 1,
-    pendingProcedural: false,
-    relief: null,
-    reliefExaggeration: RELIEF_EXAGGERATION[body.key] ?? 1,
-  };
-
-  attachRelief(visual, deps.library);
-  attachImagery(visual, deps);
-  if (atmo) {
-    attachAtmosphere(visual, atmo, deps);
-  }
-  for (const ring of spec?.rings ?? []) {
-    attachRing(visual, ring, deps.library);
-  }
-
-  deps.world.add(group);
-  return visual;
-}
-
 /**
  * Published topography, if this body has any. The uniforms stay off until
  * the map is decoded, so the body is a correct ellipsoid in the meantime
@@ -113,28 +61,22 @@ function attachRelief(visual: BodyVisual, library: TextureLibrary): void {
   });
 }
 
-/** Real imagery, if we have any for this body, and the cloud shell that comes with it. */
-function attachImagery(visual: BodyVisual, deps: VisualDeps): void {
-  const library = deps.library;
-  const body = visual.body;
-  const material = visual.material;
-  const spec = body.spec;
-  const mapFile = body.textureFile;
-  if (library.available(mapFile)) {
-    void whenLoaded(library.load(mapFile), (tex) => {
-      material.uniforms.uMap.value = tex;
-      material.needsUpdate = true;
-    });
-  } else {
-    visual.pendingProcedural = true;
+function attachOptionalMap(
+  library: TextureLibrary,
+  material: ShaderMaterial,
+  file: string | undefined,
+  slot: string,
+  flag: string,
+): void {
+  if (!library.available(file)) {
+    return;
   }
-  if (spec?.textures) {
-    attachOptionalMap(library, material, spec.textures.night, 'uNightMap', 'uHasNight');
-    attachOptionalMap(library, material, spec.textures.normal, 'uNormalMap', 'uHasNormal');
-    attachOptionalMap(library, material, spec.textures.specular, 'uSpecularMap', 'uHasSpecular');
-
-    attachClouds(visual, spec, deps);
-  }
+  void whenLoaded(library.load(file), (tex) => {
+    tex.flipY = false;
+    material.uniforms[slot].value = tex;
+    material.uniforms[flag].value = 1;
+    material.needsUpdate = true;
+  });
 }
 
 /** Cloud shell. */
@@ -170,6 +112,30 @@ function attachClouds(visual: BodyVisual, spec: BodySpec, deps: VisualDeps): voi
     cloudMaterial.uniforms.uMap.value = tex;
     cloudMaterial.needsUpdate = true;
   });
+}
+
+/** Real imagery, if we have any for this body, and the cloud shell that comes with it. */
+function attachImagery(visual: BodyVisual, deps: VisualDeps): void {
+  const library = deps.library;
+  const body = visual.body;
+  const material = visual.material;
+  const spec = body.spec;
+  const mapFile = body.textureFile;
+  if (library.available(mapFile)) {
+    void whenLoaded(library.load(mapFile), (tex) => {
+      material.uniforms.uMap.value = tex;
+      material.needsUpdate = true;
+    });
+  } else {
+    visual.pendingProcedural = true;
+  }
+  if (spec?.textures) {
+    attachOptionalMap(library, material, spec.textures.night, 'uNightMap', 'uHasNight');
+    attachOptionalMap(library, material, spec.textures.normal, 'uNormalMap', 'uHasNormal');
+    attachOptionalMap(library, material, spec.textures.specular, 'uSpecularMap', 'uHasSpecular');
+
+    attachClouds(visual, spec, deps);
+  }
 }
 
 /** Atmosphere shell. */
@@ -244,20 +210,54 @@ function attachRing(visual: BodyVisual, ring: RingSpec, library: TextureLibrary)
   }
 }
 
-function attachOptionalMap(
-  library: TextureLibrary,
-  material: ShaderMaterial,
-  file: string | undefined,
-  slot: string,
-  flag: string,
-): void {
-  if (!library.available(file)) {
-    return;
-  }
-  void whenLoaded(library.load(file), (tex) => {
-    tex.flipY = false;
-    material.uniforms[slot].value = tex;
-    material.uniforms[flag].value = 1;
-    material.needsUpdate = true;
+/** Build a full sphere visual (mesh + optional clouds, atmosphere, rings). */
+export function createBodyVisual(body: SimBody, deps: VisualDeps): BodyVisual {
+  const group = new Group();
+
+  // Start flat, in the body's own colour, so nothing is ever black and boot
+  // never blocks. Real imagery is swapped in when it downloads; bodies with no
+  // imagery get a procedural surface synthesised lazily (see updateVisual).
+  const spec = body.spec;
+  // Satellites carry no BodySpec, so Titan — the one moon with an atmosphere
+  // thick enough to see — reaches its own shell through a separate table.
+  const atmo = spec?.atmosphere ?? (body.type === 'moon' ? MOON_ATMOSPHERES[body.name] : undefined);
+  const material = createBodyMaterial({
+    map: solidTexture(body.color),
+    // Only set where a panchromatic source needs colourising.
+    tint: spec?.textureTint ?? 0xffffff,
+    rimColor: atmo ? atmo.groundTint : null,
+    rimStrength: atmo ? 0.5 : 0,
+    shininess: 70,
   });
+  const mesh = new Mesh(deps.lodGeometries[1], material);
+  group.add(mesh);
+
+  const visual: BodyVisual = {
+    body,
+    group,
+    mesh,
+    material,
+    clouds: null,
+    cloudMaterial: null,
+    cloudDrift: spec?.cloudDriftDegPerDay ?? 0,
+    atmosphere: null,
+    atmosphereMaterial: null,
+    rings: [],
+    lod: 1,
+    pendingProcedural: false,
+    relief: null,
+    reliefExaggeration: RELIEF_EXAGGERATION[body.key] ?? 1,
+  };
+
+  attachRelief(visual, deps.library);
+  attachImagery(visual, deps);
+  if (atmo) {
+    attachAtmosphere(visual, atmo, deps);
+  }
+  for (const ring of spec?.rings ?? []) {
+    attachRing(visual, ring, deps.library);
+  }
+
+  deps.world.add(group);
+  return visual;
 }
