@@ -46,10 +46,12 @@
     "typescript/explicit-module-boundary-types": "error",
     "typescript/array-type": ["error", { "default": "array-simple", "readonly": "generic" }],
     "typescript/prefer-find": "error",
+    "typescript/no-invalid-void-type": "error",
     "typescript/prefer-for-of": "error",
     "typescript/prefer-readonly-parameter-types": "off",
 
     // --- unicorn ---
+    "unicorn/import-style": "error",
     "unicorn/prefer-ternary": "error",
 
     // ==========================================================================
