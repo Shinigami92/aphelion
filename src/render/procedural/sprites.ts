@@ -1,7 +1,7 @@
 /** Small generated textures: flat placeholders and the point and marker sprites. */
 
 import type { Texture } from 'three';
-import { CanvasTexture, RepeatWrapping, SRGBColorSpace } from 'three';
+import { CanvasTexture, RepeatWrapping } from 'three';
 import { cache } from './cache.ts';
 
 /**
@@ -25,8 +25,9 @@ export function solidTexture(color: number): Texture {
   ctx.fillStyle = `#${(color & 0xffffff).toString(16).padStart(6, '0')}`;
   ctx.fillRect(0, 0, 4, 4);
 
+  // Untagged for the same reason as the procedural albedo: the shaders decode
+  // sRGB, and this texture is often swapped in without passing `prepare()`.
   const tex = new CanvasTexture(canvas);
-  tex.colorSpace = SRGBColorSpace;
   tex.wrapS = RepeatWrapping;
   tex.flipY = false;
   tex.needsUpdate = true;
@@ -58,7 +59,6 @@ export function pointSprite(): Texture {
   ctx.fillRect(0, 0, size, size);
 
   const tex = new CanvasTexture(canvas);
-  tex.colorSpace = SRGBColorSpace;
   tex.needsUpdate = true;
   dotSprite = tex;
   return tex;
@@ -98,7 +98,6 @@ export function markerSprite(): Texture {
   ctx.fill();
 
   const tex = new CanvasTexture(canvas);
-  tex.colorSpace = SRGBColorSpace;
   tex.needsUpdate = true;
   reticleSprite = tex;
   return tex;

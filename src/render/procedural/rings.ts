@@ -2,13 +2,7 @@
 
 import type { RingBand } from '../../data/body-spec.ts';
 import type { Texture } from 'three';
-import {
-  CanvasTexture,
-  LinearFilter,
-  LinearMipmapLinearFilter,
-  RepeatWrapping,
-  SRGBColorSpace,
-} from 'three';
+import { CanvasTexture, LinearFilter, LinearMipmapLinearFilter, RepeatWrapping } from 'three';
 import { cache, clamp255 } from './cache.ts';
 import { mulberry32 } from './noise.ts';
 
@@ -91,7 +85,6 @@ export function proceduralRing(
   ctx.putImageData(img, 0, 0);
 
   const tex = new CanvasTexture(canvas);
-  tex.colorSpace = SRGBColorSpace;
   tex.wrapS = RepeatWrapping;
   tex.needsUpdate = true;
   cache.set(cacheKey, tex);
@@ -185,7 +178,6 @@ export function ringProfile(
   ctx.putImageData(img, 0, 0);
 
   const tex = new CanvasTexture(canvas);
-  tex.colorSpace = SRGBColorSpace;
   tex.wrapS = RepeatWrapping;
   // Mipmaps stay on, and they are doing something specific here. These profiles
   // are mostly vacuum punctuated by very narrow features — Uranus's epsilon

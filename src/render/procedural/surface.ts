@@ -16,13 +16,7 @@
 
 import type { SurfaceClass, SurfaceProfile } from './surface-class.ts';
 import type { Texture } from 'three';
-import {
-  CanvasTexture,
-  LinearFilter,
-  LinearMipmapLinearFilter,
-  RepeatWrapping,
-  SRGBColorSpace,
-} from 'three';
+import { CanvasTexture, LinearFilter, LinearMipmapLinearFilter, RepeatWrapping } from 'three';
 import { cache, clamp255 } from './cache.ts';
 import { generateCraters, stampCraters } from './craters.ts';
 import { mulberry32, SphereNoise } from './noise.ts';
@@ -131,8 +125,10 @@ function writeAlbedo(
 }
 
 function albedoTexture(canvas: HTMLCanvasElement): Texture {
+  // Left untagged, like every other colour map: body.frag decodes sRGB itself.
+  // An sRGB tag would make the GPU decode it too, because this texture is
+  // swapped into an existing material and never passes through `prepare()`.
   const texture = new CanvasTexture(canvas);
-  texture.colorSpace = SRGBColorSpace;
   texture.wrapS = RepeatWrapping;
   texture.magFilter = LinearFilter;
   texture.generateMipmaps = true;
