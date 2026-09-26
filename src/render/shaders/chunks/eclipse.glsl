@@ -35,7 +35,13 @@ float eclipseFactor(vec3 P, vec3 sunPos, float sunRadius, vec4 occ[MAX_OCCLUDERS
     float cosSep = dot(D, L);
     if (cosSep <= 0.0) continue;                   // on the far side
     float rOcc = asin(clamp(radius / dOcc, 0.0, 1.0));
-    float sep = acos(clamp(cosSep, -1.0, 1.0));
+    // Not acos(cosSep): near 1 a float32 cosine only has a step every
+    // ~3.45e-4 rad, about 128 km at the Moon's distance, which is coarser
+    // than the umbra it has to resolve, so a total eclipse came out as
+    // flickering facets. The chord form 2*asin(|D-L|/2) is no rescue either,
+    // since GPU asin loses absolute precision near zero (ANGLE on D3D11 adds
+    // a steady ~50 km). Sine and cosine through atan stay exact down to zero.
+    float sep = atan(length(cross(D, L)), cosSep);
     blocked += discOverlap(rSun, rOcc, sep);
   }
   return clamp(1.0 - blocked, 0.0, 1.0);
