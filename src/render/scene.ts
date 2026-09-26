@@ -36,7 +36,7 @@ import { daysSinceJ2000 } from '../astro/timescales.ts';
 import { updateBodyVisual } from './scene/body-visual-update.ts';
 import { createBodyVisual } from './scene/body-visual.ts';
 import { CloudClock } from './scene/clouds.ts';
-import { LOD_SEGMENTS, MAJOR_MOON_RADIUS } from './scene/constants.ts';
+import { LOD_SEGMENTS, MAJOR_MOON_RADIUS, QUALITY } from './scene/constants.ts';
 import { DustLayer } from './scene/dust.ts';
 import { createSphere } from './scene/geometry.ts';
 import { LabelLayer } from './scene/labels.ts';
@@ -131,9 +131,17 @@ export class SceneView {
 
   setQuality(quality: Quality): void {
     this.state.quality = quality;
+    // The march length is a compile-time define, so a new preset means a
+    // recompile. Visibility is not touched here: updateVisual owns it through
+    // the mesh every frame, and writing it onto the material as well left the
+    // haze hidden for good after atmospheres were toggled off and back on
+    // across a quality change.
+    const steps = QUALITY[quality].atmoSteps;
     for (const visual of this.visuals.values()) {
-      if (visual.atmosphereMaterial) {
-        visual.atmosphereMaterial.visible = this.state.toggles.atmospheres;
+      const material = visual.atmosphereMaterial;
+      if (material && material.defines.STEPS !== steps) {
+        material.defines.STEPS = steps;
+        material.needsUpdate = true;
       }
     }
     this.pipeline.applyQuality();

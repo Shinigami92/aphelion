@@ -19,7 +19,6 @@ export class RenderPipeline {
   readonly renderer: WebGLRenderer;
 
   private composer: EffectComposer | null = null;
-  private bloom: UnrealBloomPass | null = null;
   private renderPass: RenderPass | null = null;
 
   constructor(
@@ -46,9 +45,6 @@ export class RenderPipeline {
   applyQuality(): void {
     const q = QUALITY[this.state.quality];
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, q.maxPixelRatio));
-    if (this.bloom) {
-      this.bloom.enabled = q.bloom;
-    }
     this.rebuild();
   }
 
@@ -58,21 +54,25 @@ export class RenderPipeline {
     const width = Math.max(1, size.x);
     const height = Math.max(1, size.y);
 
-    this.composer?.dispose();
+    this.disposeComposer();
 
     const target = new WebGLRenderTarget(width, height, {
       samples: q.msaa,
       colorSpace: SRGBColorSpace,
     });
     const composer = new EffectComposer(this.renderer, target);
-    composer.setSize(width, height);
+    // Every size handed to the composer is already in drawing-buffer pixels,
+    // but it multiplies by the renderer's pixel ratio on its own regardless of
+    // the target it was given. Left at the default, the chain and every bloom
+    // mip ran at DPR² — sixteen times the CSS pixels at DPR 2 instead of four.
+    composer.setPixelRatio(1);
 
     this.renderPass = new RenderPass(this.scene, this.state.camera!);
     composer.addPass(this.renderPass);
 
-    this.bloom = new UnrealBloomPass(new Vector2(width, height), 0.55, 0.65, 0.72);
-    this.bloom.enabled = q.bloom;
-    composer.addPass(this.bloom);
+    const bloom = new UnrealBloomPass(new Vector2(width, height), 0.55, 0.65, 0.72);
+    bloom.enabled = q.bloom;
+    composer.addPass(bloom);
 
     composer.addPass(new OutputPass());
     this.composer = composer;
@@ -84,8 +84,8 @@ export class RenderPipeline {
     );
     this.renderer.setSize(width, height, false);
     const size = this.renderer.getDrawingBufferSize(new Vector2());
+    // This resizes every pass too, bloom included.
     this.composer?.setSize(size.x, size.y);
-    this.bloom?.setSize(size.x, size.y);
   }
 
   render(camera: PerspectiveCamera): void {
@@ -100,7 +100,23 @@ export class RenderPipeline {
   }
 
   dispose(): void {
-    this.composer?.dispose();
+    this.disposeComposer();
     this.renderer.dispose();
+  }
+
+  /**
+   * The composer only frees its own two targets; the passes own theirs (bloom
+   * alone holds eleven mip targets), so without this every rebuild — twice at
+   * boot, and again on every quality change — leaked the previous chain.
+   */
+  private disposeComposer(): void {
+    if (!this.composer) {
+      return;
+    }
+    for (const pass of this.composer.passes) {
+      pass.dispose();
+    }
+    this.composer.dispose();
+    this.composer = null;
   }
 }
