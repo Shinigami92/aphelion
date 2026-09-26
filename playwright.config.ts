@@ -19,9 +19,10 @@ export default defineConfig({
   testMatch: '**/*.e2e.ts',
   snapshotPathTemplate: '.cache/screenshots/{projectName}/{arg}{ext}',
   outputDir: '.cache/screenshots-results',
-  // SwiftShader rasterises on the CPU and uses every core it can get; more than
-  // a couple of pages at once and each one is too slow to settle in time.
-  workers: 2,
+  // SwiftShader rasterises on the CPU and uses every core it can get. The frame
+  // pacing in e2e/fixtures.ts keeps each page from queueing more than it can
+  // draw, so a few pages share the cores well; past four the gain is marginal.
+  workers: 4,
   forbidOnly: true,
   reporter: [['list']],
   timeout: 90_000,

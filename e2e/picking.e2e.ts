@@ -10,7 +10,7 @@
  */
 
 import { expect, test } from '@playwright/test';
-import { openView, VIEWS } from './fixtures.ts';
+import { openView, settle, VIEWS } from './fixtures.ts';
 
 const COLUMNS = 24;
 const ROWS = 15;
@@ -43,11 +43,8 @@ for (const view of VIEWS) {
   test(`pick map: ${view.name}`, async ({ page }) => {
     await openView(page, view.query);
     // The camera eases in on load; picking before it settles would sample a
-    // moving scene. A few idle frames after that let the layers catch up.
-    await page.waitForFunction(() => !window.aphelion.camera.isSettling, undefined, {
-      timeout: 30_000,
-    });
-    await page.waitForTimeout(500);
+    // moving scene.
+    await settle(page);
 
     const map = await page.evaluate(samplePickMap, [COLUMNS, ROWS] as const);
 
