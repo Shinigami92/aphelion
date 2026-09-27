@@ -35,4 +35,6 @@ export const doData = only === null || only === 'data';
 
 export const doRelief = only === null || only === 'relief';
 
+export const doFonts = only === null || only === 'fonts';
+
 export const manifestOnly = only === 'manifest';

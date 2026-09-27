@@ -15,7 +15,10 @@
  *   each and drops whatever a deploy no longer lists.
  * - The imagery (textures/ and shapes/, 130 MB) is cached only once a flight
  *   has actually needed it, but under its revision, so a cached map is served
- *   without touching the network until a deploy changes that file.
+ *   without touching the network until a deploy changes that file. The VR
+ *   interface (assets/vr/, see vite.config.ts) is treated the same way: a
+ *   visitor without a headset never downloads it, and a session that has been
+ *   started once also starts offline.
  *
  * Navigations go to the network so a new deploy is picked up whenever the
  * reader is online, and fall back to the precached index.html. Anything else
@@ -34,7 +37,9 @@ declare let self: ServiceWorkerGlobalScope & {
 };
 
 const MEDIA_CACHE = 'aphelion-media';
-const MEDIA_PREFIXES = ['textures/', 'shapes/'].map((dir) => new URL(dir, self.location.href).href);
+const MEDIA_PREFIXES = ['textures/', 'shapes/', 'assets/vr/'].map(
+  (dir) => new URL(dir, self.location.href).href,
+);
 
 /** The query parameter Workbox's own precache uses to key a revision. */
 const REVISION_PARAM = '__WB_REVISION__';

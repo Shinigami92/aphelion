@@ -75,7 +75,8 @@ export class SceneView {
   private readonly lagrange = new LagrangeLayer(this.state);
   private readonly orbits = new OrbitLayer(this.state, this.world);
   private readonly dust = new DustLayer();
-  private readonly labels = new LabelLayer(this.state);
+  /** The page's labels; the headset reads which bodies they chose. */
+  readonly labels = new LabelLayer(this.state);
   private readonly ringParticles = new RingParticleLayer(this.state);
   private readonly promotions: PromotionLayer;
   private readonly visualContext: VisualContext;

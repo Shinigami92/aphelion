@@ -25,21 +25,23 @@
  *   true    — a metre is a metre. Your eyes are centimetres apart in a solar system,
  *             so nothing shows stereo depth, just as nothing would to an
  *             astronaut, and leaning moves you by exactly as much as you lean.
+ *
+ * Everything the viewer handles in metres — the controllers, the VR panels,
+ * the labels — lives in the overlay instead (xr-overlay.ts), whose rig turns
+ * with this one but is never moved or scaled.
  */
 
 import type { PickView } from './picking.ts';
-import type { PerspectiveCamera as AppCamera, Scene, WebGLRenderer, XRTargetRaySpace } from 'three';
-import {
-  AdditiveBlending,
-  BufferGeometry,
-  Float32BufferAttribute,
-  Group,
-  Line,
-  LineBasicMaterial,
-  PerspectiveCamera,
-  Vector2,
+import type {
+  PerspectiveCamera as AppCamera,
+  ArrayCamera,
+  Scene,
+  WebGLRenderer,
+  XRTargetRaySpace,
 } from 'three';
+import { Group, Matrix4, PerspectiveCamera, Vector2 } from 'three';
 import { SCENE_UNIT_KM } from '../../core/constants.ts';
+import { XrOverlay } from './xr-overlay.ts';
 
 export type XrScale = 'diorama' | 'true';
 
@@ -49,33 +51,27 @@ const METRES_PER_UNIT = SCENE_UNIT_KM * 1000;
 /** Where the near plane sits in diorama scale, in metres from the eyes. */
 const DIORAMA_NEAR_METRES = 0.05;
 
-/** How far each controller's pointer ray is drawn, in metres. */
-const RAY_METRES = 1.2;
+/**
+ * The furthest the near plane may sit from the eyes, in metres. Diorama scale
+ * puts it at five centimetres anyway (rounded down to 2^-5 m); at true scale
+ * it would otherwise be tens of metres out and clip the overlay's panels, which
+ * share the world's planes. The logarithmic depth buffer makes a close near
+ * plane cost nothing.
+ */
+const MAX_NEAR_METRES = 2 ** -5;
 
 /**
  * The image a pointer ray is aimed through, for picking.
  *
  * The same field of view as the desktop camera, so the pixel rules in the
  * picker (what counts as a disc, how far a click may miss) mean the same angles
- * here; the tolerance is then about two and a half degrees, which a hand can hit.
+ * here; the tolerance is then about three degrees, which a hand can hit even
+ * at a planet that is a single pixel, and the hover label shows what it will
+ * pick before the trigger is pulled.
  */
 const RAY_FOV = 55;
 const RAY_VIEWPORT = new Vector2(1000, 1000);
-export const RAY_PICK_TOLERANCE = 40;
-
-/** A bright line fading out along the controller's -z, which is where it aims. */
-function pointerRay(): Line {
-  const geometry = new BufferGeometry();
-  geometry.setAttribute('position', new Float32BufferAttribute([0, 0, 0, 0, 0, -RAY_METRES], 3));
-  geometry.setAttribute('color', new Float32BufferAttribute([0.55, 0.75, 1, 0, 0, 0], 3));
-  const material = new LineBasicMaterial({
-    vertexColors: true,
-    blending: AdditiveBlending,
-    transparent: true,
-    depthWrite: false,
-  });
-  return new Line(geometry, material);
-}
+export const RAY_PICK_TOLERANCE = 55;
 
 /**
  * Round out to a power of two.
@@ -97,12 +93,12 @@ export class XrRig {
   readonly dolly = new Group();
   /** The camera the renderer draws the headset's view with. */
   readonly head = new PerspectiveCamera();
-  /** Each controller's pointing pose, which is where its ray starts. */
-  readonly controllers: XRTargetRaySpace[] = [];
+  /** What is drawn in metres around the viewer, over the world. */
+  readonly overlay: XrOverlay;
 
   scale: XrScale = 'diorama';
 
-  private readonly rays: Line[] = [];
+  private readonly rayMatrix = new Matrix4();
   private readonly rayCamera = new PerspectiveCamera(RAY_FOV, 1, 1e-6, 1e13);
   private readonly mirror = new PerspectiveCamera();
 
@@ -116,15 +112,13 @@ export class XrRig {
     renderer.xr.setReferenceSpaceType('local');
 
     this.dolly.add(this.head);
-    for (let i = 0; i < 2; i++) {
-      const controller = renderer.xr.getController(i);
-      const ray = pointerRay();
-      controller.add(ray);
-      this.dolly.add(controller);
-      this.controllers.push(controller);
-      this.rays.push(ray);
-    }
     scene.add(this.dolly);
+    this.overlay = new XrOverlay(renderer);
+  }
+
+  /** Each controller's pointing pose, in the overlay's room frame. */
+  get controllers(): ReadonlyArray<XRTargetRaySpace> {
+    return this.overlay.controllers;
   }
 
   get presenting(): boolean {
@@ -133,6 +127,11 @@ export class XrRig {
 
   get session(): XRSession | null {
     return this.renderer.xr.getSession();
+  }
+
+  /** The stereo camera WebXR drew the latest pass with. */
+  get xrCamera(): ArrayCamera {
+    return this.renderer.xr.getCamera();
   }
 
   /** Hand an immersive session to the renderer; resolves once it presents. */
@@ -168,16 +167,14 @@ export class XrRig {
     this.dolly.updateMatrixWorld(true);
 
     // The head sees the camera's own clip planes, measured in its metres.
-    this.head.near = roundDown(camera.near / unitsPerMetre);
+    this.head.near = Math.min(roundDown(camera.near / unitsPerMetre), MAX_NEAR_METRES);
     this.head.far = roundUp(camera.far / unitsPerMetre);
+    this.overlay.sync(this.dolly.quaternion, this.head.near, this.head.far);
+  }
 
-    // At true scale a controller half a metre away is five ten-millionths of a
-    // unit from the eye, under float32 resolution anywhere but the origin, so
-    // its ray would render as noise. Aiming still works: the picker reads the
-    // pose in double precision.
-    for (const ray of this.rays) {
-      ray.visible = this.scale === 'diorama';
-    }
+  /** Draw the overlay over the world frame just rendered. */
+  renderOverlay(): void {
+    this.overlay.render(this.renderer);
   }
 
   /**
@@ -201,15 +198,20 @@ export class XrRig {
     return mirror;
   }
 
-  /** A view looking down a controller's pointer ray, or null while it is not tracked. */
+  /**
+   * A view looking down a controller's pointer ray, or null while it is not
+   * tracked. The controller's pose is relative to the viewer's reference space;
+   * standing the world rig on it puts the ray in render space, where the bodies
+   * are, computed in double precision whatever the scale.
+   */
   rayView(index: number): PickView | null {
     const controller = this.controllers[index];
     if (!controller.visible) {
       return null;
     }
-    controller.updateWorldMatrix(true, false);
     const camera = this.rayCamera;
-    controller.matrixWorld.decompose(camera.position, camera.quaternion, camera.scale);
+    this.rayMatrix.multiplyMatrices(this.dolly.matrixWorld, controller.matrix);
+    this.rayMatrix.decompose(camera.position, camera.quaternion, camera.scale);
     camera.scale.set(1, 1, 1);
     camera.updateMatrixWorld(true);
     return { camera, viewport: RAY_VIEWPORT };

@@ -41,12 +41,16 @@
     "validate": "node scripts/validate-astro.ts",
     "assets": "node scripts/fetch-assets.ts && bash scripts/convert-textures.sh && node scripts/fetch-assets.ts --only=manifest",
     "assets:data": "node scripts/fetch-assets.ts --only=data",
+    "assets:fonts": "node scripts/fetch-assets.ts --only=fonts",
     "assets:relief": "node scripts/fetch-assets.ts --only=relief",
     "assets:textures": "node scripts/fetch-assets.ts --only=textures && bash scripts/convert-textures.sh && node scripts/fetch-assets.ts --only=manifest",
     "assets:light": "node scripts/fetch-assets.ts --skip-usgs --tier=high && bash scripts/convert-textures.sh && node scripts/fetch-assets.ts --only=manifest",
     "preflight": "pnpm install && run-s format lint ts-check test:update-snapshots validate build"
   },
   "dependencies": {
+    "@pmndrs/pointer-events": "6.6.30",
+    "@pmndrs/uikit": "1.0.76",
+    "@preact/signals-core": "1.14.4",
     "three": "0.185.1"
   },
   "devDependencies": {
@@ -55,6 +59,7 @@
     "@types/node": "26.1.2",
     "@types/three": "0.185.4",
     "@vitest/coverage-v8": "5.0.1",
+    "msdf-bmfont-xml": "2.8.0",
     "npm-run-all2": "9.0.3",
     "oxfmt": "0.70.0",
     "oxlint": "1.85.0",

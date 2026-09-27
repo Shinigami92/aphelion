@@ -4,6 +4,7 @@
  *   pnpm assets                  everything (fetch → convert → manifest)
  *   pnpm assets:data             just regenerate the ephemeris data modules
  *   pnpm assets:textures         just the imagery
+ *   pnpm assets:fonts            just the MSDF font atlases for the VR UI
  *   node scripts/fetch-assets.ts --skip-usgs    skip the huge moon mosaics
  *   node scripts/fetch-assets.ts --tier=lean    2k textures instead of 8k
  *
@@ -21,13 +22,23 @@
  *   - PDS Geosciences Node global elevation grids (public domain)
  *   - JPL Solar System Dynamics satellite elements + physical parameters
  *   - IAU Minor Planet Center MPCORB / Distant.txt orbit catalogues
+ *   - Inter and JetBrains Mono, for the VR UI's text (SIL OFL 1.1)
  */
 
 import type { ReliefResult } from './assets/relief.ts';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { doData, doRelief, doTextures, manifestOnly, skipUsgs, tier } from './assets/cli.ts';
+import {
+  doData,
+  doFonts,
+  doRelief,
+  doTextures,
+  manifestOnly,
+  skipUsgs,
+  tier,
+} from './assets/cli.ts';
 import { buildFitsMosaic, FITS_MOSAICS } from './assets/fits.ts';
+import { buildFonts } from './assets/fonts.ts';
 import { buildGriddedTopo, GRIDDED_TOPO } from './assets/gridded-topo.ts';
 import {
   C,
@@ -252,6 +263,11 @@ async function main(): Promise<void> {
       console.log(C.yellow('  could not build the star catalogue; existing files left in place'));
       failures.push('stars.bin');
     }
+  }
+
+  if (doFonts) {
+    step('VR UI font atlases (SIL OFL 1.1)');
+    await buildFonts(failures);
   }
 
   await fs.writeFile(QUEUE, convertQueue.length > 0 ? `${convertQueue.join('\n')}\n` : '');

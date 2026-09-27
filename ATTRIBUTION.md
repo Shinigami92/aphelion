@@ -592,6 +592,14 @@ members are synthetic.
 - [three.js](https://threejs.org/) — MIT licence. WebGL rendering.
 - [Vite](https://vite.dev/) — MIT licence. Build tooling.
 - [TypeScript](https://www.typescriptlang.org/) — Apache 2.0.
+- [@pmndrs/uikit](https://github.com/pmndrs/uikit) and
+  [@pmndrs/pointer-events](https://github.com/pmndrs/xr) — MIT licence. The
+  in-headset panels and controller pointers, loaded only for a VR session.
+- [Inter](https://rsms.me/inter/) 4.1 and
+  [JetBrains Mono](https://www.jetbrains.com/lp/mono/) 2.304 — SIL Open Font
+  License 1.1. The in-headset text, turned into MSDF atlases by
+  [msdf-bmfont-xml](https://github.com/soimy/msdf-bmfont-xml) (MIT) in
+  `pnpm assets:fonts` and committed under `src/data/generated/fonts/`.
 
 All shaders in `src/render/shaders/` are original to this project.
 
