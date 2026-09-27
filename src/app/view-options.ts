@@ -22,7 +22,7 @@ function flag(
 }
 
 /** The layer checkboxes, each reading and writing one of the scene's toggles. */
-function layerToggles(scene: SceneView, setLagrange: (on: boolean) => void): ToggleConfig[] {
+export function layerToggles(scene: SceneView, setLagrange: (on: boolean) => void): ToggleConfig[] {
   return [
     {
       label: 'labels',

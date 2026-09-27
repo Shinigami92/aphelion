@@ -4,13 +4,8 @@ import type { SimBody, SolarSystem } from '../../core/system.ts';
 import type { FactRow } from './info-facts.ts';
 import { el } from './dom.ts';
 import { fmt } from './format.ts';
-import {
-  lagrangeOrbitRows,
-  lagrangePhysicalRows,
-  liveRows,
-  orbitRows,
-  physicalRows,
-} from './info-facts.ts';
+import { liveRows } from './info-facts.ts';
+import { badgeFlags, compositionRows, factSections } from './info-sections.ts';
 
 export class InfoPanel {
   private nameEl = el('h2', 'info__name');
@@ -57,21 +52,7 @@ export class InfoPanel {
     this.nameEl.textContent = body.name;
     this.subEl.textContent = body.subtitle;
 
-    const flags: string[] = [];
-    if (body.radiusEstimated) {
-      flags.push('size estimated');
-    }
-    // "surface synthesised" is a statement about imagery we do not have. A
-    // Lagrange point has no surface to have imagery of.
-    if ((body.textureFile === null || body.textureFile === '') && body.type !== 'lagrange') {
-      flags.push('surface synthesised');
-    }
-    if (body.type === 'lagrange') {
-      flags.push('massless point — nothing is drawn here');
-    }
-    if (body.sat?.frame === 'laplace') {
-      flags.push('Laplace-plane elements');
-    }
+    const flags = badgeFlags(body);
     this.badgeEl.textContent = flags.join(' · ');
     this.badgeEl.style.display = flags.length > 0 ? 'inline-block' : 'none';
 
@@ -83,15 +64,9 @@ export class InfoPanel {
     this.blurbEl.textContent = blurb;
     this.blurbEl.style.display = blurb ? 'block' : 'none';
 
-    // A Lagrange point shares no field with a body, so both of its sections are
-    // filled from the pair instead. See info-facts.ts.
-    if (body.type === 'lagrange') {
-      this.rowsInto(this.physFacts, lagrangePhysicalRows(body));
-      this.rowsInto(this.orbitFacts, lagrangeOrbitRows(body));
-    } else {
-      this.rowsInto(this.physFacts, physicalRows(body));
-      this.rowsInto(this.orbitFacts, orbitRows(body));
-    }
+    const sections = factSections(body);
+    this.rowsInto(this.physFacts, sections.physical);
+    this.rowsInto(this.orbitFacts, sections.orbit);
     this.buildComposition(body);
   }
 
@@ -107,14 +82,7 @@ export class InfoPanel {
   }
 
   private buildComposition(body: SimBody): void {
-    const rows: FactRow[] = [];
-    const composition = body.spec?.facts.composition;
-    if (composition !== undefined && composition !== '') {
-      rows.push(['Makeup', composition, true]);
-    }
-    if (body.small) {
-      rows.push(['Family', body.subtitle, true]);
-    }
+    const rows = compositionRows(body);
     this.rowsInto(this.compositionEl, rows);
 
     // Ring names run long ("Main rings (C, B, Cassini division, A, F)"), so they

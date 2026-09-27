@@ -87,7 +87,7 @@ src/
     materials/      one file per material: uniforms, defines, blending
     shaders/        the GLSL behind them; chunks/ holds the shared #include chunks
     scene.ts        SceneView: builds the scene and runs its layers each frame
-    scene/          one file per layer: bodies, rings, orbits, labels, picking, the VR rig, ...
+    scene/          one file per layer: bodies, rings, orbits, labels, picking, the VR rig and overlay, ...
     sky.ts          the star field and the deep-sky backdrop
     procedural/     synthesised surfaces, rings and sprites
     textures.ts     lazy loading with procedural fallback
@@ -95,6 +95,7 @@ src/
     camera.ts       CameraController: the public face of the camera
     camera/         orbit, free flight, cinematic flights, shared views, pointer and stick input
   ui/               panels, orrery mini-map, styles; panels/ and minimap/ hold their parts
+    xr/             the in-headset UI (uikit): tabbed panel, placements, pointers, labels; loaded lazily
   sw.ts             the service worker: precached shell, imagery cached by revision
   sw-register.ts    registers the service worker in production
 test/               Vitest unit tests (*.spec.ts); the camera and body tree run headless
@@ -145,6 +146,7 @@ To re-fetch or refresh them:
 ```bash
 pnpm assets         # downloads sources, converts imagery, regenerates data
 pnpm assets:light   # skip the large USGS moon mosaics, 4k instead of 8k
+pnpm assets:fonts   # just the MSDF font atlases for the in-headset UI
 ```
 
 `pnpm assets` is the **only** part of the project that touches the network. It

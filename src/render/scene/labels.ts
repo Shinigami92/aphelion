@@ -14,11 +14,21 @@ const tmpVec2 = new Vector3();
 export class LabelLayer {
   private labelHost: HTMLElement | null = null;
   private labelPool: HTMLElement[] = [];
+  private candidateList: SimBody[] = [];
 
   constructor(private readonly state: FrameState) {}
 
   setHost(host: HTMLElement): void {
     this.labelHost = host;
+  }
+
+  /**
+   * The bodies that may carry a label this frame, by the page's rules. The
+   * headset labels the same bodies, so it reads them from here rather than
+   * keeping a second copy of the rules.
+   */
+  get candidates(): ReadonlyArray<SimBody> {
+    return this.candidateList;
   }
 
   update(system: SolarSystem, lagrangeBodies: ReadonlyArray<SimBody>): void {
@@ -29,13 +39,15 @@ export class LabelLayer {
     }
 
     if (this.state.toggles.labels === 'none') {
+      this.candidateList = [];
       for (const el of this.labelPool) {
         el.style.display = 'none';
       }
       return;
     }
 
-    const candidates = this.candidates(system, lagrangeBodies);
+    const candidates = this.collectCandidates(system, lagrangeBodies);
+    this.candidateList = candidates;
     let used = 0;
     for (const body of candidates) {
       if (used >= 120) {
@@ -51,7 +63,10 @@ export class LabelLayer {
   }
 
   /** The bodies that may get a label this frame. */
-  private candidates(system: SolarSystem, lagrangeBodies: ReadonlyArray<SimBody>): SimBody[] {
+  private collectCandidates(
+    system: SolarSystem,
+    lagrangeBodies: ReadonlyArray<SimBody>,
+  ): SimBody[] {
     const candidates: SimBody[] = [];
     for (const body of system.bodies) {
       if (body.type === 'star' || body.type === 'planet' || body.type === 'dwarf') {

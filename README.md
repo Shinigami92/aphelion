@@ -126,14 +126,26 @@ anywhere else. The headset rides on the same camera the page steers, so turning
 your head looks around from wherever that camera is, and the keyboard, mouse and
 panels keep working for whoever sits at the desk.
 
-| Controller            | Action                                      |
-| --------------------- | ------------------------------------------- |
-| trigger (or a pinch)  | select what the ray points at and fly to it |
-| left stick            | zoom in and out (fly, in free mode)         |
-| right stick           | orbit round the focus (turn and look, free) |
-| `A`                   | pause / resume                              |
-| `B`                   | diorama ↔ true scale                        |
-| click the right stick | toggle orbit ↔ free flight                  |
+Inside the headset there is a panel of its own, held on the left wrist like a
+tablet: **Time** (clock and transport), **Bodies** (fly to anything by name),
+**Info** (the selected body's facts) and **View** (layers, labels, orbits and
+both scales). Point the right controller at it — a ring marks where the ray
+lands — and pull the trigger to press. It can also follow you around or be
+pinned in the room. Bodies carry name labels in the headset too, and whatever the
+right ray is pointing at is named before you pick it.
+
+| Controller              | Action                                             |
+| ----------------------- | -------------------------------------------------- |
+| trigger (or a pinch)    | press on the panel, or select a body and fly to it |
+| left stick              | zoom in and out (fly, in free mode)                |
+| right stick             | orbit round the focus (turn and look, free)        |
+| right stick, on panel   | scroll the panel                                   |
+| `A`                     | pause / resume                                     |
+| `B`                     | diorama ↔ true scale                               |
+| click the right stick   | toggle orbit ↔ free flight                         |
+| click the left stick    | show / hide the panel                              |
+| d-pad down              | panel on the wrist                                 |
+| d-pad left, right or up | panel following you ↔ pinned in the room           |
 
 The default **diorama** scale sizes the world so the nearest surface is a few
 metres away wherever you are — from a few radii out a planet is a globe you can
@@ -142,7 +154,9 @@ eyes are centimetres apart in a solar system, so nothing shows any depth, exactl
 would to an astronaut. In VR the scene is drawn without bloom, which Three.js
 cannot run into a headset. The page keeps showing what the wearer sees — the
 middle of their view, at the desktop's field of view, bloom included — so a
-shared browser tab or a screen at the desk can follow along.
+shared browser tab or a screen at the desk can follow along. The headset panel is
+not mirrored; the page has its own. None of the VR interface is downloaded until a
+session starts.
 
 ---
 

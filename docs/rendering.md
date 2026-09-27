@@ -58,6 +58,22 @@
   through the desktop lens and the full composer, so the page mirrors the wearer
   instead of freezing; it runs at one pixel per CSS pixel to leave the headset
   its frame budget.
+- **An overlay in metres, for everything the hands touch.** The controllers'
+  rays, the VR panel and the headset's body labels cannot hang off the scaled
+  rig: at true scale a panel half a metre away is five ten-millionths of a
+  scene unit, under float32 resolution. They live in a scene of their own with
+  an unscaled rig that turns with the world rig, drawn in a second pass after
+  the depth buffer is cleared, so nothing sinks into a planet and both scales
+  are equally sharp. Both passes share one near plane (at most 2⁻⁵ m) so WebXR's
+  clip planes are not rewritten twice a frame. The panel is
+  [@pmndrs/uikit](https://github.com/pmndrs/uikit), styled from the page's
+  design tokens, with text from MSDF atlases that `pnpm assets:fonts` builds
+  with the glyphs Aphelion prints (uikit's own fonts stop at ASCII). uikit lays
+  out a whole tree whenever any text in it changes, hidden parts included, so
+  only the showing tab is attached and the Bodies list is a window of reusable
+  rows rather than a node per body — otherwise a ticking clock cost a dozen
+  milliseconds a second and opening Jupiter stalled the headset. The whole VR
+  interface is a lazy chunk, fetched on the first session.
 
 ## Scripting from the console
 

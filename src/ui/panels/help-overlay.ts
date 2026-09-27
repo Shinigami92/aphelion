@@ -64,12 +64,15 @@ const KEY_HELP: Array<[string, Array<[string, string]>]> = [
     'VR headset',
     [
       ['Enter VR', 'in the view options, when a headset is available'],
-      ['trigger / pinch', 'select what the ray points at and fly there'],
+      ['trigger / pinch', 'press on the panel, or select a body and fly there'],
       ['left stick', 'zoom in and out (fly, in free mode)'],
-      ['right stick', 'orbit (turn and look, in free mode)'],
+      ['right stick', 'orbit (turn and look, in free mode); on the panel, scroll'],
       ['A', 'pause / resume'],
       ['B', 'diorama / true scale'],
       ['click right stick', 'toggle orbit / free flight'],
+      ['click left stick', 'show / hide the panel'],
+      ['d-pad down', 'panel on the wrist'],
+      ['d-pad left / right / up', 'panel following you / pinned'],
     ],
   ],
 ];

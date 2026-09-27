@@ -183,6 +183,7 @@ export class RenderPipeline {
   private renderHeadset(camera: PerspectiveCamera): void {
     this.xr.sync(camera);
     this.renderer.render(this.scene, this.xr.head);
+    this.xr.renderOverlay();
 
     const width = Math.max(1, Math.round(this.state.viewport.x));
     const height = Math.max(1, Math.round(this.state.viewport.y));

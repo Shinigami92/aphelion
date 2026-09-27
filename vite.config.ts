@@ -1,6 +1,32 @@
 import { defineConfig } from 'vite';
 import { VitePWA } from 'vite-plugin-pwa';
 
+/**
+ * Modules only a VR session loads: the headset UI, its library and its fonts.
+ * Their chunks go to assets/vr/, which the service worker caches on first use
+ * instead of precaching (see src/sw.ts), so a visitor without a headset never
+ * downloads them. That includes the pieces of the library Aphelion never loads
+ * at all (a default font, a runtime font generator and its worker).
+ */
+const VR_ONLY = [
+  '/src/ui/xr/',
+  '/src/data/generated/fonts/',
+  '/node_modules/@pmndrs/',
+  '/node_modules/@zappar/',
+  '/node_modules/@preact/',
+  '/node_modules/yoga-layout/',
+  '/node_modules/zod/',
+];
+
+const isVrOnly = (id: string | null | undefined): boolean =>
+  id != null && VR_ONLY.some((part) => id.replaceAll('\\', '/').includes(part));
+
+/** Where a chunk made of `moduleIds` is written. */
+const chunkPath = (moduleIds: ReadonlyArray<string>): string =>
+  moduleIds.length > 0 && moduleIds.every(isVrOnly)
+    ? 'assets/vr/[name]-[hash].js'
+    : 'assets/[name]-[hash].js';
+
 export default defineConfig({
   base: './',
   server: { port: 5173, open: false },
@@ -38,6 +64,12 @@ export default defineConfig({
         // reuse the cached (and service-worker-cached) Three chunk instead of
         // re-downloading it.
         manualChunks: (id) => (id.includes('node_modules/three') ? 'three' : undefined),
+        chunkFileNames: (chunk) => chunkPath(chunk.moduleIds),
+        // The font generator's worker arrives as a file of its own.
+        assetFileNames: (asset) =>
+          asset.originalFileNames.some(isVrOnly)
+            ? 'assets/vr/[name]-[hash][extname]'
+            : 'assets/[name]-[hash][extname]',
       },
     },
   },
