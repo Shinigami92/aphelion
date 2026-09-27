@@ -30,6 +30,12 @@ import { J2000, SEC_PER_DAY } from '../src/core/constants.ts';
 const utc = (year: number, month: number, day: number, hour = 0, minute = 0, second = 0): number =>
   calendarToJd({ year, month, day, hour, minute, second, ms: 0 });
 
+/**
+ * Under half a millisecond short of midnight, which rounds up to it. The old
+ * field-by-field carry stopped at the hour and returned 24:00:00 on the same day.
+ */
+const beforeMidnight = (jd: number): number => jd - 0.4 / 1000 / SEC_PER_DAY;
+
 /** TT − UTC at a UTC instant, in seconds. */
 const offsetSeconds = (jdUtc: number): number => (jdUtcToTt(jdUtc) - jdUtc) * SEC_PER_DAY;
 
@@ -110,6 +116,22 @@ describe('calendar round trips', () => {
   it('never renders a sixtieth second when rounding carries up', () => {
     expect(formatUtc(utc(2024, 1, 1, 0, 0, 59) + 0.999 / SEC_PER_DAY)).not.toContain(':60');
   });
+
+  it('carries a round-up at midnight into the next day, across a month and a year', () => {
+    expect(formatUtc(beforeMidnight(utc(2024, 4, 9)), true)).toBe('2024-04-09 00:00:00.000');
+    expect(formatUtc(beforeMidnight(utc(2024, 3, 1)))).toBe('2024-03-01 00:00:00');
+    expect(formatUtc(beforeMidnight(utc(2025, 1, 1)))).toBe('2025-01-01 00:00:00');
+  });
+
+  it('keeps every field inside its range over a sweep of awkward instants', () => {
+    for (let jd = 2460000.5 - 1e-6; jd < 2460010; jd += 0.123_456_789) {
+      const c = jdToCalendar(jd);
+      expect(c.hour).toBeLessThan(24);
+      expect(c.minute).toBeLessThan(60);
+      expect(c.second).toBeLessThan(60);
+      expect(c.ms).toBeLessThan(1000);
+    }
+  });
 });
 
 describe('formatUtc', () => {
@@ -174,9 +196,27 @@ describe('parseUtc', () => {
       '2024-01-32',
       '2024-01-01 25:00',
       '2024/01/01',
+      '2023-02-31',
+      '2023-02-29',
+      '2024-04-31',
+      '1900-02-29', // not a leap year under the Gregorian rule
+      '1582-10-10', // one of the ten days the Gregorian reform skipped
     ]) {
       expect(parseUtc(bad), bad).toBeNull();
     }
+  });
+
+  it('accepts leap days under whichever calendar was in force', () => {
+    expect(parseUtc('2024-02-29')).toBeCloseTo(utc(2024, 2, 29), 9);
+    expect(parseUtc('2000-02-29')).toBeCloseTo(utc(2000, 2, 29), 9);
+    // Julian: every fourth year, centuries included.
+    expect(parseUtc('1500-02-29')).toBeCloseTo(utc(1500, 2, 29), 9);
+    // The reform's last Julian day and first Gregorian day are consecutive.
+    expect(Number(parseUtc('1582-10-15')) - Number(parseUtc('1582-10-04'))).toBe(1);
+  });
+
+  it('accepts a leap second, landing it on the next midnight', () => {
+    expect(parseUtc('2016-12-31 23:59:60')).toBeCloseTo(utc(2017, 1, 1), 9);
   });
 
   it('round-trips through formatUtc to within its one-second truncation', () => {

@@ -3,6 +3,8 @@
  * Date parsing quirks.
  */
 
+import { MS_PER_DAY } from '../core/constants.ts';
+
 export interface CalendarDate {
   year: number;
   month: number; // 1-12
@@ -22,8 +24,17 @@ const p3 = (n: number): string => String(Math.abs(n)).padStart(3, '0');
  * Date handles comfortably.
  */
 export function jdToCalendar(jd: number): CalendarDate {
-  const z = Math.floor(jd + 0.5);
-  const f = jd + 0.5 - z;
+  let z = Math.floor(jd + 0.5);
+  // Round the time of day to whole milliseconds before splitting it, and let a
+  // round-up carry into the date. Rounding the milliseconds last, as the fields
+  // fall out, carried no further than the hour: an instant a few microseconds
+  // before midnight came out as 24:00:00, which parseUtc rightly refuses, so a
+  // URL written at that moment dropped its time on reload.
+  let msOfDay = Math.round((jd + 0.5 - z) * MS_PER_DAY);
+  if (msOfDay >= MS_PER_DAY) {
+    msOfDay -= MS_PER_DAY;
+    z += 1;
+  }
 
   let a = z;
   if (z >= 2299161) {
@@ -35,34 +46,17 @@ export function jdToCalendar(jd: number): CalendarDate {
   const d = Math.floor(365.25 * c);
   const e = Math.floor((b - d) / 30.6001);
 
-  const dayFrac = b - d - Math.floor(30.6001 * e) + f;
-  const day = Math.floor(dayFrac);
+  const day = b - d - Math.floor(30.6001 * e);
   const month = e < 14 ? e - 1 : e - 13;
   const year = month > 2 ? c - 4716 : c - 4715;
 
-  let rem = (dayFrac - day) * 24;
-  let hour = Math.floor(rem);
-  rem = (rem - hour) * 60;
-  let minute = Math.floor(rem);
-  rem = (rem - minute) * 60;
-  let second = Math.floor(rem);
-  let msec = Math.round((rem - second) * 1000);
+  // Integer arithmetic from here on, so no field can round up to its limit.
+  const hour = Math.floor(msOfDay / 3_600_000);
+  const minute = Math.floor(msOfDay / 60_000) % 60;
+  const second = Math.floor(msOfDay / 1000) % 60;
+  const ms = msOfDay % 1000;
 
-  // Carry rounding upward so we never render ":60".
-  if (msec >= 1000) {
-    msec -= 1000;
-    second += 1;
-  }
-  if (second >= 60) {
-    second -= 60;
-    minute += 1;
-  }
-  if (minute >= 60) {
-    minute -= 60;
-    hour += 1;
-  }
-
-  return { year, month, day, hour, minute, second, ms: msec };
+  return { year, month, day, hour, minute, second, ms };
 }
 
 /** Proleptic Gregorian UTC calendar fields -> Julian Date. */
@@ -104,12 +98,25 @@ export function formatUtcTime(jd: number): string {
 }
 
 /**
- * Parse `YYYY-MM-DD[ T]HH:MM[:SS]` as UTC. Returns null when unparseable so
+ * Whether a year, month and day name a date the calendar actually has. Going
+ * to a Julian Date and back is the check, because it applies exactly the
+ * rules the conversion does: 31 February becomes 3 March and fails, and so
+ * do the ten days the Gregorian reform skipped in October 1582.
+ */
+function isRealDate(year: number, month: number, day: number): boolean {
+  const back = jdToCalendar(
+    calendarToJd({ year, month, day, hour: 0, minute: 0, second: 0, ms: 0 }),
+  );
+  return back.year === year && back.month === month && back.day === day;
+}
+
+/**
+ * Parse `YYYY-MM-DD[ T]HH:MM[:SS][Z]` as UTC. Returns null when unparseable so
  * callers can reject input without throwing.
  */
 export function parseUtc(text: string): number | null {
   const m =
-    /^\s*(-?\d{1,6})-(\d{1,2})-(\d{1,2})(?:[ T]+(\d{1,2}):(\d{1,2})(?::(\d{1,2}(?:\.\d+)?))?)?\s*Z?\s*$/u.exec(
+    /^\s*(-?\d{1,6})-(\d{1,2})-(\d{1,2})(?:[ T]+(\d{1,2}):(\d{1,2})(?::(\d{1,2}(?:\.\d+)?))?)?\s*Z?\s*$/iu.exec(
       text,
     );
   if (!m) {
@@ -128,7 +135,8 @@ export function parseUtc(text: string): number | null {
     day > 31 ||
     hour > 23 ||
     minute > 59 ||
-    secFloat >= 61
+    secFloat >= 61 ||
+    !isRealDate(year, month, day)
   ) {
     return null;
   }
