@@ -39,12 +39,13 @@ for the scripts, the asset pipeline and how to get a change merged.
 ## Offline
 
 The app never calls out to a third party — every script, texture and ephemeris
-table is served from its own origin. A service worker (`public/sw.js`,
-registered in production only) closes the last gap: it caches the shell on first
-visit and each texture and data module as a flight actually loads it, so a
-**reload with no network** still opens on whatever you have already seen.
-Navigations are network-first, so a new deploy is picked up the next time you
-are online. Add it to a home screen and it launches standalone from the
+table is served from its own origin. A service worker (`src/sw.ts`, built with
+vite-plugin-pwa and registered in production only) closes the last gap: it
+caches the app and star catalogue on first visit and each texture as a flight
+actually loads it, so a **reload with no network** still opens on whatever you
+have already seen. A cached texture is downloaded again only when a deploy
+changes it. Navigations are network-first, so a new deploy is picked up the
+next time you are online. Add it to a home screen and it launches standalone from the
 `manifest.webmanifest`.
 
 ---

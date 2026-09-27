@@ -95,12 +95,12 @@ src/
     camera.ts       CameraController: the public face of the camera
     camera/         orbit, free flight, cinematic flights, shared views, pointer input
   ui/               panels, orrery mini-map, styles; panels/ and minimap/ hold their parts
+  sw.ts             the service worker: precached shell, imagery cached by revision
   sw-register.ts    registers the service worker in production
 test/               Vitest unit tests (*.spec.ts); the camera and body tree run headless
 e2e/                Playwright guards for render/UI refactors: screenshots, pick maps, input (*.e2e.ts)
 docs/               long-form documentation linked from the README
 public/
-  sw.js             offline cache: network-first shell, stale-while-revalidate assets
   manifest.webmanifest
 scripts/
   fetch-assets.ts       the only networked code in the project; stages in assets/
