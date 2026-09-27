@@ -1,13 +1,14 @@
 /**
  * The view encoded in the URL.
  *
- * The module had no coverage and a lot of surface: a "write only non-defaults"
- * encoder and an "ignore anything you cannot parse" decoder that have to stay in
- * agreement. The contract worth pinning down:
+ * The module had no coverage and a lot of surface: a "write only what a link
+ * needs" encoder and an "ignore anything you cannot parse" decoder that have to
+ * stay in agreement. The contract worth pinning down:
  *
  *   - encode → parse is a faithful round trip (within the documented rounding);
- *   - a hand-mangled query still opens, just with fewer fields restored;
- *   - a typo never silently switches a layer off.
+ *   - the encoder writes what a link must pin down and leaves the rest out.
+ *
+ * How the decoder copes with a hand-mangled query is in url-parse.spec.ts.
  */
 
 import type { SharedView } from '../src/core/url-state.ts';
@@ -28,6 +29,7 @@ import { UrlWriter } from '../src/core/url-writer.ts';
 // NaN rather than a cast: should the fixture ever stop parsing, every
 // comparison against it fails instead of quietly testing `null`.
 const ECLIPSE_2024_JD = parseUtc('2024-04-08 18:17:16') ?? Number.NaN;
+const MIDNIGHT_2024_04_09_JD = parseUtc('2024-04-09') ?? Number.NaN;
 
 const baseView = (over: Partial<SharedView> = {}): SharedView => ({
   jdUtc: ECLIPSE_2024_JD,
@@ -143,70 +145,21 @@ describe('encodeView keeps the URL short and readable', () => {
     expect(q).toContain('atmo=0');
   });
 
+  it('always writes the instant, focus, rate and camera a link has to pin down', () => {
+    const q = encodeView(baseView());
+    for (const param of ['t', 'focus', 'rate', 'az', 'el', 'd']) {
+      expect(q).toMatch(new RegExp(`(^|&)${param}=`, 'u'));
+    }
+  });
+
+  it('survives an instant a hair before midnight, which used to write 24:00:00', () => {
+    const view = baseView({ jdUtc: MIDNIGHT_2024_04_09_JD - 1e-9 });
+    expect(encodeView(view)).toContain('t=2024-04-09T00:00:00Z');
+    expect(parseView(`?${encodeView(view)}`).jdUtc).toBeCloseTo(view.jdUtc, 6);
+  });
+
   it('keeps colons legible but encodes spaces in body keys', () => {
     expect(encodeView(baseView({ focusKey: 'sb:2002 MS4' }))).toContain('focus=sb:2002%20MS4');
-  });
-});
-
-describe('parseView tolerates a mangled query', () => {
-  it('returns an empty view for an empty or contentless query', () => {
-    expect(parseView('')).toEqual({});
-    expect(parseView('?')).toEqual({});
-  });
-
-  it('ignores a rate that is not a non-zero number', () => {
-    expect(parseView('?rate=fast').rate).toBeUndefined();
-    expect(parseView('?rate=0').rate).toBeUndefined();
-  });
-
-  it('leaves the camera at its default for an out-of-range elevation', () => {
-    expect(parseView('?el=999').elevation).toBeUndefined();
-  });
-
-  it('rejects a non-positive distance', () => {
-    expect(parseView('?d=0').distanceRadii).toBeUndefined();
-    expect(parseView('?d=-4').distanceRadii).toBeUndefined();
-  });
-
-  it('ignores an unrecognised enum value', () => {
-    expect(parseView('?mode=metric').scaleMode).toBeUndefined();
-    expect(parseView('?orbits=sometimes').orbits).toBeUndefined();
-    expect(parseView('?labels=loud').labels).toBeUndefined();
-    expect(parseView('?cam=teleport').cameraMode).toBeUndefined();
-  });
-
-  it('drops a free-flight vector of the wrong length or with a non-finite term', () => {
-    expect(parseView('?fp=1,2').freePosition).toBeUndefined();
-    expect(parseView('?fp=1,2,3,4').freePosition).toBeUndefined();
-    expect(parseView('?fp=1,nan,3').freePosition).toBeUndefined();
-  });
-
-  it('drops a zero-length quaternion that cannot be normalised', () => {
-    expect(parseView('?fq=0,0,0,0').freeOrientation).toBeUndefined();
-  });
-
-  it('does not let a typo in a toggle value switch the layer off', () => {
-    expect(parseView('?belts=maybe').toggles).toBeUndefined();
-  });
-
-  it('merges a partial toggle set onto the defaults', () => {
-    expect(parseView('?atmo=0&lagrange=0').toggles).toEqual({
-      ...DEFAULT_TOGGLES,
-      atmospheres: false,
-      lagrange: false,
-    });
-  });
-
-  it('still opens a truncated link, restoring only the readable half', () => {
-    const parsed = parseView('?t=2024-04-08T18:17:16Z&focus=mars&rate=not');
-    expect(parsed.focusKey).toBe('mars');
-    expect(parsed.jdUtc).toBeCloseTo(ECLIPSE_2024_JD, 6);
-    expect(parsed.rate).toBeUndefined();
-  });
-
-  it('ignores a retired parameter the way it ignores any unknown one', () => {
-    expect(() => parseView('?orrery=0&focus=venus')).not.toThrow();
-    expect(parseView('?orrery=0&focus=venus').focusKey).toBe('venus');
   });
 });
 

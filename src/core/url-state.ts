@@ -12,8 +12,12 @@
  *     or scene units. Radii are exact in both scale modes (a body and its
  *     surroundings scale uniformly), so the same link frames the body identically
  *     whether the recipient lands in explore or true scale.
- *   - **Only non-default values are written.** The default view is a bare URL,
- *     and a shared link stays short enough to read.
+ *   - **The instant, focus, rate and camera are always written; everything else
+ *     only when it departs from its default.** The first group is what a link
+ *     is for: a recipient opening it days later must land at the same moment,
+ *     running at the same rate, from the same angle, and the camera's defaults
+ *     depend on the body anyway. Leaving the rest out keeps a shared link short
+ *     enough to read.
  *
  * Reading a link is in url-parse.ts and writing the address bar in url-writer.ts.
  *

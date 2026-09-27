@@ -17,7 +17,7 @@ import {
 function readClock(q: URLSearchParams, out: Partial<SharedView>): void {
   const t = q.get('t');
   if (t !== null && t !== '') {
-    const jd = parseUtc(t.replace('T', ' ').replace(/Z$/iu, ''));
+    const jd = parseUtc(t);
     if (jd !== null) {
       out.jdUtc = jd;
     }
@@ -32,8 +32,12 @@ function readClock(q: URLSearchParams, out: Partial<SharedView>): void {
   }
 
   const paused = q.get('paused');
-  if (paused !== null) {
-    out.paused = paused === '1' || paused === 'true';
+  // Same explicit-values-only rule as the layer switches: `paused=yes` is a
+  // value we cannot read, not a request to keep the clock running.
+  if (paused === '1' || paused === 'true') {
+    out.paused = true;
+  } else if (paused === '0' || paused === 'false') {
+    out.paused = false;
   }
 }
 
@@ -57,7 +61,9 @@ function readSelection(q: URLSearchParams, out: Partial<SharedView>): void {
 /** A finite number, or undefined if the parameter is missing or is anything else. */
 function numberParam(q: URLSearchParams, name: string): number | undefined {
   const raw = q.get(name);
-  if (raw === null) {
+  // `Number('')` is 0, so an emptied `az=` would otherwise turn the camera to
+  // azimuth zero instead of leaving it alone.
+  if (raw === null || raw.trim() === '') {
     return undefined;
   }
   const value = Number(raw);
@@ -70,8 +76,13 @@ function vectorParam(q: URLSearchParams, name: string, length: number): number[]
   if (raw === null) {
     return undefined;
   }
-  const parts = raw.split(',').map(Number);
-  if (parts.length !== length || parts.some((n) => !Number.isFinite(n))) {
+  const terms = raw.split(',');
+  // An empty term would read as 0 for the same reason as in numberParam.
+  if (terms.length !== length || terms.some((term) => term.trim() === '')) {
+    return undefined;
+  }
+  const parts = terms.map(Number);
+  if (parts.some((n) => !Number.isFinite(n))) {
     return undefined;
   }
   return parts;
