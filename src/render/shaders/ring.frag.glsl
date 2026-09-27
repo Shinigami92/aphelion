@@ -62,4 +62,5 @@ void main() {
 
   vec3 colour = albedo * brightness * shadow * mix(1.0, uExploreBrightness, uScaleBlend);
   gl_FragColor = vec4(colour, alpha);
+  #include <aphelion_output>
 }

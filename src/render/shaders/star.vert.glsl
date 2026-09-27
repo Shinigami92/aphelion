@@ -27,7 +27,12 @@ void main() {
   // and renormalising is all the curvature correction that needs.
   vec3 dir = normalize(position + aProperMotion * uYears);
 
-  gl_Position = pinToFarPlane(projectionMatrix * modelViewMatrix * vec4(dir, 1.0));
+  // A direction, not a point (w = 0), so the translation drops out and the
+  // star lies at infinity from wherever the eye is. Centring the sphere on
+  // the camera did that for one eye. A headset has two, a few hundred
+  // kilometres apart at the VR rig's scale, and a star a unit away then
+  // showed each of them a different sky.
+  gl_Position = pinToFarPlane(projectionMatrix * modelViewMatrix * vec4(dir, 0.0));
 
   // Magnitudes of headroom above the limit, and the flux that implies.
   float headroom = max(uMagLimit - aMagnitude, 0.0);

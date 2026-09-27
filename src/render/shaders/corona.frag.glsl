@@ -24,4 +24,5 @@ void main() {
   if (b < uInner) glow = 1.0;
 
   gl_FragColor = vec4(uColor * glow * uIntensity, glow);
+  #include <aphelion_output>
 }

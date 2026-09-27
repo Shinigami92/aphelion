@@ -73,4 +73,5 @@ void main() {
 
   vec3 col = srgbToLinear(vec3(cover)) * diffuse * eclipse;
   gl_FragColor = vec4(col, cover * uOpacity);
+  #include <aphelion_output>
 }

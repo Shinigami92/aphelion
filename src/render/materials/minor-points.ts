@@ -2,6 +2,8 @@
 
 import type { Texture } from 'three';
 import { AdditiveBlending, ShaderMaterial, Vector2 } from 'three';
+// oxlint-disable-next-line import/no-unassigned-import -- registers the <aphelion_output> chunk the fragment shader includes
+import './chunks.ts';
 import minorPointsFragmentShader from '../shaders/minor-points.frag.glsl?raw';
 import minorPointsVertexShader from '../shaders/minor-points.vert.glsl?raw';
 

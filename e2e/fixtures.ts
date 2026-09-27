@@ -111,6 +111,11 @@ export async function openView(page: Page, query: string): Promise<void> {
   await page.addInitScript(() => {
     window.__e2eNoMultisample = true;
   });
+  // The Enter VR button only appears where the browser can reach a headset,
+  // which would make the baselines depend on whether a VR runtime is installed.
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, 'xr', { value: undefined });
+  });
   await page.goto(`./?${query}`);
   await expect(page.locator('#boot')).toBeHidden({ timeout: 30_000 });
   await page.waitForLoadState('networkidle');

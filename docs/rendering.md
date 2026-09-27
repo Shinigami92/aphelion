@@ -35,7 +35,29 @@
   clock runs across its 1600–2500 range; they do not twinkle, because there is no
   atmosphere out there to make them. The whole backdrop is pinned to the far
   plane in the vertex shader rather than given a radius, which is the only thing
-  that works across near/far planes spanning eleven orders of magnitude.
+  that works across near/far planes spanning eleven orders of magnitude, and it
+  is drawn as directions rather than points (w = 0), so it lies at infinity from
+  each eye on its own — which a headset, with two of them, needs.
+- **One camera, with a headset riding on it.** In WebXR the eye poses hang off a
+  rig that sits where the app camera is and is scaled to decide what a metre of
+  head movement spans. In the default diorama scale the camera's near plane
+  lands five centimetres from the eyes; since the near plane is already the
+  measure of how much room there is, the nearest surface is always a few metres
+  away and stereo reads at a human scale. True scale makes a metre a metre.
+  Scaling about the eye changes nothing a single eye sees, so the picture is the
+  one on screen either way. The composer cannot draw into a WebXR framebuffer,
+  so the headset gets the scene straight from the renderer, without bloom: every
+  material ends in a shared chunk that applies ACES and the sRGB encoding, which
+  Three.js compiles to nothing for the composer's render target and turns on
+  only for the screen and XR targets. One difference remains: the additive
+  layers (atmospheres, corona, orbit lines) are tone-mapped one by one before
+  they add up, not once after, so the brightest haze reads slightly flatter in
+  the headset than on screen. The headset layer is multisampled even though the
+  canvas is not (see `createContext` in `render/scene/pipeline.ts`). After each
+  headset frame the view is drawn once more onto the page, from the head's pose
+  through the desktop lens and the full composer, so the page mirrors the wearer
+  instead of freezing; it runs at one pixel per CSS pixel to leave the headset
+  its frame budget.
 
 ## Scripting from the console
 

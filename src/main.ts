@@ -15,6 +15,7 @@
  * system, move the camera, push everything to the GPU, then update the DOM.
  */
 
+import type { KeyboardDeps } from './app/keyboard.ts';
 import type { SimBody } from './core/system.ts';
 import { startBoot } from './app/boot.ts';
 import { CameraRange } from './app/camera-range.ts';
@@ -35,6 +36,7 @@ import {
 } from './app/shared-view.ts';
 import { TravelDust } from './app/travel-dust.ts';
 import { createViewOptions } from './app/view-options.ts';
+import { installXr } from './app/xr.ts';
 import { CameraController } from './controls/camera.ts';
 import { ScaleModel } from './core/scale.ts';
 import { SolarSystem } from './core/system.ts';
@@ -46,7 +48,6 @@ import { TextureLibrary } from './render/textures.ts';
 import { registerServiceWorker } from './sw-register.ts';
 import { Minimap } from './ui/minimap.ts';
 import { BodyBrowser } from './ui/panels/body-browser.ts';
-import { formatDistance } from './ui/panels/format.ts';
 import { HelpOverlay } from './ui/panels/help-overlay.ts';
 import { InfoPanel } from './ui/panels/info-panel.ts';
 import { TimePanel } from './ui/panels/time-panel.ts';
@@ -180,7 +181,7 @@ select(selected);
 
 installPointerSelection(canvas, (x, y) => scene.pick(x, y, system), select, goTo);
 
-installKeyboard({
+const controls: KeyboardDeps = {
   time,
   scale,
   system,
@@ -199,7 +200,8 @@ installKeyboard({
   focusSearch: () => {
     browser.focusSearch();
   },
-});
+};
+installKeyboard(controls);
 
 // ---------------------------------------------------------------------------
 // Resize
@@ -218,6 +220,8 @@ resize();
 startBoot(library, system, toast, () => layout.mobile);
 
 installScriptingHandle({ time, system, scale, scene, camera, focused, select, goTo });
+
+const xr = installXr({ ...controls, host: togglePanel.body, onSessionEnd: resize });
 
 // ---------------------------------------------------------------------------
 // Frame loop
@@ -249,8 +253,6 @@ let lastMinimapAt = -Infinity;
 const MINIMAP_INTERVAL_MS = 125;
 
 function frame(now: number): void {
-  requestAnimationFrame(frame);
-
   // Clamp so a backgrounded tab does not leap years on return.
   const dt = Math.min((now - lastFrame) / 1000, 0.1);
   lastFrame = now;
@@ -264,6 +266,7 @@ function frame(now: number): void {
   time.advance(step);
   scale.update(step);
   system.update(time.jdTT, scale);
+  xr.update(step);
   camera.setNearestSurface(nearestSurfaceDistance(camera, system, focused()));
   camera.update(step);
 
@@ -290,10 +293,8 @@ function frame(now: number): void {
   urlWriter.sync(now, currentSharedView);
 }
 
-requestAnimationFrame(frame);
+// The renderer runs the loop: it asks the window for frames, or a headset while
+// one is presenting, which only shows what is drawn in its own callback.
+scene.xr.setAnimationLoop(frame);
 
-// Surface the focus distance in the document title — handy when comparing
-// scale modes side by side, and now the same number in both.
-setInterval(() => {
-  document.title = `Aphelion — ${focused().name} · ${formatDistance(range.km)}`;
-}, 1000);
+range.mirrorToTitle();

@@ -27,7 +27,7 @@ import { cancelFlight, takeOverForOrbit } from './orbit.ts';
  * once the asymptote drops below it — measured at 940 m of penetration into
  * Earth before this cap existed.
  */
-function freeFlightStep(s: CameraState, dt: number, boost: number): number {
+export function freeFlightStep(s: CameraState, dt: number, boost: number): number {
   const clearance = Number.isFinite(s.nearestSurface) ? s.nearestSurface : Math.max(s.distance, 1);
 
   // Already inside something: damping would trap you there, so fly freely.

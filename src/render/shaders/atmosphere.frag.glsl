@@ -161,4 +161,5 @@ void main() {
               * uSunIntensity * RADIANCE_TO_UNITS;
 
   gl_FragColor = vec4(max(colour, vec3(0.0)), 1.0);
+  #include <aphelion_output>
 }

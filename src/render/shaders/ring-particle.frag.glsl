@@ -23,4 +23,5 @@ void main() {
   float diffuse = 0.12 + 0.88 * max(dot(N, L), 0.0);
   vec3 albedo = srgbToLinear(vTint);
   gl_FragColor = vec4(albedo * diffuse * shadow, 1.0);
+  #include <aphelion_output>
 }

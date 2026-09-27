@@ -12,4 +12,5 @@ void main() {
   if (d > 1.0) discard;
   float profile = pow(1.0 + vSharpness * d * d, -BETA);
   gl_FragColor = vec4(vColor * profile * uOpacity, 1.0);
+  #include <aphelion_output>
 }

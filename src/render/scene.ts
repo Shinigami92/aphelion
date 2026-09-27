@@ -27,8 +27,10 @@ import type { ScaleModel } from '../core/scale.ts';
 import type { SimBody, SolarSystem } from '../core/system.ts';
 import type { VisualContext } from './scene/body-visual-update.ts';
 import type { VisualDeps } from './scene/body-visual.ts';
+import type { PickView } from './scene/picking.ts';
 import type { Quality, SceneToggles } from './scene/types.ts';
 import type { BodyVisual } from './scene/visual.ts';
+import type { XrRig } from './scene/xr-rig.ts';
 import type { TextureLibrary } from './textures.ts';
 import type { BufferGeometry, PerspectiveCamera, Vector3 } from 'three';
 import { Group, Scene } from 'three';
@@ -78,12 +80,15 @@ export class SceneView {
   private readonly promotions: PromotionLayer;
   private readonly visualContext: VisualContext;
   private readonly pipeline: RenderPipeline;
+  /** The headset rig, for starting a VR session and reading its controllers. */
+  readonly xr: XrRig;
 
   constructor(canvas: HTMLCanvasElement, library: TextureLibrary) {
     this.library = library;
     this.promotions = new PromotionLayer(this.state, library);
 
     this.pipeline = new RenderPipeline(canvas, this.scene, this.state);
+    this.xr = this.pipeline.xr;
     this.library.setAnisotropy(this.pipeline.renderer.capabilities.getMaxAnisotropy());
 
     this.scene.add(this.world);
@@ -186,8 +191,8 @@ export class SceneView {
     // A unit sphere is enough: SkyView pins its vertices to the far plane, so
     // the radius carries no meaning. See src/render/sky.ts.
     this.sky = new SkyView(createSphere(64, 32), this.library);
-    // The sky rides with the camera, so it must not sit under the world group —
-    // that group carries the floating origin.
+    // The sky draws directions, not points, so it needs no position and stays
+    // out of the world group, whose position is the floating origin.
     this.scene.add(this.sky.group);
   }
 
@@ -238,20 +243,26 @@ export class SceneView {
   }
 
   private updateSky(jdTT: number): void {
-    const camera = this.state.camera;
-    if (!this.sky || !camera) {
+    if (!this.sky) {
       return;
     }
     this.sky.visible = this.state.toggles.milkyway;
-    this.sky.update(camera, jdTT, this.pipeline.renderer.getPixelRatio());
+    this.sky.update(jdTT, this.pipeline.renderer.getPixelRatio());
   }
 
   // -- interaction ----------------------------------------------------------
 
-  /** Nearest body to a screen position, within a pixel tolerance. See `pickBody`. */
-  pick(clientX: number, clientY: number, system: SolarSystem, tolerance = 22): SimBody | null {
+  /** Nearest body to a point on the canvas, or in a controller's `rayView`. See `pickBody`. */
+  pick(
+    clientX: number,
+    clientY: number,
+    system: SolarSystem,
+    tolerance = 22,
+    view: PickView | null = null,
+  ): SimBody | null {
     return pickBody(clientX, clientY, system, tolerance, {
       state: this.state,
+      view,
       sunVisual: this.sun.sunVisual,
       visuals: this.visuals,
       promoted: this.promotions.promoted,

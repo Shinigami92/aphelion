@@ -3,6 +3,8 @@
 import type { Texture } from 'three';
 import { ShaderMaterial } from 'three';
 import { LAGRANGE_MARKER_PX } from '../scene/constants.ts';
+// oxlint-disable-next-line import/no-unassigned-import -- registers the <aphelion_output> chunk the fragment shader includes
+import './chunks.ts';
 import lagrangeMarkerFragmentShader from '../shaders/lagrange-marker.frag.glsl?raw';
 import lagrangeMarkerVertexShader from '../shaders/lagrange-marker.vert.glsl?raw';
 

@@ -1,6 +1,8 @@
 /** Orbit lines and the travel dust. */
 
 import { AdditiveBlending, Color, ShaderMaterial, Vector3 } from 'three';
+// oxlint-disable-next-line import/no-unassigned-import -- registers the <aphelion_output> chunk both fragment shaders include
+import './chunks.ts';
 import dustFragmentShader from '../shaders/dust.frag.glsl?raw';
 import dustVertexShader from '../shaders/dust.vert.glsl?raw';
 import orbitFragmentShader from '../shaders/orbit.frag.glsl?raw';

@@ -15,4 +15,5 @@ void main() {
     alpha *= mix(1.0, 0.05, smoothstep(0.0, 0.75, d));
   }
   gl_FragColor = vec4(uColor, alpha);
+  #include <aphelion_output>
 }
