@@ -1,6 +1,7 @@
 /**
- * Registers `public/sw.js`, production only — in dev it would cache module
- * requests behind Vite's back and break HMR.
+ * Registers the service worker (`src/sw.ts`, built to `sw.js`), production
+ * only — in dev it would cache module requests behind Vite's back and break
+ * HMR.
  *
  * With `base: './'` the worker URL resolves against the document, so it works
  * both at the site root and under the `/aphelion/` path GitHub Pages serves
