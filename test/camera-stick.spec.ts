@@ -1,7 +1,8 @@
 /**
  * Thumbstick steering, as VR controllers drive it.
  *
- * Each stick should do what the matching keys do, in the same direction, and
+ * Laid out like a first-person game: the left stick moves, the right stick
+ * turns. Each should do what the matching keys do, in the same direction, and
  * free flight should move where the viewer is looking rather than where the
  * camera points, since a headset lets the two differ.
  */
@@ -72,9 +73,9 @@ describe('dead zone', () => {
 });
 
 describe('orbit mode', () => {
-  it('swings round and over the focus the way the arrow keys do', () => {
+  it('swings round and over the focus with the right stick, as the arrow keys do', () => {
     const byStick = fresh();
-    steer(byStick, sticks([1, 1]), 30);
+    steer(byStick, sticks([0, 0], [1, 1]), 30);
 
     const byKeys = fresh();
     byKeys.keys.orbitRight = true;
@@ -86,19 +87,26 @@ describe('orbit mode', () => {
     expect(byStick.orbitElevation).toBeCloseTo(byKeys.orbitElevation, 9);
   });
 
-  it('zooms in when the right stick is pushed forward, and out when pulled back', () => {
+  it('closes in when the left stick is pushed forward, and backs off when pulled back', () => {
     const start = fresh().currentDistance;
     const closer = fresh();
-    steer(closer, sticks([0, 0], [0, 1]), 60);
+    steer(closer, sticks([0, 1]), 60);
     const further = fresh();
-    steer(further, sticks([0, 0], [0, -1]), 60);
+    steer(further, sticks([0, -1]), 60);
     expect(closer.currentDistance).toBeLessThan(start);
     expect(further.currentDistance).toBeGreaterThan(start);
   });
 
-  it('never zooms inside the body', () => {
+  it('ignores the left stick leaned sideways', () => {
     const c = fresh();
-    steer(c, sticks([0, 0], [0, 1]), 1200);
+    const before = c.camera.position.clone();
+    steer(c, sticks([1, 0]), 30);
+    expect(c.camera.position.distanceTo(before)).toBe(0);
+  });
+
+  it('never closes in through the body', () => {
+    const c = fresh();
+    steer(c, sticks([0, 1]), 1200);
     expect(c.altitude()).toBeGreaterThan(0);
   });
 
@@ -116,7 +124,7 @@ describe('orbit mode', () => {
     const pushed = fresh();
     pushed.flyTo(body('mars'));
     steer(pushed, sticks([0, 0]), 60);
-    steer(pushed, sticks([1, 0]), 1);
+    steer(pushed, sticks([0, 0], [1, 0]), 1);
     steer(pushed, sticks([0, 0]), outlastAnyFlight);
     expect(pushed.distanceInRadii).toBeGreaterThan(1000);
   });
@@ -146,5 +154,15 @@ describe('free flight', () => {
     steer(c, sticks([0, 0], [1, 0]), 10);
     const forward = new Vector3(0, 0, -1).applyQuaternion(c.camera.quaternion);
     expect(forward.dot(right)).toBeGreaterThan(0);
+  });
+
+  it('looks up with the right stick pushed forward, and stays put', () => {
+    const c = freeAtEarth();
+    const up = new Vector3(0, 1, 0).applyQuaternion(c.camera.quaternion);
+    const before = c.camera.position.clone();
+    steer(c, sticks([0, 0], [0, 1]), 10);
+    const forward = new Vector3(0, 0, -1).applyQuaternion(c.camera.quaternion);
+    expect(forward.dot(up)).toBeGreaterThan(0);
+    expect(c.camera.position.distanceTo(before)).toBe(0);
   });
 });

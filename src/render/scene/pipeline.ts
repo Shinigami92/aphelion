@@ -144,14 +144,15 @@ export class RenderPipeline {
   }
 
   render(camera: PerspectiveCamera): void {
-    // The composer cannot draw into a WebXR framebuffer, so a headset gets the
-    // scene straight from the renderer, without bloom; each material finishes
-    // its own colour for it (see the output chunk in shaders/chunks/).
     if (this.xr.presenting) {
-      this.xr.sync(camera);
-      this.renderer.render(this.scene, this.xr.head);
-      return;
+      this.renderHeadset(camera);
+    } else {
+      this.draw(camera);
     }
+  }
+
+  /** Draw the scene onto the canvas through the composer, as `camera` sees it. */
+  private draw(camera: PerspectiveCamera): void {
     if (this.renderPass) {
       this.renderPass.camera = camera;
     }
@@ -160,6 +161,57 @@ export class RenderPipeline {
     } else {
       this.renderer.render(this.scene, camera);
     }
+  }
+
+  /**
+   * One headset frame, then the same view mirrored onto the page.
+   *
+   * The composer cannot draw into a WebXR framebuffer, so the headset gets the
+   * scene straight from the renderer, without bloom; each material finishes its
+   * own colour for it (see the output chunk in shaders/chunks/).
+   *
+   * The page would otherwise freeze on its last frame for the whole session,
+   * which is no use to anyone watching the desk or a shared browser tab. So the
+   * view is drawn a second time, from where the head is and facing where it
+   * looks, through the desktop's lens and the full composer, bloom included.
+   * WebXR only fills its own framebuffer, so the canvas is ours to draw on once
+   * the renderer's XR path is stepped around; Three.js rebinds the headset's
+   * target at the start of every frame. The canvas runs at one pixel per CSS
+   * pixel here: every millisecond of the mirror comes out of the headset's frame
+   * budget, and a dropped headset frame is felt, not just seen.
+   */
+  private renderHeadset(camera: PerspectiveCamera): void {
+    this.xr.sync(camera);
+    this.renderer.render(this.scene, this.xr.head);
+
+    const width = Math.max(1, Math.round(this.state.viewport.x));
+    const height = Math.max(1, Math.round(this.state.viewport.y));
+    this.fitMirror(width, height);
+    const eye = this.xr.mirrorView(camera, width / height);
+    const xr = this.renderer.xr;
+    xr.enabled = false;
+    // The renderer's pixel ratio is 1 while presenting, so these are canvas pixels.
+    this.renderer.setViewport(0, 0, width, height);
+    this.draw(eye);
+    xr.enabled = true;
+    // The labels and mouse picking on the page now describe this image, not the
+    // app camera's, until the next frame puts it back.
+    this.state.camera = eye;
+  }
+
+  /**
+   * Size the canvas and the chain for the mirror. Three.js resized the canvas
+   * to the headset's framebuffer when the session began and restores it when it
+   * ends, after which the app resizes the chain back as well.
+   */
+  private fitMirror(width: number, height: number): void {
+    const canvas = this.renderer.domElement;
+    if (canvas.width === width && canvas.height === height) {
+      return;
+    }
+    canvas.width = width;
+    canvas.height = height;
+    this.composer?.setSize(width, height);
   }
 
   dispose(): void {

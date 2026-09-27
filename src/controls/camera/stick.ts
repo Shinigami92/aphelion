@@ -1,16 +1,20 @@
 /**
  * Thumbstick steering, for VR controllers.
  *
- * The keyboard's controls made analog: how far a stick leans is how fast the
- * camera moves, at the rates the keys use at full tilt.
+ * Laid out the way a first-person game is: the left stick moves you and the
+ * right stick turns you. How far a stick leans is how fast, at the rates the
+ * keys use at full tilt.
  *
- *   orbit — the left stick swings round the focus (sideways) and over it
- *           (forward and back), as the arrow keys do; the right stick zooms,
- *           pushed forward to close in, as W does.
+ *   orbit — the left stick moves in and out: pushed forward it closes in on
+ *           the focus, as W does. Its sideways axis does nothing here; a
+ *           strafe slid the focus off centre, which read as the planet
+ *           drifting away rather than as moving. The right stick swings round
+ *           the focus (sideways) and over it (forward and back), as the arrow
+ *           keys do.
  *   free  — the left stick flies where you are looking rather than where the
  *           camera points, since in a headset the two differ by however far
- *           your head is turned; the right stick turns (sideways) and climbs
- *           (forward and back).
+ *           your head is turned. The right stick turns (sideways) and looks up
+ *           and down (forward and back, not inverted).
  */
 
 import type { CameraState } from './state.ts';
@@ -46,13 +50,12 @@ const ORBIT_RATE = 1.5;
  * rates, since a stick has no Shift to reach for.
  */
 const ZOOM_RATE = 1.8;
-/** Turning at full tilt in free flight, radians per second. */
+/** Turning and looking up or down at full tilt in free flight, radians per second. */
 const TURN_RATE = 1.2;
 
 // Scratch vectors, reused every frame.
 const forward = new Vector3();
 const right = new Vector3();
-const up = new Vector3();
 
 /**
  * One raw stick axis with the dead zone taken out. The rest is rescaled to
@@ -72,27 +75,26 @@ function isCentred(input: StickInput): boolean {
 }
 
 function steerOrbit(s: CameraState, input: StickInput, dt: number): void {
-  s.targetAzimuth += input.left.x * ORBIT_RATE * dt;
+  s.targetDistance *= Math.exp(-input.left.y * ZOOM_RATE * dt);
+  clampDistance(s);
+
+  s.targetAzimuth += input.right.x * ORBIT_RATE * dt;
   s.targetElevation = Math.max(
     -MAX_ELEVATION,
-    Math.min(MAX_ELEVATION, s.targetElevation + input.left.y * ORBIT_RATE * dt),
+    Math.min(MAX_ELEVATION, s.targetElevation + input.right.y * ORBIT_RATE * dt),
   );
-  s.targetDistance *= Math.exp(-input.right.y * ZOOM_RATE * dt);
-  clampDistance(s);
 }
 
 function steerFree(s: CameraState, input: StickInput, heading: Quaternion, dt: number): void {
   const step = freeFlightStep(s, dt, s.freeSpeedFactor);
   forward.set(0, 0, -1).applyQuaternion(heading);
   right.set(1, 0, 0).applyQuaternion(heading);
-  // Climbing follows the camera's own up rather than the head's, so looking
-  // down while climbing still rises instead of flying backwards.
-  up.set(0, 1, 0).applyQuaternion(s.freeQuaternion);
   s.freePosition
     .addScaledVector(forward, input.left.y * step)
-    .addScaledVector(right, input.left.x * step)
-    .addScaledVector(up, input.right.y * step);
-  lookBy(s, input.right.x * TURN_RATE * dt, 0);
+    .addScaledVector(right, input.left.x * step);
+  // lookBy pitches down for a positive amount, the way a mouse dragged down
+  // does; a stick pushed forward looks up.
+  lookBy(s, input.right.x * TURN_RATE * dt, -input.right.y * TURN_RATE * dt);
 }
 
 /**

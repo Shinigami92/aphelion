@@ -36,10 +36,6 @@ async function startSession(deps: XrDeps, button: HTMLButtonElement): Promise<vo
     // Projection layers are what Three.js draws into when the browser has
     // them, and optional so that one without them still gets a session.
     const session = await xr.requestSession('immersive-vr', { optionalFeatures: ['layers'] });
-    session.addEventListener('end', () => {
-      button.textContent = ENTER;
-      deps.onSessionEnd();
-    });
     await deps.scene.xr.start(session);
     button.textContent = EXIT;
   } catch (error) {
@@ -63,6 +59,10 @@ async function offerVr(deps: XrDeps): Promise<void> {
   button.title = 'View in a VR headset (WebXR)';
   button.addEventListener('click', () => {
     void toggleSession(deps, button);
+  });
+  deps.scene.xr.onSessionEnd(() => {
+    button.textContent = ENTER;
+    deps.onSessionEnd();
   });
   const row = el('div', 'segmented');
   row.append(button);

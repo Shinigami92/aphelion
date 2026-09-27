@@ -53,7 +53,11 @@
   layers (atmospheres, corona, orbit lines) are tone-mapped one by one before
   they add up, not once after, so the brightest haze reads slightly flatter in
   the headset than on screen. The headset layer is multisampled even though the
-  canvas is not (see `createContext` in `render/scene/pipeline.ts`).
+  canvas is not (see `createContext` in `render/scene/pipeline.ts`). After each
+  headset frame the view is drawn once more onto the page, from the head's pose
+  through the desktop lens and the full composer, so the page mirrors the wearer
+  instead of freezing; it runs at one pixel per CSS pixel to leave the headset
+  its frame budget.
 
 ## Scripting from the console
 

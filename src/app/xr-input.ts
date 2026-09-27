@@ -1,15 +1,25 @@
 /**
- * VR controller input: the sticks steer, the trigger picks, the face buttons toggle.
+ * VR controller input: the sticks steer, the trigger picks, the right hand's
+ * buttons toggle.
  *
  * Read from the xr-standard gamepad layout that current headsets' controllers
  * all report:
  *
  *   trigger, either hand    select what the ray points at and fly there
- *   left stick              orbit round the focus (fly, in free mode)
- *   right stick             zoom (turn and climb, in free mode)
- *   A, right hand           pause / resume the clock
- *   B, right hand           diorama / true scale
- *   X, left hand            orbit / free flight
+ *   left stick              zoom in and out (fly, in free mode)
+ *   right stick             orbit round the focus (turn and look, in free mode)
+ *   A                       pause / resume the clock
+ *   B                       diorama / true scale
+ *   right stick, clicked    orbit / free flight
+ *
+ * Every toggle is on the right hand because that is the only place they can
+ * all be told apart. xr-standard has two face buttons per controller, and a
+ * runtime folds whatever a controller really has into them. Measured on a Steam
+ * Frame, which Chrome is handed as an Oculus Touch: the right hand's A is the
+ * first slot and B, X and Y all arrive as the second, while the left hand has
+ * a d-pad, down in the first slot and the other three directions in the
+ * second. A binding on the left hand's first button — X, on a Touch — landed
+ * on d-pad down.
  *
  * A pinch with a tracked hand arrives as a select too, so hands can pick
  * without controllers.
@@ -36,11 +46,13 @@ export interface XrInputDeps {
   goTo: (body: SimBody) => void;
 }
 
-// xr-standard gamepad layout: the thumbstick's axes and the two face buttons.
+// xr-standard gamepad layout: the thumbstick's axes, its click, and the two
+// face buttons.
 const STICK_X = 2;
 const STICK_Y = 3;
-const BUTTON_LOWER = 4; // A on the right hand, X on the left
-const BUTTON_UPPER = 5; // B on the right hand, Y on the left
+const STICK_CLICK = 3;
+const BUTTON_LOWER = 4; // A on the right hand
+const BUTTON_UPPER = 5; // B on the right hand
 
 const CENTRED: Stick = { x: 0, y: 0 };
 
@@ -88,25 +100,29 @@ export class XrInput {
   }
 
   private readButtons(source: XRInputSource, pad: Gamepad): void {
+    if (source.handedness !== 'right') {
+      return;
+    }
     const before = this.held.get(source) ?? [];
     const now = pad.buttons.map((button) => button.pressed);
-    for (const index of [BUTTON_LOWER, BUTTON_UPPER]) {
+    for (const index of [STICK_CLICK, BUTTON_LOWER, BUTTON_UPPER]) {
       if (now[index] && !before[index]) {
-        this.press(source.handedness, index);
+        this.press(index);
       }
     }
     this.held.set(source, now);
   }
 
-  private press(hand: XRHandedness, button: number): void {
+  /** Act on a right-hand button going down. */
+  private press(button: number): void {
     const { time, scene, camera, toast } = this.deps;
-    if (hand === 'right' && button === BUTTON_LOWER) {
+    if (button === BUTTON_LOWER) {
       time.togglePause();
       toast.show(time.paused ? 'Paused' : `Running — ${time.rateLabel}`);
-    } else if (hand === 'right' && button === BUTTON_UPPER) {
+    } else if (button === BUTTON_UPPER) {
       scene.xr.scale = scene.xr.scale === 'diorama' ? 'true' : 'diorama';
       toast.show(scene.xr.scale === 'true' ? 'VR: true scale, 1 m = 1 m' : 'VR: diorama scale');
-    } else if (hand === 'left' && button === BUTTON_LOWER) {
+    } else {
       toast.show(camera.toggleMode() === 'free' ? 'Free flight' : 'Orbit');
     }
   }

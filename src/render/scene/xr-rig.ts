@@ -104,6 +104,7 @@ export class XrRig {
 
   private readonly rays: Line[] = [];
   private readonly rayCamera = new PerspectiveCamera(RAY_FOV, 1, 1e-6, 1e13);
+  private readonly mirror = new PerspectiveCamera();
 
   constructor(
     private readonly renderer: WebGLRenderer,
@@ -140,6 +141,15 @@ export class XrRig {
   }
 
   /**
+   * Call `callback` whenever a session ends, once Three.js has handed the canvas
+   * back at its old size. The session's own `end` event fires before that, while
+   * the renderer still counts as presenting and refuses to be resized.
+   */
+  onSessionEnd(callback: () => void): void {
+    this.renderer.xr.addEventListener('sessionend', callback);
+  }
+
+  /**
    * Run the frame loop from the renderer, which asks the headset for frames
    * while a session is presenting and the window otherwise. A headset only
    * shows what is drawn inside its own frame callback.
@@ -168,6 +178,27 @@ export class XrRig {
     for (const ray of this.rays) {
       ray.visible = this.scale === 'diorama';
     }
+  }
+
+  /**
+   * The head's view through the app camera's lens, for mirroring onto the page.
+   *
+   * Where the head is and where it looks, at the desktop's field of view — which
+   * is narrower than the headset's, so the page shows the middle of what the
+   * wearer sees. Valid once a headset frame has been drawn: that is when
+   * Three.js poses the head.
+   */
+  mirrorView(camera: AppCamera, aspect: number): PerspectiveCamera {
+    const mirror = this.mirror;
+    this.head.matrixWorld.decompose(mirror.position, mirror.quaternion, mirror.scale);
+    mirror.scale.set(1, 1, 1);
+    mirror.fov = camera.fov;
+    mirror.aspect = aspect;
+    mirror.near = camera.near;
+    mirror.far = camera.far;
+    mirror.updateProjectionMatrix();
+    mirror.updateMatrixWorld(true);
+    return mirror;
   }
 
   /** A view looking down a controller's pointer ray, or null while it is not tracked. */
