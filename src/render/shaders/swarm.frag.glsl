@@ -9,4 +9,5 @@ void main() {
   float a = texture2D(uSprite, gl_PointCoord).a;
   if (a < 0.01) discard;
   gl_FragColor = vec4(vColor, a * vFade * uOpacity);
+  #include <aphelion_output>
 }

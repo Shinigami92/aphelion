@@ -2,6 +2,7 @@
 
 import type { CameraController } from '../controls/camera.ts';
 import type { SimBody } from '../core/system.ts';
+import { formatDistance } from '../ui/panels/format.ts';
 
 /**
  * Convert the camera's distance out of scene space into something physical.
@@ -33,5 +34,15 @@ export class CameraRange {
     const radius = body.sceneRadius;
     this.radii = radius > 0 ? this.camera.currentDistance / radius : 0;
     this.km = this.radii * body.radiusKm;
+  }
+
+  /**
+   * Surface the focus distance in the document title, once a second — handy
+   * when comparing scale modes side by side, and the same number in both.
+   */
+  mirrorToTitle(): void {
+    setInterval(() => {
+      document.title = `Aphelion — ${this.focused().name} · ${formatDistance(this.km)}`;
+    }, 1000);
   }
 }

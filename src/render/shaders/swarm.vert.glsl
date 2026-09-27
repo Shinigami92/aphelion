@@ -24,6 +24,7 @@ varying float vFade;
 // <common> supplies isPerspectiveMatrix(), which the log-depth chunk calls.
 #include <common>
 #include <logdepthbuf_pars_vertex>
+#include <aphelion_view_scale>
 
 void main() {
   vColor = aColor;
@@ -70,7 +71,7 @@ void main() {
   vec4 mv = modelViewMatrix * vec4(scenePos, 1.0);
   gl_Position = projectionMatrix * mv;
 
-  float dist = max(-mv.z, 1e-4);
+  float dist = max(-mv.z * sceneUnitsPerViewUnit(), 1e-4);
   gl_PointSize = clamp(aSize * uPointScale * uPixelRatio * 260.0 / dist, 0.9, 5.0);
   // Fade the smallest points instead of letting them alias.
   vFade = clamp(gl_PointSize / 1.4, 0.26, 1.0);

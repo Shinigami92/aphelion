@@ -32,7 +32,7 @@
 import type { Vec3 } from '../astro/kepler.ts';
 import type { StarData } from '../data/stars.ts';
 import type { TextureLibrary } from './textures.ts';
-import type { PerspectiveCamera, ShaderMaterial } from 'three';
+import type { ShaderMaterial } from 'three';
 import {
   BufferGeometry,
   Float32BufferAttribute,
@@ -119,7 +119,7 @@ async function loadStars(): Promise<StarData | null> {
 }
 
 export class SkyView {
-  /** Rides the camera; rotated once from the equatorial frame to the ecliptic. */
+  /** Rotated once from the equatorial frame to the ecliptic; its position is immaterial. */
   readonly group = new Group();
 
   private diffuse: Mesh;
@@ -190,25 +190,24 @@ export class SkyView {
   }
 
   /**
-   * Keep the sky centred on the eye and wound to the right date.
+   * Keep the sky wound to the right date.
+   *
+   * Nothing keeps it centred on the eye any more, because nothing needs to:
+   * both shaders draw directions rather than points, so the sky is at infinity
+   * from wherever each eye is, and no parallax is implied. That is right to a
+   * part in 10^5 even from Pluto — the nearest star's parallax across the whole
+   * solar system is under an arcsecond, a hundredth of a pixel here.
    *
    * @param jdTT Julian Date, terrestrial time. Only proper motion uses it, and
    *   TT runs about 69 seconds ahead of UTC — during which even the fastest star
    *   in the catalogue moves 2 x 10^-5 arcseconds, so which of the two arrives
    *   here could not matter less.
    */
-  update(camera: PerspectiveCamera, jdTT: number, pixelRatio: number): void {
+  update(jdTT: number, pixelRatio: number): void {
     this.group.visible = this.visible;
     if (!this.visible) {
       return;
     }
-
-    // The sphere rides the camera, so the eye is always at its centre and no
-    // parallax is implied — which is right to a part in 10^5 even from Pluto:
-    // the nearest star's parallax across the whole solar system is under an
-    // arcsecond, a hundredth of a pixel here.
-    this.group.matrix.setPosition(camera.position);
-    this.group.matrixWorldNeedsUpdate = true;
 
     if (this.starMaterial) {
       this.starMaterial.uniforms.uYears.value = (jdTT - J2000_JD) / DAYS_PER_YEAR;

@@ -4,7 +4,7 @@ import type { SimBody, SolarSystem } from '../../core/system.ts';
 import type { FrameState } from './state.ts';
 import type { SceneToggles } from './types.ts';
 import type { BodyVisual } from './visual.ts';
-import type { PerspectiveCamera } from 'three';
+import type { PerspectiveCamera, Vector2 } from 'three';
 import { Vector3 } from 'three';
 import { SHAPE_APPARENT_PX } from './constants.ts';
 
@@ -26,9 +26,21 @@ interface Candidate {
   point: PickPoint;
 }
 
+/** The camera a pick is measured through, and the size of its image. */
+export interface PickView {
+  readonly camera: PerspectiveCamera;
+  /** Image size in CSS pixels. */
+  readonly viewport: Vector2;
+}
+
 /** What the hit test needs from the scene. */
 export interface PickContext {
   readonly state: FrameState;
+  /**
+   * What to measure through instead of the screen: a VR controller's pointer
+   * ray, for one. Null or absent means the camera and canvas in `state`.
+   */
+  readonly view?: PickView | null;
   readonly sunVisual: BodyVisual | null;
   readonly visuals: ReadonlyMap<string, BodyVisual>;
   readonly promoted: ReadonlyMap<string, BodyVisual>;
@@ -67,11 +79,8 @@ function isAimable(body: SimBody, visual: BodyVisual | undefined, toggles: Scene
 }
 
 /** Where a body lands on screen, or null if it is not in front of the camera. */
-function projectForPick(
-  body: SimBody,
-  camera: PerspectiveCamera,
-  state: FrameState,
-): PickPoint | null {
+function projectForPick(body: SimBody, view: PickView, state: FrameState): PickPoint | null {
+  const { camera, viewport } = view;
   tmpVec.set(body.scene.x, body.scene.y, body.scene.z).sub(state.origin);
   tmpVec2.copy(tmpVec).project(camera);
   if (tmpVec2.z < -1 || tmpVec2.z > 1) {
@@ -79,16 +88,14 @@ function projectForPick(
   }
   const distance = camera.position.distanceTo(tmpVec);
   return {
-    x: (tmpVec2.x * 0.5 + 0.5) * state.viewport.x,
-    y: (-tmpVec2.y * 0.5 + 0.5) * state.viewport.y,
+    x: (tmpVec2.x * 0.5 + 0.5) * viewport.x,
+    y: (-tmpVec2.y * 0.5 + 0.5) * viewport.y,
     distance,
     // A marker is exactly as big as it is drawn. Using its nominal radius
     // here would let a Lagrange point standing close to the camera claim half
     // the screen while showing a 13-pixel reticle.
     apparent:
-      body.type === 'lagrange'
-        ? 0
-        : (body.sceneRadius / Math.max(distance, 1e-9)) * state.viewport.y,
+      body.type === 'lagrange' ? 0 : (body.sceneRadius / Math.max(distance, 1e-9)) * viewport.y,
   };
 }
 
@@ -101,7 +108,7 @@ function collectReachable(
   clientY: number,
   system: SolarSystem,
   tolerance: number,
-  camera: PerspectiveCamera,
+  view: PickView,
   ctx: PickContext,
 ): { reachable: Candidate[]; occluderDistance: number } {
   // Lagrange points are only worth walking while their layer is drawn.
@@ -124,7 +131,7 @@ function collectReachable(
       if (!isAimable(body, visual, ctx.state.toggles)) {
         continue;
       }
-      const point = projectForPick(body, camera, ctx.state);
+      const point = projectForPick(body, view, ctx.state);
       if (!point) {
         continue;
       }
@@ -165,7 +172,7 @@ function collectReachable(
 function clusterPrimary(
   body: SimBody,
   point: PickPoint,
-  camera: PerspectiveCamera,
+  view: PickView,
   clientX: number,
   clientY: number,
   tolerance: number,
@@ -174,7 +181,7 @@ function clusterPrimary(
   let current = body;
   let currentPoint = point;
   while (current.parent && currentPoint.apparent < SHAPE_APPARENT_PX) {
-    const parentPoint = projectForPick(current.parent, camera, state);
+    const parentPoint = projectForPick(current.parent, view, state);
     if (!parentPoint) {
       break;
     }
@@ -215,7 +222,8 @@ export function pickBody(
   ctx: PickContext,
 ): SimBody | null {
   const camera = ctx.state.camera;
-  if (!camera) {
+  const view = ctx.view ?? (camera ? { camera, viewport: ctx.state.viewport } : null);
+  if (!view) {
     return null;
   }
 
@@ -224,7 +232,7 @@ export function pickBody(
     clientY,
     system,
     tolerance,
-    camera,
+    view,
     ctx,
   );
 
@@ -241,7 +249,7 @@ export function pickBody(
     // What the click means may be the primary rather than the speck that
     // caught it — and then it is scored from the primary's own position, not
     // the speck's.
-    const target = clusterPrimary(body, point, camera, clientX, clientY, tolerance, ctx.state);
+    const target = clusterPrimary(body, point, view, clientX, clientY, tolerance, ctx.state);
     // Prefer whatever is closest to the cursor, breaking ties toward the
     // nearer body so a moon in front of its planet wins.
     const score =

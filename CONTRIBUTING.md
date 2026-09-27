@@ -62,7 +62,7 @@ end-to-end check, `http://localhost:5173/?t=2024-04-08T18:17:16Z&focus=earth`.
 ```
 src/
   main.ts     entry point: builds everything in order and runs the frame loop
-  app/        what main.ts wires up: input, panel layout, shared links, frame governor
+  app/        what main.ts wires up: input, panel layout, shared links, frame governor, VR
   astro/      pure astronomy — no Three.js, independently testable
     kepler.ts       Kepler's equation, elements → state vectors
     planets.ts      JPL Keplerian planetary theory
@@ -87,13 +87,13 @@ src/
     materials/      one file per material: uniforms, defines, blending
     shaders/        the GLSL behind them; chunks/ holds the shared #include chunks
     scene.ts        SceneView: builds the scene and runs its layers each frame
-    scene/          one file per layer: bodies, rings, orbits, labels, picking, ...
+    scene/          one file per layer: bodies, rings, orbits, labels, picking, the VR rig, ...
     sky.ts          the star field and the deep-sky backdrop
     procedural/     synthesised surfaces, rings and sprites
     textures.ts     lazy loading with procedural fallback
   controls/
     camera.ts       CameraController: the public face of the camera
-    camera/         orbit, free flight, cinematic flights, shared views, pointer input
+    camera/         orbit, free flight, cinematic flights, shared views, pointer and stick input
   ui/               panels, orrery mini-map, styles; panels/ and minimap/ hold their parts
   sw.ts             the service worker: precached shell, imagery cached by revision
   sw-register.ts    registers the service worker in production

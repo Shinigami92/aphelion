@@ -53,4 +53,5 @@ void main() {
   colour += vec3(1.0, 0.55, 0.2) * pow(1.0 - mu, 3.5) * 1.5;
 
   gl_FragColor = vec4(colour, 1.0);
+  #include <aphelion_output>
 }

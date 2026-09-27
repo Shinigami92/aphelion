@@ -75,6 +75,13 @@ export class FrameGovernor {
     // every easing term still receives the true elapsed interval.
     this.pendingDt += dt;
 
+    // A headset asks for exactly the frames it will show and moves with the
+    // head between them, so none of them is ever a repeat. A skipped one is a
+    // stale image stuck to the eyes.
+    if (this.scene.xr.presenting) {
+      return this.draw(now);
+    }
+
     const changing = this.sceneIsChanging(now);
     // Waking from idle draws on the very next display frame instead of waiting out
     // an active-rate interval, so touching anything responds immediately rather
@@ -90,8 +97,12 @@ export class FrameGovernor {
     if (now - this.lastRenderAt < interval - 0.5) {
       return null;
     }
-    this.lastRenderAt = now;
+    return this.draw(now);
+  }
 
+  /** Draw this frame, with all the time that has passed since the last one drawn. */
+  private draw(now: number): number {
+    this.lastRenderAt = now;
     const step = this.pendingDt;
     this.pendingDt = 0;
     return step;

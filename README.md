@@ -120,6 +120,28 @@ height is the scarce dimension and a bottom sheet would leave no scene at all.
 The `?` chip shows these instead of the keyboard map when there is no keyboard to
 map.
 
+**In a VR headset**, through WebXR, an **Enter VR** button appears in the view
+options — only where the browser can actually reach a headset, so nothing changes
+anywhere else. The headset rides on the same camera the page steers, so turning
+your head looks around from wherever that camera is, and the keyboard, mouse and
+panels keep working for whoever sits at the desk.
+
+| Controller           | Action                                      |
+| -------------------- | ------------------------------------------- |
+| trigger (or a pinch) | select what the ray points at and fly to it |
+| left stick           | orbit round the focus (fly, in free mode)   |
+| right stick          | zoom (turn and climb, in free mode)         |
+| `A`                  | pause / resume                              |
+| `B`                  | diorama ↔ true scale                        |
+| `X`                  | toggle orbit ↔ free flight                  |
+
+The default **diorama** scale sizes the world so the nearest surface is a few
+metres away wherever you are — from a few radii out a planet is a globe you can
+lean around — and follows every zoom. **True** scale makes a metre a metre: your
+eyes are centimetres apart in a solar system, so nothing shows any depth, exactly as it
+would to an astronaut. In VR the scene is drawn without bloom, which Three.js
+cannot run into a headset.
+
 ---
 
 ## Sharing a view

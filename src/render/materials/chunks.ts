@@ -24,11 +24,13 @@ import type { Texture } from 'three';
 import { LinearSRGBColorSpace, ShaderChunk } from 'three';
 import colorChunk from '../shaders/chunks/color.glsl?raw';
 import eclipseChunk from '../shaders/chunks/eclipse.glsl?raw';
+import outputChunk from '../shaders/chunks/output.glsl?raw';
 import raySphereChunk from '../shaders/chunks/ray_sphere.glsl?raw';
 import ringScaleParsChunk from '../shaders/chunks/ring_scale_pars.glsl?raw';
 import ringToKmChunk from '../shaders/chunks/ring_to_km.glsl?raw';
 import ringToUnitsChunk from '../shaders/chunks/ring_to_units.glsl?raw';
 import skyDepthChunk from '../shaders/chunks/sky_depth.glsl?raw';
+import viewScaleChunk from '../shaders/chunks/view_scale.glsl?raw';
 
 // Registered as Three.js shader chunks so every stage file can pull them in
 // with `#include <aphelion_*>`, the same way it pulls in Three's own
@@ -42,11 +44,13 @@ import skyDepthChunk from '../shaders/chunks/sky_depth.glsl?raw';
 Object.assign(ShaderChunk, {
   aphelion_color: colorChunk,
   aphelion_eclipse: eclipseChunk,
+  aphelion_output: outputChunk,
   aphelion_ray_sphere: raySphereChunk,
   aphelion_ring_scale_pars: ringScaleParsChunk,
   aphelion_ring_to_units: ringToUnitsChunk,
   aphelion_ring_to_km: ringToKmChunk,
   aphelion_sky_depth: skyDepthChunk,
+  aphelion_view_scale: viewScaleChunk,
 });
 
 /**

@@ -6,4 +6,5 @@ varying vec2 vUv;
 void main() {
   vec3 c = srgbToLinear(texture2D(uMap, vUv).rgb);
   gl_FragColor = vec4(c * uBrightness, 1.0);
+  #include <aphelion_output>
 }

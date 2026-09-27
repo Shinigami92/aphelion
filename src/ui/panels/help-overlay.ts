@@ -58,6 +58,20 @@ const KEY_HELP: Array<[string, Array<[string, string]>]> = [
       ['H or ?', 'this list'],
     ],
   ],
+  [
+    // Listed here rather than drawn in the headset, where the page cannot be
+    // seen: this is the list to read before putting it on.
+    'VR headset',
+    [
+      ['Enter VR', 'in the view options, when a headset is available'],
+      ['trigger / pinch', 'select what the ray points at and fly there'],
+      ['left stick', 'orbit (fly, in free mode)'],
+      ['right stick', 'zoom (turn and climb, in free mode)'],
+      ['A', 'pause / resume'],
+      ['B', 'diorama / true scale'],
+      ['X', 'toggle orbit / free flight'],
+    ],
+  ],
 ];
 
 /**

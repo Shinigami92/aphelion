@@ -11,7 +11,7 @@
  *
  * Input is unified across mouse and trackpad: drag to look, wheel/pinch to zoom
  * (the wheel sets flight speed, in free mode), modifier-drag to pan. Every
- * action also has a key.
+ * action also has a key, and VR controllers steer it with their thumbsticks.
  *
  * `CameraController` is the public face. The state lives in one `CameraState`
  * and each concern — orbiting, free flight, cinematic flights, shared views,
@@ -21,7 +21,8 @@
 import type { SimBody } from '../core/system.ts';
 import type { CameraKeyState } from './camera/keys.ts';
 import type { CameraMode } from './camera/state.ts';
-import type { PerspectiveCamera } from 'three';
+import type { StickInput } from './camera/stick.ts';
+import type { PerspectiveCamera, Quaternion } from 'three';
 import { flyTo, updateFlight } from './camera/flight.ts';
 import { lookAtFocus, toggleMode, updateFree } from './camera/free.ts';
 import { CameraInput } from './camera/input.ts';
@@ -29,6 +30,7 @@ import { cancelFlight, frameSystem, setFocus, updateOrbit } from './camera/orbit
 import { updateProjection } from './camera/projection.ts';
 import { freeView, restoreFreeView, restoreView } from './camera/shared.ts';
 import { CameraState } from './camera/state.ts';
+import { steerByStick } from './camera/stick.ts';
 
 export class CameraController {
   private readonly s: CameraState;
@@ -233,6 +235,11 @@ export class CameraController {
   }
 
   // -- input ---------------------------------------------------------------
+
+  /** Steer by VR thumbsticks for one frame. See camera/stick.ts. */
+  steer(input: StickInput, heading: Quaternion, dt: number): void {
+    steerByStick(this.s, input, heading, dt);
+  }
 
   attach(element: HTMLElement): void {
     this.input.attach(element);

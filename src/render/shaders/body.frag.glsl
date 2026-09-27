@@ -130,4 +130,5 @@ void main() {
   lit += albedo * uAmbient;
 
   gl_FragColor = vec4(lit, 1.0);
+  #include <aphelion_output>
 }

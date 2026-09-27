@@ -1,4 +1,4 @@
-/** The WebGL renderer and the post-processing chain it draws through. */
+/** The WebGL renderer, the post-processing chain it draws through, and the headset path around it. */
 
 import type { FrameState } from './state.ts';
 import type { PerspectiveCamera, Scene } from 'three';
@@ -15,6 +15,7 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { QUALITY } from './constants.ts';
+import { XrRig } from './xr-rig.ts';
 
 declare global {
   interface Window {
@@ -29,8 +30,41 @@ declare global {
   }
 }
 
+/**
+ * A WebGL2 context for the canvas that tells Three.js's WebXR manager to give
+ * the headset a multisampled layer.
+ *
+ * The screen does its antialiasing in the composer's own multisampled target,
+ * so the canvas is created without it: a multisampled default framebuffer would
+ * cost tens of megabytes to hold a picture that is already smooth. But the WebXR
+ * manager sizes the headset's samples from that same context flag, and the
+ * headset has no composer — so, taken at its word, every orbit line and limb in
+ * VR would crawl with aliasing. The flag is read nowhere else (the renderer
+ * itself only asks the context for `alpha`), so reporting it on is how the
+ * headset gets its four samples and the screen keeps its lean framebuffer.
+ */
+function createContext(canvas: HTMLCanvasElement): WebGL2RenderingContext {
+  const gl = canvas.getContext('webgl2', {
+    alpha: false,
+    antialias: false,
+    depth: true,
+    stencil: false,
+    powerPreference: 'high-performance',
+  });
+  if (!gl) {
+    throw new Error('[aphelion] WebGL 2 is not available');
+  }
+  const actual = gl.getContextAttributes.bind(gl);
+  gl.getContextAttributes = (): WebGLContextAttributes | null => {
+    const attributes = actual();
+    return attributes === null ? null : { ...attributes, antialias: true };
+  };
+  return gl;
+}
+
 export class RenderPipeline {
   readonly renderer: WebGLRenderer;
+  readonly xr: XrRig;
 
   private composer: EffectComposer | null = null;
   private renderPass: RenderPass | null = null;
@@ -42,17 +76,16 @@ export class RenderPipeline {
   ) {
     this.renderer = new WebGLRenderer({
       canvas,
-      antialias: false, // handled by the composer's multisampled target
-      powerPreference: 'high-performance',
+      context: createContext(canvas),
       // The scene spans eleven orders of magnitude; a logarithmic depth buffer
       // is the only thing that keeps a ring particle and Neptune in one image.
       logarithmicDepthBuffer: true,
-      stencil: false,
     });
     this.renderer.setClearColor(0x000000, 1);
     this.renderer.outputColorSpace = SRGBColorSpace;
     this.renderer.toneMapping = ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.0;
+    this.xr = new XrRig(this.renderer, scene);
   }
 
   /** Apply the quality preset in `state.quality` and rebuild the chain for it. */
@@ -96,6 +129,11 @@ export class RenderPipeline {
   }
 
   resize(width: number, height: number): void {
+    // While a headset presents, the renderer's size is the headset's. Three.js
+    // restores the canvas size when the session ends, and the app resizes again.
+    if (this.xr.presenting) {
+      return;
+    }
     this.renderer.setPixelRatio(
       Math.min(window.devicePixelRatio, QUALITY[this.state.quality].maxPixelRatio),
     );
@@ -106,6 +144,14 @@ export class RenderPipeline {
   }
 
   render(camera: PerspectiveCamera): void {
+    // The composer cannot draw into a WebXR framebuffer, so a headset gets the
+    // scene straight from the renderer, without bloom; each material finishes
+    // its own colour for it (see the output chunk in shaders/chunks/).
+    if (this.xr.presenting) {
+      this.xr.sync(camera);
+      this.renderer.render(this.scene, this.xr.head);
+      return;
+    }
     if (this.renderPass) {
       this.renderPass.camera = camera;
     }
