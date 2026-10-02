@@ -57,7 +57,9 @@
   headset frame the view is drawn once more onto the page, from the head's pose
   through the desktop lens and the full composer, so the page mirrors the wearer
   instead of freezing; it runs at one pixel per CSS pixel to leave the headset
-  its frame budget.
+  its frame budget. `U` draws the overlay (below) over the mirror too, from the
+  head's pose in the overlay's scene through the same lens, and the page's DOM
+  labels stand aside so nothing is named twice.
 - **An overlay in metres, for everything the hands touch.** The controllers'
   rays, the VR panel and the headset's body labels cannot hang off the scaled
   rig: at true scale a panel half a metre away is five ten-millionths of a

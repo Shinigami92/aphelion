@@ -154,9 +154,10 @@ eyes are centimetres apart in a solar system, so nothing shows any depth, exactl
 would to an astronaut. In VR the scene is drawn without bloom, which Three.js
 cannot run into a headset. The page keeps showing what the wearer sees — the
 middle of their view, at the desktop's field of view, bloom included — so a
-shared browser tab or a screen at the desk can follow along. The headset panel is
-not mirrored; the page has its own. None of the VR interface is downloaded until a
-session starts.
+shared browser tab or a screen at the desk can follow along. The headset panel,
+labels and pointer rays are left out, since the page has its own; press `U` to draw
+them on the page as well, in place of its labels, to watch the wearer use them. None
+of the VR interface is downloaded until a session starts.
 
 ---
 

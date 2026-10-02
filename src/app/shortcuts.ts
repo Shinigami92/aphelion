@@ -135,6 +135,11 @@ function layerShortcut(ev: KeyboardEvent, deps: KeyboardDeps): boolean {
       deps.refreshViewOptions();
       toast.show(`Lagrange points ${scene.toggles.lagrange ? 'on' : 'off'}`);
       return true;
+    case 'u':
+    case 'U':
+      scene.xr.mirrorOverlay = !scene.xr.mirrorOverlay;
+      toast.show(`VR panel and labels on the page ${scene.xr.mirrorOverlay ? 'on' : 'off'}`);
+      return true;
     case 'p':
     case 'P':
       quality = QUALITIES[(QUALITIES.indexOf(quality) + 1) % QUALITIES.length]!;

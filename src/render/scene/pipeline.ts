@@ -144,6 +144,7 @@ export class RenderPipeline {
   }
 
   render(camera: PerspectiveCamera): void {
+    this.state.overlayOnPage = this.xr.presenting && this.xr.mirrorOverlay;
     if (this.xr.presenting) {
       this.renderHeadset(camera);
     } else {
@@ -194,6 +195,13 @@ export class RenderPipeline {
     // The renderer's pixel ratio is 1 while presenting, so these are canvas pixels.
     this.renderer.setViewport(0, 0, width, height);
     this.draw(eye);
+    if (this.state.overlayOnPage) {
+      // The composer hands back whatever target was bound before it, which is
+      // the headset's: drawn there, the overlay showed up a second time in the
+      // headset and never on the page.
+      this.renderer.setRenderTarget(null);
+      this.xr.renderMirrorOverlay(eye);
+    }
     xr.enabled = true;
     // The labels and mouse picking on the page now describe this image, not the
     // app camera's, until the next frame puts it back.

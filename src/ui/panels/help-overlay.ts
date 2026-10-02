@@ -73,6 +73,7 @@ const KEY_HELP: Array<[string, Array<[string, string]>]> = [
       ['click left stick', 'show / hide the panel'],
       ['d-pad down', 'panel on the wrist'],
       ['d-pad left / right / up', 'panel following you / pinned'],
+      ['U (keyboard)', 'show the VR panel and labels on the page too'],
     ],
   ],
 ];
