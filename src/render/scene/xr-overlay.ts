@@ -16,8 +16,9 @@
  * direction here, which is how labels find their bodies. Everything under the
  * rig is in the viewer's room frame, in metres.
  *
- * The page's mirror draws only the world, so none of this reaches the flat
- * screen, which keeps its own 2D panels.
+ * The page's mirror draws only the world by default, and the page keeps its
+ * own 2D panels and labels; the U key draws this over the mirror as well, for
+ * whoever is watching the wearer use it.
  */
 
 import type { Quaternion, WebGLRenderer, XRGripSpace, XRTargetRaySpace } from 'three';
@@ -78,6 +79,7 @@ export class XrOverlay {
   /** Which hand each controller slot is, once it has connected. */
   readonly handedness: XRHandedness[] = ['none', 'none'];
   private readonly rays: Line[] = [];
+  private readonly mirror = new PerspectiveCamera();
   /**
    * The transparent sort for this pass only. The UI library orders its own
    * meshes with one; the world keeps Three.js's default.
@@ -130,14 +132,32 @@ export class XrOverlay {
     this.head.far = far;
   }
 
-  /** Draw over whatever the renderer has already drawn this frame. */
-  render(renderer: WebGLRenderer): void {
+  /** Draw over whatever the renderer has already drawn this frame, as `camera` sees it. */
+  render(renderer: WebGLRenderer, camera: PerspectiveCamera = this.head): void {
     const autoClear = renderer.autoClear;
     renderer.autoClear = false;
     renderer.clearDepth();
     renderer.setTransparentSort(this.transparentSort);
-    renderer.render(this.scene, this.head);
+    renderer.render(this.scene, camera);
     renderer.setTransparentSort(null);
     renderer.autoClear = autoClear;
+  }
+
+  /**
+   * Draw over the page's mirror: from the head's pose in this scene, through
+   * `lens`, the mirror's own camera, so the overlay lines up with the world it
+   * was drawn over. Valid once a headset frame has posed the head.
+   */
+  renderMirror(renderer: WebGLRenderer, lens: PerspectiveCamera): void {
+    const mirror = this.mirror;
+    this.head.matrixWorld.decompose(mirror.position, mirror.quaternion, mirror.scale);
+    mirror.scale.set(1, 1, 1);
+    mirror.fov = lens.fov;
+    mirror.aspect = lens.aspect;
+    mirror.near = this.head.near;
+    mirror.far = this.head.far;
+    mirror.updateProjectionMatrix();
+    mirror.updateMatrixWorld(true);
+    this.render(renderer, mirror);
   }
 }

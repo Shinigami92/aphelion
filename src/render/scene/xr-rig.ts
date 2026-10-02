@@ -98,6 +98,13 @@ export class XrRig {
 
   scale: XrScale = 'diorama';
 
+  /**
+   * Whether the page's mirror shows the overlay too, as the wearer sees it.
+   * Off by default: the desk has its own panels and labels, and every
+   * millisecond the mirror takes comes out of the headset's frame budget.
+   */
+  mirrorOverlay = false;
+
   private readonly rayMatrix = new Matrix4();
   private readonly rayCamera = new PerspectiveCamera(RAY_FOV, 1, 1e-6, 1e13);
   private readonly mirror = new PerspectiveCamera();
@@ -175,6 +182,11 @@ export class XrRig {
   /** Draw the overlay over the world frame just rendered. */
   renderOverlay(): void {
     this.overlay.render(this.renderer);
+  }
+
+  /** Draw the overlay over the mirror just drawn through `eye` (see `mirrorView`). */
+  renderMirrorOverlay(eye: PerspectiveCamera): void {
+    this.overlay.renderMirror(this.renderer, eye);
   }
 
   /**

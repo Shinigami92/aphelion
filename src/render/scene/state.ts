@@ -45,6 +45,13 @@ export class FrameState {
   camera: PerspectiveCamera | null = null;
 
   /**
+   * Whether the page's mirror of a headset is drawing the headset's overlay —
+   * its panel, labels and rays — over the world. The page's own labels stand
+   * aside then, or every body would be named twice. Set by the pipeline.
+   */
+  overlayOnPage = false;
+
+  /**
    * Days since J2000 of the frame being drawn.
    *
    * Anything the *simulation* clock drives has to read this and not a wall

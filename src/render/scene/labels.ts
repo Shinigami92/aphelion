@@ -48,6 +48,13 @@ export class LabelLayer {
 
     const candidates = this.collectCandidates(system, lagrangeBodies);
     this.candidateList = candidates;
+    // Still collected: the headset's labels are drawn for these same bodies.
+    if (this.state.overlayOnPage) {
+      for (const el of this.labelPool) {
+        el.style.display = 'none';
+      }
+      return;
+    }
     let used = 0;
     for (const body of candidates) {
       if (used >= 120) {
