@@ -56,11 +56,11 @@
   "devDependencies": {
     "@playwright/mcp": "0.0.78",
     "@playwright/test": "1.63.0",
-    "@types/node": "26.1.2",
+    "@types/node": "26.6.5",
     "@types/three": "0.185.4",
     "@vitest/coverage-v8": "5.0.1",
     "msdf-bmfont-xml": "2.8.0",
-    "npm-run-all2": "9.0.3",
+    "npm-run-all2": "9.0.4",
     "oxfmt": "0.70.0",
     "oxlint": "1.85.0",
     "oxlint-tsgolint": "7.0.2003",
