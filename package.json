@@ -61,7 +61,7 @@
     "@vitest/coverage-v8": "5.0.1",
     "msdf-bmfont-xml": "2.8.0",
     "npm-run-all2": "9.0.3",
-    "oxfmt": "0.70.0",
+    "oxfmt": "0.75.0",
     "oxlint": "1.85.0",
     "oxlint-tsgolint": "7.0.2003",
     "typescript": "7.0.2",
