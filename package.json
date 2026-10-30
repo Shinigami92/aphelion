@@ -51,13 +51,13 @@
     "@pmndrs/pointer-events": "6.6.30",
     "@pmndrs/uikit": "1.0.76",
     "@preact/signals-core": "1.14.4",
-    "three": "0.185.1"
+    "three": "0.186.1"
   },
   "devDependencies": {
     "@playwright/mcp": "0.0.78",
     "@playwright/test": "1.63.0",
     "@types/node": "26.1.2",
-    "@types/three": "0.185.4",
+    "@types/three": "0.187.0",
     "@vitest/coverage-v8": "5.0.1",
     "msdf-bmfont-xml": "2.8.0",
     "npm-run-all2": "9.0.3",
