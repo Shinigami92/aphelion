@@ -167,14 +167,14 @@ importers:
   .:
     dependencies:
       '@pmndrs/pointer-events':
-        specifier: 6.6.30
-        version: 6.6.30
+        specifier: 6.6.32
+        version: 6.6.32
       '@pmndrs/uikit':
-        specifier: 1.0.76
-        version: 1.0.76(three@0.185.1)
+        specifier: 1.0.78
+        version: 1.0.78(three@0.185.1)
       '@preact/signals-core':
-        specifier: 1.14.4
-        version: 1.14.4
+        specifier: 1.14.5
+        version: 1.14.5
       three:
         specifier: 0.185.1
         version: 0.185.1
@@ -1182,17 +1182,17 @@ packages:
     engines: {node: '>=20'}
     hasBin: true
 
-  '@pmndrs/msdfonts@1.0.76':
-    resolution: {integrity: sha512-NKBJIOIrEoJovhes8TzAAmRtUuOPJIpyHjiCSMVfJLoV2MGRsArXiPkEm6+BDCk1N8eiHWuWGlw4/+LoCmHB2A==}
+  '@pmndrs/msdfonts@1.0.78':
+    resolution: {integrity: sha512-w24wlj+rBm3kJDDBHe5a1w42XEKJqJDyoC228lSs9966SLQuNM2RonvwrhO6Z/tkAOtLXyRxjjyfiw7Dy6e+5g==}
 
-  '@pmndrs/pointer-events@6.6.30':
-    resolution: {integrity: sha512-YD2jWdgEqqAWJNOOZ1WZMunUby8jwuQyOMk8zbeqC39R4nkZnGvu1Pa5EMGbV1zd2vZTxXDxYcAVxtQuhVwf3g==}
+  '@pmndrs/pointer-events@6.6.32':
+    resolution: {integrity: sha512-ziow8WQach6AF3fB8XGfmxmjLH6iUKPDJsw5RzxU7oxhfpn4uQZKzq50U1LFywroMZ45JhCqxE+p7IM8MHRsFg==}
 
-  '@pmndrs/uikit-pub-sub@1.0.76':
-    resolution: {integrity: sha512-+DVXInyj+/GAJJDTvElLrVqh8b1kmnPGZW1UQApUIwxZmhzCPmr2cAz0j1/vNyDG5VQNLWWmkItLi50/chKcwA==}
+  '@pmndrs/uikit-pub-sub@1.0.78':
+    resolution: {integrity: sha512-sar4Kk4R2/UpK45ZMvp9do2cceTRjSCbVfilc0rPniXN0siJHT70zNSTkd+DJvo4l2/9HjPIlbRZ52eaQfu3Ow==}
 
-  '@pmndrs/uikit@1.0.76':
-    resolution: {integrity: sha512-qLE7kGaW5LGE4YdFzCQZaCiB6NvfL9JJ2NxaBSw8Z0lu/0uiUfA49vKHFxk/1qiGvTu+esrDCAydI+H2aN1kYg==}
+  '@pmndrs/uikit@1.0.78':
+    resolution: {integrity: sha512-gSLNajPv27UAIKmdpaz0Zx95wLDc7H7shbPehaIyjT2bAhFsH2hL9wTCMvSQPoAswuTXkFB+t/SmMBOIF6YkwQ==}
     peerDependencies:
       three: '>=0.162'
 
@@ -1210,6 +1210,9 @@ packages:
 
   '@preact/signals-core@1.14.4':
     resolution: {integrity: sha512-HNB6HYeYKhQbJ1aKl+YRjrS4+QWHLKX6qKoUsfS/m0vqzsVaEBiZiaKbG/e+NKk2ch5ALQr/ihWaMHxiCuuWHA==}
+
+  '@preact/signals-core@1.14.5':
+    resolution: {integrity: sha512-vcRv7Ityz5JVmeiVqIluLFzT/PDS/AlhHUpw3/aUWqcVUs6bDGIPXE/6RSC4evBNWYvnniozg5Syfj33al3gkg==}
 
   '@rolldown/binding-android-arm-eabi@1.2.11':
     resolution: {integrity: sha512-A5kXfGKvKWWZE0TtPrfsvT+q4Y5d1QG8gGUzpYjGydM+fARM9MuX90PrXYXe0XbsDVgyxxNzHo6giCj90bsFNw==}
@@ -4348,18 +4351,18 @@ snapshots:
     dependencies:
       playwright: 1.63.0
 
-  '@pmndrs/msdfonts@1.0.76': {}
+  '@pmndrs/msdfonts@1.0.78': {}
 
-  '@pmndrs/pointer-events@6.6.30': {}
+  '@pmndrs/pointer-events@6.6.32': {}
 
-  '@pmndrs/uikit-pub-sub@1.0.76':
+  '@pmndrs/uikit-pub-sub@1.0.78':
     dependencies:
       '@preact/signals-core': 1.14.4
 
-  '@pmndrs/uikit@1.0.76(three@0.185.1)':
+  '@pmndrs/uikit@1.0.78(three@0.185.1)':
     dependencies:
-      '@pmndrs/msdfonts': 1.0.76
-      '@pmndrs/uikit-pub-sub': 1.0.76
+      '@pmndrs/msdfonts': 1.0.78
+      '@pmndrs/uikit-pub-sub': 1.0.78
       '@preact/signals-core': 1.14.4
       '@zappar/msdf-generator': 1.2.4
       three: 0.185.1
@@ -4379,6 +4382,8 @@ snapshots:
       config-chain: 1.1.13
 
   '@preact/signals-core@1.14.4': {}
+
+  '@preact/signals-core@1.14.5': {}
 
   '@rolldown/binding-android-arm-eabi@1.2.11':
     optional: true
